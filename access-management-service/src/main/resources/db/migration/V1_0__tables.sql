@@ -11,7 +11,7 @@ CREATE TABLE users (
     assigned_geographies JSONB,
     max_case_capacity INTEGER DEFAULT 100,
     current_case_count INTEGER DEFAULT 0,
-    allocation_percentage DECIMAL(5,2) DEFAULT 100.00,
+    allocation_percentage DOUBLE PRECISION DEFAULT 100.00,
     allocation_bucket VARCHAR(50),
     team_id BIGINT,
     failed_login_attempts INTEGER DEFAULT 0,
