@@ -1,5 +1,6 @@
 package com.finx.management.service.impl;
 
+import com.finx.common.constants.CacheConstants;
 import com.finx.management.domain.dto.CreateRoleRequest;
 import com.finx.management.domain.dto.RoleDTO;
 import com.finx.management.domain.dto.UpdateRoleRequest;
@@ -15,6 +16,8 @@ import com.finx.management.repository.RoleGroupRepository;
 import com.finx.management.repository.ManagementRoleRepository;
 import com.finx.management.service.RoleService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,6 +36,7 @@ public class RoleServiceImpl implements RoleService {
     private final RoleMapper roleMapper;
 
     @Override
+    @Cacheable(value = CacheConstants.ROLES)
     public List<RoleDTO> getAllRoles() {
         return managementRoleRepository.findAll().stream()
                 .map(roleMapper::toDto)
@@ -40,6 +44,7 @@ public class RoleServiceImpl implements RoleService {
     }
 
     @Override
+    @Cacheable(value = CacheConstants.ROLES, key = "#id")
     public RoleDTO getRoleById(Long id) {
         Role role = managementRoleRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Role", "id", id));
@@ -48,6 +53,7 @@ public class RoleServiceImpl implements RoleService {
 
     @Override
     @Transactional
+    @CacheEvict(value = CacheConstants.ROLES, allEntries = true)
     public RoleDTO createRole(CreateRoleRequest request) {
         if (managementRoleRepository.findByRoleCode(request.getName()).isPresent()) {
             throw new ConflictException("Role with name '" + request.getName() + "' already exists");
@@ -76,6 +82,7 @@ public class RoleServiceImpl implements RoleService {
 
     @Override
     @Transactional
+    @CacheEvict(value = CacheConstants.ROLES, allEntries = true)
     public RoleDTO updateRole(Long id, UpdateRoleRequest request) {
         Role role = managementRoleRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Role", "id", id));
@@ -113,6 +120,7 @@ public class RoleServiceImpl implements RoleService {
     }
 
     @Override
+    @CacheEvict(value = CacheConstants.ROLES, allEntries = true)
     public void deleteRole(Long id) {
         Role role = managementRoleRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Role", "id", id));

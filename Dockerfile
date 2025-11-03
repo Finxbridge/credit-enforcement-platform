@@ -13,6 +13,7 @@ COPY config-server/pom.xml ./config-server/
 COPY eureka-server/pom.xml ./eureka-server/
 COPY access-management-service/pom.xml ./access-management-service/
 COPY communication-service/pom.xml ./communication-service/
+COPY master-data-service/pom.xml ./master-data-service/
 
 # Download dependencies (cached layer)
 RUN --mount=type=cache,target=/root/.m2 mvn dependency:go-offline -B

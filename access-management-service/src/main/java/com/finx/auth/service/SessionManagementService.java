@@ -212,6 +212,7 @@ public class SessionManagementService {
     /**
      * Get active sessions for user
      */
+    @Cacheable(value = CacheConstants.ACTIVE_SESSIONS, key = "#userId")
     public ActiveSessionResponse getActiveSessionsForUser(Long userId) {
         List<UserSession> sessions = userSessionRepository.findActiveSessionsByUserId(userId);
         User user = authUserRepository.findById(userId)

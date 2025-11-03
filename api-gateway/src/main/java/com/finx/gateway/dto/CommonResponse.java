@@ -15,7 +15,7 @@ import lombok.NoArgsConstructor;
  * Failure: { "status": "failure", "payload": null, "message": "error message" }
  *
  * @param <T> The type of payload (can be existing response beans)
- * @author CMS-NMS Team
+ * @author Naveen Manyam
  * @version 1.0.0
  */
 @Data
@@ -135,7 +135,8 @@ public class CommonResponse<T> {
 
     /**
      * Create failure response with all error details
-     * Usage: CommonResponse.failure("Validation failed", "VAL_001", validationErrors)
+     * Usage: CommonResponse.failure("Validation failed", "VAL_001",
+     * validationErrors)
      */
     public static <T> CommonResponse<T> failure(String message, String errorCode, Object errors) {
         return CommonResponse.<T>builder()

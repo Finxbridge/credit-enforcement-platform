@@ -5,7 +5,7 @@ package com.finx.common.exception;
  *
  * Usage: throw new UnauthorizedException("Invalid credentials");
  *
- * @author CMS-NMS Team
+ * @author Naveen Manyam
  * @version 1.0.0
  */
 public class UnauthorizedException extends RuntimeException {

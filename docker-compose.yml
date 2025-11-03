@@ -154,6 +154,45 @@ services:
       - backend-net
 
   # ---------------------------------------------------
+  # Master Data Service
+  # ---------------------------------------------------
+  master-data-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE_NAME: master-data-service
+    container_name: master-data-service
+    ports:
+      - "8082:8082"
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8082/actuator/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    environment:
+      - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE}
+      - SPRING_CLOUD_CONFIG_URI=http://config-server:8888
+      - SPRING_CLOUD_CONFIG_LABEL=main
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka-server:8761/eureka/
+      - eureka.client.service-url.defaultZone=http://eureka-server:8761/eureka/
+      - SPRING_CONFIG_IMPORT=${SPRING_CONFIG_IMPORT}
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://host.docker.internal:5432/${POSTGRES_DB}
+      - SPRING_DATASOURCE_USERNAME=${POSTGRES_USER}
+      - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD}
+      - SPRING_DATA_REDIS_HOST=redis_cache
+    depends_on:
+      config-server:
+        condition: service_healthy
+      eureka-server:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - backend-net
+
+  # ---------------------------------------------------
   # API Gateway (Entry Point)
   # ---------------------------------------------------
   api-gateway:

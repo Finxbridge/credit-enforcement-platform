@@ -8,7 +8,7 @@ import org.springframework.cloud.config.server.EnableConfigServer;
  * Config Server Application
  * Centralized Configuration Management for CMS-NMS Platform
  *
- * @author CMS-NMS Team
+ * @author Naveen Manyam
  * @version 1.0.0
  */
 @SpringBootApplication

@@ -3,7 +3,7 @@ package com.finx.common.exception;
 /**
  * Exception thrown when validation fails
  *
- * @author CMS-NMS Team
+ * @author Naveen Manyam
  * @version 1.0.0
  */
 public class ValidationException extends BaseException {
@@ -14,7 +14,7 @@ public class ValidationException extends BaseException {
 
     public ValidationException(String field, String message) {
         super("VALIDATION_ERROR",
-              String.format("Validation failed for field '%s': %s", field, message),
-              400);
+                String.format("Validation failed for field '%s': %s", field, message),
+                400);
     }
 }

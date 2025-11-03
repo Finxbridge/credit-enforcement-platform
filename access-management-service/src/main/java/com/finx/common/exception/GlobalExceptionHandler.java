@@ -22,7 +22,7 @@ import java.util.Map;
  * { "status": "failure", "payload": null, "message": "...", "errorCode": "..."
  * }
  *
- * @author CMS-NMS Team
+ * @author Naveen Manyam
  * @version 1.0.0
  */
 @Slf4j

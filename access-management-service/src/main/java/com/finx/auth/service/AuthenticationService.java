@@ -15,6 +15,7 @@ import com.finx.auth.util.JwtUtil;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -186,10 +187,10 @@ public class AuthenticationService {
         OtpRequest otpRequest;
         if (existingOtpRequest.isPresent()) {
             otpRequest = existingOtpRequest.get();
-            if (otpRequest.getAttemptCount() >= otpRequest.getMaxAttempts()) {
-                throw new BusinessException("Maximum OTP request attempts exceeded. Please try again later.");
-            }
-            otpRequest.incrementAttempt();
+            // Reset attempt count for verification when a new OTP is requested (e.g., resend)
+            otpRequest.setAttemptCount(0);
+            otpRequest.setExpiresAt(LocalDateTime.now().plusMinutes(otpExpiryMinutes));
+            otpRequest.setStatus("PENDING"); // Reset status to PENDING for new OTP
         } else {
             // Create new OTP request
             String requestId = "OTP-" + UUID.randomUUID().toString();
@@ -201,7 +202,7 @@ public class AuthenticationService {
                     .channel("EMAIL")
                     .purpose(request.getPurpose() != null ? request.getPurpose() : "RESET_PASSWORD")
                     .status("PENDING")
-                    .attemptCount(1) // First attempt
+                    .attemptCount(0) // Initialize attempt count to 0 for new OTP
                     .maxAttempts(otpMaxAttempts)
                     .provider("MSG91")
                     .expiresAt(LocalDateTime.now().plusMinutes(otpExpiryMinutes))
@@ -430,6 +431,7 @@ public class AuthenticationService {
      * Terminate session (Admin action)
      */
     @Transactional
+    @CacheEvict(value = CacheConstants.ACTIVE_SESSIONS, key = "#userId")
     public void terminateSession(Long userId, String sessionId) {
         sessionManagementService.terminateSession(sessionId, "ADMIN_ACTION");
         log.info("Admin terminated session {} for user ID: {}", sessionId, userId);

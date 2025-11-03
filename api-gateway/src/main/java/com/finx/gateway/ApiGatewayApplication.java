@@ -8,7 +8,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * Single Entry Point for all CMS-NMS Platform Services
  * Handles routing, authentication, rate limiting, and circuit breaking
  *
- * @author CMS-NMS Team
+ * @author Naveen Manyam
  * @version 1.0.0
  */
 @SpringBootApplication

@@ -56,3 +56,6 @@ application-dev.yml
 application-prod.yml
 **/secrets/
 credit-enforcement-platform/
+
+# Markdown files
+*.md

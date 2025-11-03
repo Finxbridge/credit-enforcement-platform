@@ -1,7 +1,0 @@
-spring:
-  application:
-    name: report-service
-  config:
-    import: "configserver:http://localhost:8888"
-  profiles:
-    active: ${SPRING_PROFILES_ACTIVE:dev}

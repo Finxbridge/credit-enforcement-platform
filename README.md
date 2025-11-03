@@ -16,7 +16,8 @@ The Credit Enforcement Platform is a comprehensive microservices-based applicati
 This platform is composed of the following microservices:
 
 *   **API Gateway (Port 8080):** Entry point for all client requests, handling routing, authentication, and rate limiting.
-*   **Access Management Service (Port 8081):** Consists of two main modules: **Auth** for handling user authentication, JWT token generation, OTP, and session management; and **Management** for user CRUD, role and permission management, and master data.
+*   **Access Management Service (Port 8081):** Consists of two main modules: **Auth** for handling user authentication, JWT token generation, OTP, and session management; and **Management** for user CRUD, role and permission management.
+*   **Master Data Service (Port 8082):** Manages all static and dynamic master data required across the platform.
 *   **Case Service (Port 8083):** Manages case sourcing, validation, customer and loan details, strategies, campaigns, and allocations.
 *   **Collections Service (Port 8084):** Manages telecalling, agency onboarding, repayment tracking, OTS, and dashboards.
 *   **Notice Service (Port 8085):** Handles notice generation, batch processing, vendor dispatch, and tracking.

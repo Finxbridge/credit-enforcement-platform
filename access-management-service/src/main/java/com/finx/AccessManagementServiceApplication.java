@@ -3,6 +3,7 @@ package com.finx;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.autoconfigure.domain.EntityScan;
+import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.cloud.openfeign.EnableFeignClients;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
@@ -23,11 +24,12 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
  * - User Service: Get user details, roles, permissions via Feign
  * - Communication Service: Send OTP via SMS/Email
  *
- * @author CMS-NMS Team
+ * @author Naveen Manyam
  * @version 1.0.0
  */
 @SpringBootApplication
 @EnableFeignClients
+@EnableCaching
 @ComponentScan(basePackages = { "com.finx.auth", "com.finx.management",
                 "com.finx.common" })
 @EnableJpaRepositories(basePackages = { "com.finx.auth.repository", "com.finx.management.repository",

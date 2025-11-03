@@ -18,7 +18,8 @@ import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
 import org.springframework.data.redis.serializer.RedisSerializationContext;
 import org.springframework.data.redis.serializer.StringRedisSerializer;
-import java.util.Set;
+import java.util.HashMap;
+import java.util.Map;
 
 import java.time.Duration;
 
@@ -34,7 +35,7 @@ import java.time.Duration;
  * - RedisTemplate for generic operations
  * - Connection pooling
  *
- * @author CMS-NMS Team
+ * @author Naveen Manyam
  * @version 1.0
  */
 @Slf4j
@@ -140,11 +141,10 @@ public class RedisConfig {
          */
         @Bean
         public CacheManager cacheManager(RedisConnectionFactory connectionFactory, ObjectMapper redisObjectMapper) {
-                log.info(
-                                "Configuring RedisCacheManager with GenericJackson2JsonRedisSerializer for ThirdPartyIntegrationMaster");
+                log.info("Configuring RedisCacheManager with specific TTLs for various caches");
 
-                RedisCacheConfiguration cacheConfiguration = RedisCacheConfiguration.defaultCacheConfig()
-                                .entryTtl(Duration.ofMinutes(60)) // Default cache expiration
+                RedisCacheConfiguration defaultCacheConfiguration = RedisCacheConfiguration.defaultCacheConfig()
+                                .entryTtl(Duration.ofMinutes(60)) // Default cache expiration: 60 minutes
                                 .disableCachingNullValues()
                                 .serializeKeysWith(
                                                 RedisSerializationContext.SerializationPair
@@ -153,9 +153,22 @@ public class RedisConfig {
                                                 .fromSerializer(new GenericJackson2JsonRedisSerializer(
                                                                 redisObjectMapper)));
 
+                Map<String, RedisCacheConfiguration> cacheConfigurations = new HashMap<>();
+
+                // Specific cache configurations
+                cacheConfigurations.put("session", defaultCacheConfiguration.entryTtl(Duration.ofMinutes(15)));
+                cacheConfigurations.put("user_permissions", defaultCacheConfiguration.entryTtl(Duration.ofHours(6)));
+                cacheConfigurations.put("activeSessions", defaultCacheConfiguration.entryTtl(Duration.ofMinutes(15)));
+                cacheConfigurations.put("permissions", defaultCacheConfiguration.entryTtl(Duration.ofHours(6)));
+                cacheConfigurations.put("roles", defaultCacheConfiguration.entryTtl(Duration.ofHours(6)));
+                cacheConfigurations.put("users", defaultCacheConfiguration.entryTtl(Duration.ofMinutes(30)));
+                cacheConfigurations.put("systemConfig", defaultCacheConfiguration.entryTtl(Duration.ofMinutes(60)));
+                cacheConfigurations.put("integrationConfig",
+                                defaultCacheConfiguration.entryTtl(Duration.ofMinutes(60)));
+
                 return RedisCacheManager.builder(connectionFactory)
-                                .initialCacheNames(Set.of("integrationConfig")) // Specify the cache name
-                                .withCacheConfiguration("integrationConfig", cacheConfiguration)
+                                .cacheDefaults(defaultCacheConfiguration)
+                                .withInitialCacheConfigurations(cacheConfigurations)
                                 .build();
         }
 }

@@ -19,6 +19,7 @@
     <module>api-gateway</module>
     <!-- Microservices -->
     <module>access-management-service</module>
+    <module>master-data-service</module>
         <module>communication-service</module>
        <!-- <module>case-service</module>
         <module>collections-service</module>

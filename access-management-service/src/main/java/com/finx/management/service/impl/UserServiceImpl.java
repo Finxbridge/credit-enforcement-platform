@@ -1,5 +1,6 @@
 package com.finx.management.service.impl;
 
+import com.finx.common.constants.CacheConstants;
 import com.finx.management.domain.dto.CreateUserRequest;
 import com.finx.management.domain.dto.UpdateUserRequest;
 import com.finx.management.domain.dto.UserDTO;
@@ -16,6 +17,8 @@ import com.finx.management.repository.UserGroupRepository;
 import com.finx.management.repository.UserRepository;
 import com.finx.management.service.UserService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
@@ -63,6 +66,7 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    @Cacheable(value = CacheConstants.USERS, key = "#id")
     public UserDTO getUserById(Long id) {
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("User", "id", id));
@@ -107,6 +111,7 @@ public class UserServiceImpl implements UserService {
 
     @Override
     @Transactional
+    @CacheEvict(value = {CacheConstants.USERS, CacheConstants.USER_PERMISSIONS}, key = "#id")
     public UserDTO updateUser(Long id, UpdateUserRequest request) {
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("User", "id", id));
@@ -151,6 +156,7 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    @CacheEvict(value = {CacheConstants.USERS, CacheConstants.USER_PERMISSIONS}, key = "#id")
     public void deleteUser(Long id) {
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("User", "id", id));
@@ -158,6 +164,7 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    @Cacheable(value = CacheConstants.USER_PERMISSIONS, key = "#userId")
     public List<UserPermissionDTO> getUserPermissions(Long userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User", "id", userId));

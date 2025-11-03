@@ -1,6 +1,10 @@
 package com.finx.common.constants;
 
-public class CacheConstants {
+public final class CacheConstants {
+
+    private CacheConstants() {
+    }
+
     // Cache namespaces
     public static final String AUTH_NAMESPACE = "auth:";
     public static final String USER_NAMESPACE = "user:";
@@ -44,4 +48,10 @@ public class CacheConstants {
 
     // IntegrationCacheService keys
     public static final String INTEGRATION_CONFIG_CACHE = "integrationConfig";
+    public static final String ACTIVE_SESSIONS = "activeSessions";
+    public static final String USER_PERMISSIONS = "userPermissions";
+    public static final String PERMISSIONS = "permissions";
+    public static final String ROLES = "roles";
+    public static final String USERS = "users";
+
 }

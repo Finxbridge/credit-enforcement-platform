@@ -23,7 +23,7 @@ import org.springframework.kafka.annotation.EnableKafka;
  * - Communication logs and audit trail
  * - Third-party API integrations
  *
- * @author CMS-NMS Team
+ * @author Naveen Manyam
  * @version 1.0.0
  */
 @SpringBootApplication

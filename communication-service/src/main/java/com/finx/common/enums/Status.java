@@ -3,7 +3,7 @@ package com.finx.common.enums;
 /**
  * Common status enum used across entities
  *
- * @author CMS-NMS Team
+ * @author Naveen Manyam
  * @version 1.0.0
  */
 public enum Status {

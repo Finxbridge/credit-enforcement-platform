@@ -8,7 +8,7 @@ import java.util.regex.Pattern;
 /**
  * Utility class for validation operations
  *
- * @author CMS-NMS Team
+ * @author Naveen Manyam
  * @version 1.0.0
  */
 public final class ValidationUtil {
@@ -18,16 +18,13 @@ public final class ValidationUtil {
     }
 
     private static final Pattern EMAIL_PATTERN = Pattern.compile(
-            "^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$"
-    );
+            "^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$");
 
     private static final Pattern MOBILE_PATTERN = Pattern.compile(
-            "^[6-9]\\d{9}$"
-    );
+            "^[6-9]\\d{9}$");
 
     private static final Pattern PAN_PATTERN = Pattern.compile(
-            "^[A-Z]{5}[0-9]{4}[A-Z]$"
-    );
+            "^[A-Z]{5}[0-9]{4}[A-Z]$");
 
     /**
      * Validate email format

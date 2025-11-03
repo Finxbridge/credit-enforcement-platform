@@ -14,7 +14,7 @@ import org.springframework.http.ResponseEntity;
  * 3. ResponseWrapper.error("Error message")
  * 4. ResponseWrapper.error("Error message", "ERR_CODE")
  *
- * @author CMS-NMS Team
+ * @author Naveen Manyam
  * @version 1.0.0
  */
 public class ResponseWrapper {
@@ -97,7 +97,8 @@ public class ResponseWrapper {
 
     /**
      * Create 400 BAD REQUEST response with message and validation errors
-     * Usage: return ResponseWrapper.badRequest("Validation failed", validationErrors);
+     * Usage: return ResponseWrapper.badRequest("Validation failed",
+     * validationErrors);
      */
     public static <T> ResponseEntity<CommonResponse<T>> badRequest(String message, Object errors) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
@@ -200,7 +201,8 @@ public class ResponseWrapper {
 
     /**
      * Create response with custom status code and CommonResponse
-     * Usage: return ResponseWrapper.custom(HttpStatus.ACCEPTED, CommonResponse.success(data));
+     * Usage: return ResponseWrapper.custom(HttpStatus.ACCEPTED,
+     * CommonResponse.success(data));
      */
     public static <T> ResponseEntity<CommonResponse<T>> custom(HttpStatus status, CommonResponse<T> response) {
         return ResponseEntity.status(status).body(response);
