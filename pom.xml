@@ -1,0 +1,192 @@
+<?xml version="1.0" encoding="UTF-8"?><project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0          http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>3.2.0</version>
+    <relativePath/>
+  </parent>
+  <groupId>com.finx</groupId>
+  <artifactId>credit-enforcement-platform</artifactId>
+  <version>1.0.0-SNAPSHOT</version>
+  <packaging>pom</packaging>
+  <name>Credit Enforcement Platform</name>
+  <description>Credit Enforcement Platform - Microservices Architecture</description>
+  <modules>
+    <!-- Infrastructure Modules -->
+    <module>eureka-server</module>
+    <module>config-server</module>
+    <module>api-gateway</module>
+    <!-- Microservices -->
+    <module>access-management-service</module>
+        <module>communication-service</module>
+       <!-- <module>case-service</module>
+        <module>collections-service</module>
+        <module>notice-service</module>
+        <module>template-service</module>
+        <module>frontend-service</module>
+        <module>report-service</module> -->
+  </modules>
+  <properties>
+    <java.version>21</java.version>
+    <maven.compiler.source>21</maven.compiler.source>
+    <maven.compiler.target>21</maven.compiler.target>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <!-- Spring Boot & Cloud Versions -->
+    <spring-boot.version>3.2.0</spring-boot.version>
+    <spring-cloud.version>2023.0.0</spring-cloud.version>
+    <!-- Database -->
+    <postgresql.version>42.7.1</postgresql.version>
+    <flyway.version>10.4.1</flyway.version>
+    <hypersistence.version>3.7.0</hypersistence.version>
+    <!-- Utilities -->
+    <lombok.version>1.18.30</lombok.version>
+    <mapstruct.version>1.5.5.Final</mapstruct.version>
+    <!-- API Documentation -->
+    <springdoc.version>2.3.0</springdoc.version>
+    <!-- Security & JWT -->
+    <jwt.version>0.12.3</jwt.version>
+    <!-- Third Party Integrations -->
+    <aws-sdk.version>2.21.26</aws-sdk.version>
+    <sendgrid.version>4.10.2</sendgrid.version>
+    <itext.version>7.2.5</itext.version>
+    <!-- Monitoring & Observability -->
+    <micrometer.version>1.12.0</micrometer.version>
+    <resilience4j.version>2.1.0</resilience4j.version>
+  </properties>
+  <dependencyManagement>
+    <dependencies>
+      <!-- Spring Cloud Dependencies -->
+      <dependency>
+        <groupId>org.springframework.cloud</groupId>
+        <artifactId>spring-cloud-dependencies</artifactId>
+        <version>${spring-cloud.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+      <!-- PostgreSQL -->
+      <dependency>
+        <groupId>org.postgresql</groupId>
+        <artifactId>postgresql</artifactId>
+        <version>${postgresql.version}</version>
+      </dependency>
+      <!-- Flyway -->
+      <dependency>
+        <groupId>org.flywaydb</groupId>
+        <artifactId>flyway-core</artifactId>
+        <version>${flyway.version}</version>
+      </dependency>
+      <!-- Hypersistence Utils for JSONB -->
+      <dependency>
+        <groupId>io.hypersistence</groupId>
+        <artifactId>hypersistence-utils-hibernate-63</artifactId>
+        <version>${hypersistence.version}</version>
+      </dependency>
+      <!-- Lombok -->
+      <dependency>
+        <groupId>org.projectlombok</groupId>
+        <artifactId>lombok</artifactId>
+        <version>${lombok.version}</version>
+        <optional>true</optional>
+      </dependency>
+      <!-- MapStruct -->
+      <dependency>
+        <groupId>org.mapstruct</groupId>
+        <artifactId>mapstruct</artifactId>
+        <version>${mapstruct.version}</version>
+      </dependency>
+      <!-- SpringDoc OpenAPI -->
+      <dependency>
+        <groupId>org.springdoc</groupId>
+        <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+        <version>${springdoc.version}</version>
+      </dependency>
+      <!-- JWT -->
+      <dependency>
+        <groupId>io.jsonwebtoken</groupId>
+        <artifactId>jjwt-api</artifactId>
+        <version>${jwt.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>io.jsonwebtoken</groupId>
+        <artifactId>jjwt-impl</artifactId>
+        <version>${jwt.version}</version>
+        <scope>runtime</scope>
+      </dependency>
+      <dependency>
+        <groupId>io.jsonwebtoken</groupId>
+        <artifactId>jjwt-jackson</artifactId>
+        <version>${jwt.version}</version>
+        <scope>runtime</scope>
+      </dependency>
+      <!-- AWS SDK -->
+      <dependency>
+        <groupId>software.amazon.awssdk</groupId>
+        <artifactId>s3</artifactId>
+        <version>${aws-sdk.version}</version>
+      </dependency>
+      <!-- SendGrid -->
+      <dependency>
+        <groupId>com.sendgrid</groupId>
+        <artifactId>sendgrid-java</artifactId>
+        <version>${sendgrid.version}</version>
+      </dependency>
+      <!-- iText PDF -->
+      <dependency>
+        <groupId>com.itextpdf</groupId>
+        <artifactId>itext7-core</artifactId>
+        <version>${itext.version}</version>
+        <type>pom</type>
+      </dependency>
+      <!-- Resilience4j -->
+      <dependency>
+        <groupId>io.github.resilience4j</groupId>
+        <artifactId>resilience4j-spring-boot3</artifactId>
+        <version>${resilience4j.version}</version>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+  <build>
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <groupId>org.springframework.boot</groupId>
+          <artifactId>spring-boot-maven-plugin</artifactId>
+          <configuration>
+            <excludes>
+              <exclude>
+                <groupId>org.projectlombok</groupId>
+                <artifactId>lombok</artifactId>
+              </exclude>
+            </excludes>
+          </configuration>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-compiler-plugin</artifactId>
+          <configuration>
+            <source>21</source>
+            <target>21</target>
+            <annotationProcessorPaths>
+              <path>
+                <groupId>org.projectlombok</groupId>
+                <artifactId>lombok</artifactId>
+                <version>${lombok.version}</version>
+              </path>
+              <path>
+                <groupId>org.projectlombok</groupId>
+                <artifactId>lombok-mapstruct-binding</artifactId>
+                <version>0.2.0</version>
+              </path>
+              <path>
+                <groupId>org.mapstruct</groupId>
+                <artifactId>mapstruct-processor</artifactId>
+                <version>${mapstruct.version}</version>
+              </path>
+            </annotationProcessorPaths>
+          </configuration>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+  </build>
+</project>
