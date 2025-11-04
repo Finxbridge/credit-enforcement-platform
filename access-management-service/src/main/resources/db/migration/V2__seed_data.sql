@@ -142,44 +142,6 @@ INSERT INTO system_config (config_key, config_value, data_type, description, is_
 ('WEBCLIENT_MAX_LIFE_TIME', '60000', 'INTEGER', 'Maximum lifetime for connections in milliseconds', TRUE);
 
 -- ===============================================
--- INSERT: master_data
--- ===============================================
--- ===============================================
--- INSERT: master_data (optional minimal version)
--- ===============================================
-INSERT INTO master_data (data_type, code, value, parent_code, display_order, is_active, metadata) VALUES
-('BANK', 'HDFC', 'HDFC Bank', NULL, 1, TRUE, '{"region":"PAN_INDIA"}'),
-('PRODUCT', 'PERSONAL_LOAN', 'Personal Loan', NULL, 1, TRUE, '{"loan_type":"UNSECURED"}'),
-('LOCATION', 'MH', 'Maharashtra', NULL, 1, TRUE, '{"capital":"Mumbai"}'),
--- DPD Buckets
-('DPD_BUCKET', '0-7', '0-7 Days', NULL, 1, TRUE, '{"severity": "LOW", "bucket_type": "EARLY", "min_dpd": 0, "max_dpd": 7}'),
--- Call Dispositions
-('DISPOSITION', 'CONNECTED', 'Call Connected', NULL, 1, TRUE, '{"category": "SUCCESS", "requires_followup": false}'),
--- Payment Methods
-('PAYMENT_METHOD', 'CASH', 'Cash', NULL, 1, TRUE, '{"deposit_required": true, "sla_hours": 24, "reconciliation": "MANUAL"}'),
-('PAYMENT_METHOD', 'PAYMENT_LINK', 'Payment Link', NULL, 9, TRUE, '{"instant": true, "gateway_required": true, "reconciliation": "AUTO"}'),
--- Notice Types
-('NOTICE_TYPE', 'LEGAL', 'Legal Notice', NULL, 1, TRUE, '{"severity": "HIGH", "legal_binding": true, "min_dpd": 90}'),
-('NOTICE_TYPE', 'SETTLEMENT', 'Settlement Notice', NULL, 5, TRUE, '{"severity": "MEDIUM", "legal_binding": false, "min_dpd": 45}'),
--- Dispatch Methods
-('DISPATCH_METHOD', 'SPEED_POST', 'Speed Post', NULL, 2, TRUE, '{"tracking": true, "pod_available": true, "cost_per_notice": 35, "delivery_days": 3}'),
-('DISPATCH_METHOD', 'COURIER', 'Courier', NULL, 3, TRUE, '{"tracking": true, "pod_available": true, "cost_per_notice": 60, "delivery_days": 2}'),
--- Case Status
-('CASE_STATUS', 'UNALLOCATED', 'Unallocated', NULL, 1, TRUE, '{"description": "Case not yet assigned to collector", "active": true}'),
-('CASE_STATUS', 'ALLOCATED', 'Allocated', NULL, 2, TRUE, '{"description": "Case assigned to collector", "active": true}'),
--- Languages
-('LANGUAGE', 'en', 'English', NULL, 1, TRUE, '{"native_name": "English", "iso_code": "en"}'),
-('LANGUAGE', 'hi', 'Hindi', NULL, 2, TRUE, '{"native_name": "हिन्दी", "iso_code": "hi"}'),
-('LANGUAGE', 'mr', 'Marathi', NULL, 3, TRUE, '{"native_name": "मराठी", "iso_code": "mr"}'),
-('LANGUAGE', 'gu', 'Gujarati', NULL, 4, TRUE, '{"native_name": "ગુજરાતી", "iso_code": "gu"}'),
-('LANGUAGE', 'ta', 'Tamil', NULL, 5, TRUE, '{"native_name": "தமிழ்", "iso_code": "ta"}'),
-('LANGUAGE', 'te', 'Telugu', NULL, 6, TRUE, '{"native_name": "తెలుగు", "iso_code": "te"}'),
-('LANGUAGE', 'kn', 'Kannada', NULL, 7, TRUE, '{"native_name": "ಕನ್ನಡ", "iso_code": "kn"}'),
-('LANGUAGE', 'ml', 'Malayalam', NULL, 8, TRUE, '{"native_name": "മലയാളം", "iso_code": "ml"}'),
-('LANGUAGE', 'bn', 'Bengali', NULL, 9, TRUE, '{"native_name": "বাংলা", "iso_code": "bn"}'),
-('LANGUAGE', 'pa', 'Punjabi', NULL, 10, TRUE, '{"native_name": "ਪੰਜਾਬੀ", "iso_code": "pa"}');
-
--- ===============================================
 -- INSERT: third_party_integration_master
 -- ===============================================
 -- SMS Providers
@@ -193,12 +155,6 @@ INSERT INTO third_party_integration_master (integration_name, integration_type, 
     'BNO7wXg7GHI5KWOuJxqUAWFyq7Dm/ec2KJqZ5BSF1Z5GIuUzm3BuJsdjMG8hdHY8',
  '{"verified": true, "template_support": true, "media_support": true, "daily_limit": 100000, "cost_per_message": 0.40}', TRUE),
 
--- Email Providers
-('SENDGRID_EMAIL',
-    'EMAIL_PROVIDER',
-    'https://api.sendgrid.com',
-    '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',
-    '{"daily_limit": 100000, "smtp_support": true, "template_engine": true, "analytics": true, "cost_per_email": 0.01, "region": "US"}', TRUE),
 ('MSG91_EMAIL',
     'EMAIL_PROVIDER',
     'https://control.msg91.com/api/v5/email',

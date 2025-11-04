@@ -13,16 +13,6 @@ CREATE INDEX idx_role_groups_display_order ON role_groups(display_order);
 
 CREATE INDEX idx_roles_role_group_id ON roles(role_group_id);
 
-CREATE INDEX idx_customers_customer_code ON customers(customer_code);
-CREATE INDEX idx_customers_mobile ON customers(mobile_number);
-CREATE INDEX idx_customers_email ON customers(email);
-CREATE INDEX idx_customers_type ON customers(customer_type);
-CREATE INDEX idx_customers_pan ON customers(pan_number);
-
-CREATE INDEX idx_cases_case_number ON cases(case_number);
-CREATE INDEX idx_cases_loan_id ON cases(loan_id);
-CREATE INDEX idx_cases_case_status ON cases(case_status);
-
 CREATE INDEX idx_strategy_rules_strategy_id ON strategy_rules(strategy_id);
 CREATE INDEX idx_strategy_actions_strategy_id ON strategy_actions(strategy_id);
 CREATE INDEX idx_strategy_executions_strategy_id ON strategy_executions(strategy_id);
@@ -190,11 +180,6 @@ CREATE INDEX idx_archival_rule_active ON cycle_archival_rules(is_active);
 CREATE INDEX idx_archival_rule_next_run ON cycle_archival_rules(next_run_at);
 CREATE INDEX idx_archival_rule_frequency ON cycle_archival_rules(frequency);
 
-CREATE INDEX idx_loan_details_account_number ON loan_details(loan_account_number);
-CREATE INDEX idx_loan_details_bank_product ON loan_details(bank_code, product_code);
-CREATE INDEX idx_loan_details_primary_customer ON loan_details(primary_customer_id);
-CREATE INDEX idx_loan_details_created_at ON loan_details(created_at);
-
 CREATE INDEX idx_otp_requests_mobile_status_created ON otp_requests(mobile, status, created_at DESC);
 CREATE INDEX idx_otp_requests_request_id ON otp_requests(request_id) WHERE status = 'SENT';
 CREATE INDEX idx_otp_requests_provider_request_id ON otp_requests(provider_request_id);
@@ -241,10 +226,6 @@ CREATE INDEX IF NOT EXISTS idx_notice_event_created_by_soft_ref ON notice_events
 CREATE INDEX IF NOT EXISTS idx_notice_pod_uploaded_by_soft_ref ON notice_proof_of_delivery(uploaded_by) WHERE uploaded_by IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_notice_pod_verified_by_soft_ref ON notice_proof_of_delivery(verified_by) WHERE verified_by IS NOT NULL;
 
-CREATE INDEX IF NOT EXISTS idx_cases_allocated_user_soft_ref ON cases(allocated_to_user_id) WHERE allocated_to_user_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_cases_agency_soft_ref ON cases(allocated_to_agency_id) WHERE allocated_to_agency_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_cases_created_by_soft_ref ON cases(created_by) WHERE created_by IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_cases_updated_by_soft_ref ON cases(updated_by) WHERE updated_by IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_allocations_allocated_to_soft_ref ON allocations(allocated_to_id) WHERE allocated_to_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_allocations_allocated_by_soft_ref ON allocations(allocated_by) WHERE allocated_by IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_allocation_hist_changed_by_soft_ref ON allocation_history(changed_by) WHERE changed_by IS NOT NULL;

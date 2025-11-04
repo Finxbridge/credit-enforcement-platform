@@ -1,4 +1,4 @@
-package com.finx.masterdataservice;
+package com.finx.casesourcingservice;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -11,13 +11,13 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 @SpringBootApplication
 @EnableDiscoveryClient
 @EnableCaching
-@ComponentScan(basePackages = { "com.finx.masterdataservice" })
-@EnableJpaRepositories(basePackages = { "com.finx.masterdataservice.repository" })
-@EntityScan(basePackages = { "com.finx.masterdataservice.domain.entity" })
-public class MasterDataServiceApplication {
+@ComponentScan(basePackages = { "com.finx.casesourcingservice" })
+@EnableJpaRepositories(basePackages = { "com.finx.casesourcingservice.repository" })
+@EntityScan(basePackages = { "com.finx.casesourcingservice.domain.entity" })
+public class CaseSourcingServiceApplication {
 
     public static void main(String[] args) {
-        SpringApplication.run(MasterDataServiceApplication.class, args);
+        SpringApplication.run(CaseSourcingServiceApplication.class, args);
     }
 
 }

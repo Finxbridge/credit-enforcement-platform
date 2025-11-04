@@ -20,7 +20,8 @@
     <!-- Microservices -->
     <module>access-management-service</module>
     <module>master-data-service</module>
-        <module>communication-service</module>
+    <module>communication-service</module>
+    <module>case-sourcing-service</module>
        <!-- <module>case-service</module>
         <module>collections-service</module>
         <module>notice-service</module>

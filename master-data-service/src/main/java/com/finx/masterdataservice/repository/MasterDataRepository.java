@@ -14,4 +14,8 @@ public interface MasterDataRepository extends JpaRepository<MasterData, Long> {
     Optional<MasterData> findByDataTypeAndCode(String dataType, String code);
 
     boolean existsByDataTypeAndCode(String dataType, String code);
+
+    boolean existsByDataType(String dataType);
+
+    void deleteByDataType(String dataType);
 }
