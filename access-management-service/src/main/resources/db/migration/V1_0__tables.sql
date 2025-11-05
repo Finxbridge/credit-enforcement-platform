@@ -517,6 +517,35 @@ CREATE TABLE cases (
     CONSTRAINT fk_cases_loan FOREIGN KEY (loan_id) REFERENCES loan_details(id)
 );
 
+CREATE TABLE IF NOT EXISTS case_batches (
+    id BIGSERIAL PRIMARY KEY,
+    batch_id VARCHAR(100) UNIQUE NOT NULL,
+    source_type VARCHAR(20) NOT NULL,
+    status VARCHAR(20) NOT NULL,
+    total_cases INTEGER DEFAULT 0,
+    valid_cases INTEGER DEFAULT 0,
+    invalid_cases INTEGER DEFAULT 0,
+    duplicate_cases INTEGER DEFAULT 0,
+    uploaded_by VARCHAR(255),
+    file_name VARCHAR(500),
+    file_path VARCHAR(1000),
+    validation_job_id VARCHAR(100),
+    completed_at TIMESTAMP NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS batch_errors (
+    id BIGSERIAL PRIMARY KEY,
+    batch_id VARCHAR(100) NOT NULL,
+    row_number INTEGER,
+    external_case_id VARCHAR(100),
+    error_type VARCHAR(50),
+    error_message TEXT,
+    field_name VARCHAR(100),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE allocations (
     id BIGSERIAL PRIMARY KEY,
     case_id BIGINT NOT NULL,
