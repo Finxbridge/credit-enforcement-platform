@@ -148,7 +148,10 @@ public class MasterDataServiceImpl implements MasterDataService {
                 continue;
             }
 
-            masterData.setMetadata(rowData.get("metadata"));
+            String metadataStr = rowData.get("metadata");
+            if (metadataStr != null && !metadataStr.trim().isEmpty()) {
+                masterData.setMetadata(metadataStr);
+            }
             recordsToSave.add(masterData);
         }
 
@@ -294,7 +297,10 @@ public class MasterDataServiceImpl implements MasterDataService {
                 continue;
             }
 
-            masterData.setMetadata(rowData.get("metadata"));
+            String metadataStr = rowData.get("metadata");
+            if (metadataStr != null && !metadataStr.trim().isEmpty()) {
+                masterData.setMetadata(metadataStr);
+            }
             recordsToSave.add(masterData);
         }
 
