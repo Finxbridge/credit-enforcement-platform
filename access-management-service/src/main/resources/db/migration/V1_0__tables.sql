@@ -430,8 +430,7 @@ CREATE TABLE allocations (
     allocation_status VARCHAR(20) DEFAULT 'ACTIVE',
     allocated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     deallocated_at TIMESTAMP NULL,
-    allocated_by BIGINT,
-    CONSTRAINT fk_allocations_case FOREIGN KEY (case_id) REFERENCES cases(id)
+    allocated_by BIGINT
 );
 
 CREATE TABLE allocation_history (
@@ -444,8 +443,7 @@ CREATE TABLE allocation_history (
     action_type VARCHAR(20),
     reason VARCHAR(500),
     changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    changed_by BIGINT,
-    CONSTRAINT fk_allocation_history_case FOREIGN KEY (case_id) REFERENCES cases(id)
+    changed_by BIGINT
 );
 
 CREATE TABLE strategies (
