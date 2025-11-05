@@ -98,6 +98,20 @@ CREATE TABLE role_permissions (
     CONSTRAINT unique_role_permission UNIQUE (role_id, permission_id)
 );
 
+CREATE TABLE master_data (
+    id BIGSERIAL PRIMARY KEY,
+    data_type VARCHAR(50) NOT NULL,
+    code VARCHAR(100) NOT NULL,
+    value VARCHAR(255) NOT NULL,
+    parent_code VARCHAR(100) NULL,
+    display_order INTEGER DEFAULT 0,
+    is_active BOOLEAN DEFAULT TRUE,
+    metadata JSONB,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT unique_master_data UNIQUE (data_type, code)
+);
+
 CREATE TABLE system_config (
     id BIGSERIAL PRIMARY KEY,
     config_key VARCHAR(100) UNIQUE NOT NULL,
@@ -419,6 +433,78 @@ CREATE TABLE cycle_archival_rules (
     created_by BIGINT
 );
 
+CREATE TABLE customers (
+    id BIGSERIAL PRIMARY KEY,
+    customer_code VARCHAR(50) UNIQUE NOT NULL,
+    full_name VARCHAR(255) NOT NULL,
+    mobile_number VARCHAR(15),
+    alternate_mobile VARCHAR(15),
+    email VARCHAR(100),
+    alternate_email VARCHAR(100),
+    pan_number VARCHAR(20),
+    aadhar_number VARCHAR(20),
+    date_of_birth DATE,
+    gender VARCHAR(10),
+    occupation VARCHAR(100),
+    customer_type VARCHAR(20) DEFAULT 'INDIVIDUAL',
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE loan_details (
+    id BIGSERIAL PRIMARY KEY,
+    loan_account_number VARCHAR(50) UNIQUE NOT NULL,
+    bank_code VARCHAR(50),
+    product_code VARCHAR(50),
+    primary_customer_id BIGINT NOT NULL,
+    co_borrower_customer_id BIGINT,
+    guarantor_customer_id BIGINT,
+    loan_disbursement_date DATE,
+    loan_maturity_date DATE,
+    principal_amount DECIMAL(15,2),
+    interest_rate DECIMAL(5,2),
+    tenure_months INTEGER,
+    emi_amount DECIMAL(15,2),
+    source_system VARCHAR(50),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_loan_primary_customer FOREIGN KEY (primary_customer_id) REFERENCES customers(id),
+    CONSTRAINT fk_loan_co_borrower FOREIGN KEY (co_borrower_customer_id) REFERENCES customers(id),
+    CONSTRAINT fk_loan_guarantor FOREIGN KEY (guarantor_customer_id) REFERENCES customers(id)
+);
+
+CREATE TABLE cases (
+    id BIGSERIAL PRIMARY KEY,
+    case_number VARCHAR(50) UNIQUE NOT NULL,
+    loan_id BIGINT NOT NULL,
+    case_status VARCHAR(20) DEFAULT 'UNALLOCATED',
+    case_priority VARCHAR(20) DEFAULT 'MEDIUM',
+    case_opened_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    case_closed_at TIMESTAMP,
+    case_closure_reason VARCHAR(100),
+    allocated_to_user_id BIGINT,
+    allocated_to_agency_id BIGINT,
+    allocated_at TIMESTAMP,
+    geography_code VARCHAR(50),
+    city_code VARCHAR(50),
+    state_code VARCHAR(50),
+    ptp_date DATE,
+    ptp_amount DECIMAL(15,2),
+    ptp_status VARCHAR(20),
+    next_followup_date DATE,
+    source_type VARCHAR(20),
+    source_file_name VARCHAR(255),
+    import_batch_id VARCHAR(100),
+    collection_cycle VARCHAR(50),
+    is_archived BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_by BIGINT,
+    updated_by BIGINT,
+    CONSTRAINT fk_cases_loan FOREIGN KEY (loan_id) REFERENCES loan_details(id)
+);
+
 CREATE TABLE allocations (
     id BIGSERIAL PRIMARY KEY,
     case_id BIGINT NOT NULL,
@@ -430,7 +516,8 @@ CREATE TABLE allocations (
     allocation_status VARCHAR(20) DEFAULT 'ACTIVE',
     allocated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     deallocated_at TIMESTAMP NULL,
-    allocated_by BIGINT
+    allocated_by BIGINT,
+    CONSTRAINT fk_allocations_case FOREIGN KEY (case_id) REFERENCES cases(id)
 );
 
 CREATE TABLE allocation_history (
@@ -443,7 +530,8 @@ CREATE TABLE allocation_history (
     action_type VARCHAR(20),
     reason VARCHAR(500),
     changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    changed_by BIGINT
+    changed_by BIGINT,
+    CONSTRAINT fk_allocation_history_case FOREIGN KEY (case_id) REFERENCES cases(id)
 );
 
 CREATE TABLE strategies (

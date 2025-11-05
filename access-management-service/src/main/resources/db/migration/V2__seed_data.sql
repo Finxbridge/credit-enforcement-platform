@@ -31,8 +31,8 @@ INSERT INTO roles (role_name, role_code, role_group_id, description, is_active) 
 -- INSERT: users (Only 4 required users)
 -- ===============================================
 INSERT INTO users (username, password_hash, email, first_name, last_name, status, is_first_login) VALUES
-('superadmin', '$2a$10$KAqljhNBfn0kawY8/eVDI.y9.9sUMZsYdFy3jDPrjhjQNZ1TpqJTW', 'superadmin@example.com', 'Super', 'Admin', 'ACTIVE', TRUE),
-('admin', '$2a$10$KAqljhNBfn0kawY8/eVDI.y9.9sUMZsYdFy3jDPrjhjQNZ1TpqJTW', 'naveen@finxbridge.com', 'Admin', 'User', 'ACTIVE', TRUE),
+('superadmin', '$2a$10$KAqljhNBfn0kawY8/eVDI.y9.9sUMZsYdFy3jDPrjhjQNZ1TpqJTW', 'naveen@finxbridge.com', 'Super', 'Admin', 'ACTIVE', TRUE),
+('admin', '$2a$10$KAqljhNBfn0kawY8/eVDI.y9.9sUMZsYdFy3jDPrjhjQNZ1TpqJTW', 'shivani@finxbridge.com', 'Admin', 'User', 'ACTIVE', TRUE),
 ('collmanager', '$2a$10$KAqljhNBfn0kawY8/eVDI.y9.9sUMZsYdFy3jDPrjhjQNZ1TpqJTW', 'naveenfinxbridge@gmail.com', 'Collections', 'Manager', 'ACTIVE', TRUE),
 ('agent1', '$2a$10$KAqljhNBfn0kawY8/eVDI.y9.9sUMZsYdFy3jDPrjhjQNZ1TpqJTW', 'agent1@example.com', 'Collections', 'Agent1', 'ACTIVE', TRUE);
 
