@@ -2,8 +2,8 @@ package com.finx.common.config;
 
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.jsontype.BasicPolymorphicTypeValidator;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.fasterxml.jackson.databind.jsontype.BasicPolymorphicTypeValidator;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.CacheManager;
@@ -15,160 +15,115 @@ import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
-import org.springframework.data.redis.serializer.RedisSerializationContext;
-import org.springframework.data.redis.serializer.StringRedisSerializer;
-import java.util.HashMap;
-import java.util.Map;
+import org.springframework.data.redis.serializer.*;
 
 import java.time.Duration;
+import java.util.HashMap;
+import java.util.Map;
+/*
+* Redis Configuration Class
+* @author Naveen Manyam
+* @version 1.0
+*
+*/
 
-/**
- * Redis Configuration for Cache Layer
- *
- * Purpose: Configure Redis connection, serialization, and RedisTemplate
- * Layer: Layer 2 - Cache & Redis Management
- *
- * Features:
- * - Lettuce client configuration
- * - JSON serialization with Jackson
- * - RedisTemplate for generic operations
- * - Connection pooling
- *
- * @author Naveen Manyam
- * @version 1.0
- */
 @Slf4j
 @Configuration
 public class RedisConfig {
 
-        @Value("${spring.data.redis.host:localhost}")
-        private String redisHost;
+    @Value("${spring.data.redis.host:localhost}")
+    private String redisHost;
 
-        @Value("${spring.data.redis.port:6379}")
-        private int redisPort;
+    @Value("${spring.data.redis.port:6379}")
+    private int redisPort;
 
-        @Value("${spring.data.redis.password:}")
-        private String redisPassword;
+    @Value("${spring.data.redis.password:}")
+    private String redisPassword;
 
-        @Value("${spring.data.redis.database:0}")
-        private int redisDatabase;
+    @Value("${spring.data.redis.database:0}")
+    private int redisDatabase;
 
-        /**
-         * Redis Connection Factory using Lettuce
-         */
-        @Bean
-        public RedisConnectionFactory redisConnectionFactory() {
-                log.info("Initializing Redis connection to {}:{} database: {}", redisHost, redisPort, redisDatabase);
-
-                RedisStandaloneConfiguration config = new RedisStandaloneConfiguration();
-                config.setHostName(redisHost);
-                config.setPort(redisPort);
-                config.setDatabase(redisDatabase);
-
-                if (redisPassword != null && !redisPassword.isEmpty()) {
-                        config.setPassword(redisPassword);
-                }
-
-                return new LettuceConnectionFactory(config);
+    @SuppressWarnings("null")
+    @Bean
+    public RedisConnectionFactory redisConnectionFactory() {
+        log.info("Initializing Redis connection to {}:{} database: {}", redisHost, redisPort, redisDatabase);
+        RedisStandaloneConfiguration config = new RedisStandaloneConfiguration(redisHost, redisPort);
+        config.setDatabase(redisDatabase);
+        if (redisPassword != null && !redisPassword.isEmpty()) {
+            config.setPassword(redisPassword);
         }
+        return new LettuceConnectionFactory(config);
+    }
 
-        /**
-         * ObjectMapper for Redis JSON Serialization ONLY
-         * Configured to handle Java 8 time types and polymorphic types
-         *
-         * IMPORTANT: This ObjectMapper includes @class fields for polymorphic type
-         * handling
-         * and should ONLY be used by RedisTemplate, NOT for HTTP serialization
-         */
-        @Bean(name = "redisObjectMapper")
-        public ObjectMapper redisObjectMapper() {
-                log.info("Creating RedisObjectMapper with @class type information for Redis serialization");
+    @Bean
+    public ObjectMapper redisObjectMapper() {
+        ObjectMapper objectMapper = new ObjectMapper();
+        objectMapper.registerModule(new JavaTimeModule());
+        objectMapper.disable(com.fasterxml.jackson.databind.SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
 
-                ObjectMapper objectMapper = new ObjectMapper();
+        BasicPolymorphicTypeValidator ptv = BasicPolymorphicTypeValidator.builder()
+                .allowIfBaseType(Object.class)
+                .build();
 
-                // Register Java Time Module for LocalDateTime, LocalDate, etc.
-                objectMapper.registerModule(new JavaTimeModule());
+        objectMapper.activateDefaultTyping(ptv, ObjectMapper.DefaultTyping.NON_FINAL, JsonTypeInfo.As.PROPERTY);
+        return objectMapper;
+    }
 
-                // Disable timestamps - use ISO-8601 format
-                objectMapper.disable(com.fasterxml.jackson.databind.SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+    @Bean
+    public RedisSerializer<Object> redisValueSerializer(ObjectMapper redisObjectMapper) {
+        return new GenericJackson2JsonRedisSerializer(redisObjectMapper);
+    }
 
-                // Enable polymorphic type handling for inheritance (adds @class fields)
-                objectMapper.activateDefaultTyping(
-                                BasicPolymorphicTypeValidator.builder()
-                                                .allowIfBaseType(Object.class)
-                                                .build(),
-                                ObjectMapper.DefaultTyping.NON_FINAL,
-                                JsonTypeInfo.As.PROPERTY);
+    @Bean
+    public RedisTemplate<String, Object> redisTemplate(
+            RedisConnectionFactory connectionFactory,
+            RedisSerializer<Object> redisValueSerializer) {
 
-                log.info("RedisObjectMapper created successfully with @class fields for Redis");
-                return objectMapper;
-        }
+        log.info("Configuring RedisTemplate with JSON serialization");
+        RedisTemplate<String, Object> template = new RedisTemplate<>();
+        template.setConnectionFactory(connectionFactory);
 
-        /**
-         * RedisTemplate with String key and JSON value serialization
-         */
-        @Bean
-        public RedisTemplate<String, Object> redisTemplate(
-                        RedisConnectionFactory connectionFactory) {
+        StringRedisSerializer stringSerializer = new StringRedisSerializer();
+        template.setKeySerializer(stringSerializer);
+        template.setHashKeySerializer(stringSerializer);
+        template.setValueSerializer(redisValueSerializer);
+        template.setHashValueSerializer(redisValueSerializer);
 
-                log.info("Configuring RedisTemplate with JSON serialization using redisObjectMapper");
+        template.setEnableTransactionSupport(false);
+        template.afterPropertiesSet();
+        log.info("RedisTemplate configured successfully");
 
-                RedisTemplate<String, Object> template = new RedisTemplate<>();
-                template.setConnectionFactory(connectionFactory);
+        return template;
+    }
 
-                // Key serializer - String
-                StringRedisSerializer stringSerializer = new StringRedisSerializer();
-                template.setKeySerializer(stringSerializer);
-                template.setHashKeySerializer(stringSerializer);
+    @Bean
+    public CacheManager cacheManager(
+            RedisConnectionFactory connectionFactory,
+            RedisSerializer<Object> redisValueSerializer) {
 
-                // Value serializer - JSON with Redis-specific ObjectMapper
-                GenericJackson2JsonRedisSerializer jsonSerializer = new GenericJackson2JsonRedisSerializer(
-                                redisObjectMapper());
-                template.setValueSerializer(jsonSerializer);
-                template.setHashValueSerializer(jsonSerializer);
+        log.info("Configuring RedisCacheManager with specific TTLs");
 
-                template.setEnableTransactionSupport(false);
-                template.afterPropertiesSet();
+        RedisCacheConfiguration defaultCacheConfiguration = RedisCacheConfiguration.defaultCacheConfig()
+                .entryTtl(Duration.ofMinutes(60))
+                .disableCachingNullValues()
+                .serializeKeysWith(
+                        RedisSerializationContext.SerializationPair.fromSerializer(new StringRedisSerializer()))
+                .serializeValuesWith(
+                        RedisSerializationContext.SerializationPair.fromSerializer(redisValueSerializer));
 
-                log.info("RedisTemplate configured successfully with redisObjectMapper");
-                return template;
-        }
+        Map<String, RedisCacheConfiguration> cacheConfigurations = new HashMap<>();
+        cacheConfigurations.put("session", defaultCacheConfiguration.entryTtl(Duration.ofMinutes(15)));
+        cacheConfigurations.put("user_permissions", defaultCacheConfiguration.entryTtl(Duration.ofHours(6)));
+        cacheConfigurations.put("activeSessions", defaultCacheConfiguration.entryTtl(Duration.ofMinutes(15)));
+        cacheConfigurations.put("permissions", defaultCacheConfiguration.entryTtl(Duration.ofHours(6)));
+        cacheConfigurations.put("roles", defaultCacheConfiguration.entryTtl(Duration.ofHours(6)));
+        cacheConfigurations.put("users", defaultCacheConfiguration.entryTtl(Duration.ofMinutes(30)));
+        cacheConfigurations.put("systemConfig", defaultCacheConfiguration.entryTtl(Duration.ofMinutes(60)));
+        cacheConfigurations.put("integrationConfig", defaultCacheConfiguration.entryTtl(Duration.ofMinutes(60)));
 
-        /**
-         * Configures the Redis Cache Manager to use GenericJackson2JsonRedisSerializer
-         * for cache values, ensuring proper serialization of non-Serializable objects.
-         */
-        @Bean
-        public CacheManager cacheManager(RedisConnectionFactory connectionFactory, ObjectMapper redisObjectMapper) {
-                log.info("Configuring RedisCacheManager with specific TTLs for various caches");
-
-                RedisCacheConfiguration defaultCacheConfiguration = RedisCacheConfiguration.defaultCacheConfig()
-                                .entryTtl(Duration.ofMinutes(60)) // Default cache expiration: 60 minutes
-                                .disableCachingNullValues()
-                                .serializeKeysWith(
-                                                RedisSerializationContext.SerializationPair
-                                                                .fromSerializer(new StringRedisSerializer()))
-                                .serializeValuesWith(RedisSerializationContext.SerializationPair
-                                                .fromSerializer(new GenericJackson2JsonRedisSerializer(
-                                                                redisObjectMapper)));
-
-                Map<String, RedisCacheConfiguration> cacheConfigurations = new HashMap<>();
-
-                // Specific cache configurations
-                cacheConfigurations.put("session", defaultCacheConfiguration.entryTtl(Duration.ofMinutes(15)));
-                cacheConfigurations.put("user_permissions", defaultCacheConfiguration.entryTtl(Duration.ofHours(6)));
-                cacheConfigurations.put("activeSessions", defaultCacheConfiguration.entryTtl(Duration.ofMinutes(15)));
-                cacheConfigurations.put("permissions", defaultCacheConfiguration.entryTtl(Duration.ofHours(6)));
-                cacheConfigurations.put("roles", defaultCacheConfiguration.entryTtl(Duration.ofHours(6)));
-                cacheConfigurations.put("users", defaultCacheConfiguration.entryTtl(Duration.ofMinutes(30)));
-                cacheConfigurations.put("systemConfig", defaultCacheConfiguration.entryTtl(Duration.ofMinutes(60)));
-                cacheConfigurations.put("integrationConfig",
-                                defaultCacheConfiguration.entryTtl(Duration.ofMinutes(60)));
-
-                return RedisCacheManager.builder(connectionFactory)
-                                .cacheDefaults(defaultCacheConfiguration)
-                                .withInitialCacheConfigurations(cacheConfigurations)
-                                .build();
-        }
+        return RedisCacheManager.builder(connectionFactory)
+                .cacheDefaults(defaultCacheConfiguration)
+                .withInitialCacheConfigurations(cacheConfigurations)
+                .build();
+    }
 }

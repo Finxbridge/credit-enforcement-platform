@@ -9,6 +9,8 @@ import java.util.List;
 public interface RoleService {
     List<RoleDTO> getAllRoles();
 
+    List<RoleDTO> getAllRoles(boolean activeOnly);
+
     RoleDTO getRoleById(Long id);
 
     RoleDTO createRole(CreateRoleRequest request);

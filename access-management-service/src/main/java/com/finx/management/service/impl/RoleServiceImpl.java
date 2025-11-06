@@ -38,9 +38,20 @@ public class RoleServiceImpl implements RoleService {
     @Override
     @Cacheable(value = CacheConstants.ROLES)
     public List<RoleDTO> getAllRoles() {
-        return managementRoleRepository.findAll().stream()
-                .map(roleMapper::toDto)
-                .collect(Collectors.toList());
+        return getAllRoles(true);
+    }
+
+    @Override
+    public List<RoleDTO> getAllRoles(boolean activeOnly) {
+        if (activeOnly) {
+            return managementRoleRepository.findAllByIsActive(true).stream()
+                    .map(roleMapper::toDto)
+                    .collect(Collectors.toList());
+        } else {
+            return managementRoleRepository.findAll().stream()
+                    .map(roleMapper::toDto)
+                    .collect(Collectors.toList());
+        }
     }
 
     @Override

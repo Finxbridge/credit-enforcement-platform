@@ -87,10 +87,6 @@ services:
     container_name: access-management-service
     ports:
       - "8081:8081"
-    command: >
-      java -jar /app/app.jar
-      --spring.flyway.validate-on-migrate=false
-      --spring.flyway.out-of-order=true
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:8081/actuator/health" ]
       interval: 30s

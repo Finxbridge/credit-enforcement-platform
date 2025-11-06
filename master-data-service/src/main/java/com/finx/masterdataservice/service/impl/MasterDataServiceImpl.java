@@ -1,5 +1,7 @@
 package com.finx.masterdataservice.service.impl;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.finx.masterdataservice.constants.CacheConstants;
 import com.finx.masterdataservice.exception.BusinessException;
 import com.finx.masterdataservice.exception.ValidationException;
@@ -12,6 +14,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -40,6 +43,7 @@ public class MasterDataServiceImpl implements MasterDataService {
 
     @Override
     @Transactional
+    @SuppressWarnings("null")
     @CacheEvict(value = CacheConstants.MASTER_DATA_CACHE, allEntries = true)
     public Map<String, Object> bulkUploadMasterData(String type, MultipartFile file) {
         // 1. File Type and Empty Validation
@@ -106,60 +110,96 @@ public class MasterDataServiceImpl implements MasterDataService {
             Map<String, String> rowData = parsedData.get(i);
             int rowNum = i + 2; // +1 for 0-based index, +1 for header row
 
+            MasterData masterData = new MasterData();
+            masterData.setDataType(type);
+
             String code = rowData.get("code");
             String value = rowData.get("value");
+            String parentCode = rowData.get("parentCode");
+
+            boolean rowHasError = false;
+
+            log.info("Row {}: Raw code='{}', Raw value='{}', Raw parentCode='{}'", rowNum, code, value, parentCode);
 
             if (code == null || code.isEmpty()) {
                 errors.add(createErrorMap(rowNum, "code", "Code cannot be empty"));
-                continue;
+                rowHasError = true;
             }
             if (value == null || value.isEmpty()) {
                 errors.add(createErrorMap(rowNum, "value", "Value cannot be empty"));
-                continue;
+                rowHasError = true;
             }
 
             if (masterDataRepository.existsByDataTypeAndCode(type, code)) {
                 errors.add(createErrorMap(rowNum, "code",
                         "Master data with type '" + type + "' and code '" + code + "' already exists"));
+                rowHasError = true;
+            }
+
+            if (rowHasError) {
+                log.warn("Skipping row {} due to validation errors. Errors: {}", rowNum, errors);
                 continue;
             }
 
-            MasterData masterData = new MasterData();
-            masterData.setDataType(type);
             masterData.setCode(code);
             masterData.setValue(value);
-            masterData.setParentCode(rowData.get("parentCode"));
+            masterData.setParentCode(parentCode);
+            log.info("Processing row {}: dataType={}, code={}, value={}", rowNum, masterData.getDataType(),
+                    masterData.getCode(), masterData.getValue());
 
             // Data Type Validation for isActive
             String isActiveStr = rowData.getOrDefault("isActive", "true");
             if (!isActiveStr.equalsIgnoreCase("true") && !isActiveStr.equalsIgnoreCase("false")
                     && !isActiveStr.isEmpty()) {
                 errors.add(createErrorMap(rowNum, "isActive", "Invalid value. Must be 'true' or 'false'."));
-                continue;
+                rowHasError = true;
             }
             masterData.setIsActive(Boolean.parseBoolean(isActiveStr));
 
             // Data Type Validation for displayOrder
-            String displayOrderStr = rowData.getOrDefault("displayOrder", "0");
-            try {
-                masterData.setDisplayOrder(Integer.parseInt(displayOrderStr));
-            } catch (NumberFormatException e) {
-                errors.add(createErrorMap(rowNum, "displayOrder", "Invalid value. Must be a valid number."));
-                continue;
+            String displayOrderStr = rowData.get("displayOrder");
+            if (displayOrderStr != null && !displayOrderStr.isEmpty()) {
+                try {
+                    masterData.setDisplayOrder(Integer.parseInt(displayOrderStr));
+                } catch (NumberFormatException e) {
+                    errors.add(createErrorMap(rowNum, "displayOrder", "Invalid value. Must be a valid number."));
+                    rowHasError = true;
+                }
+            } else {
+                masterData.setDisplayOrder(0);
             }
 
             String metadataStr = rowData.get("metadata");
             if (metadataStr != null && !metadataStr.trim().isEmpty()) {
-                masterData.setMetadata(metadataStr);
+                try {
+                    Map<String, Object> metadata = new ObjectMapper().readValue(metadataStr,
+                            new TypeReference<Map<String, Object>>() {
+                            });
+                    masterData.setMetadata(metadata);
+                } catch (Exception e) {
+                    errors.add(createErrorMap(rowNum, "metadata", "Invalid JSON format for metadata."));
+                    rowHasError = true;
+                }
             }
-            recordsToSave.add(masterData);
+
+            if (!rowHasError) {
+                recordsToSave.add(masterData);
+            }
         }
 
+        List<MasterData> savedRecords = new ArrayList<>();
         if (!recordsToSave.isEmpty()) {
-            masterDataRepository.saveAll(recordsToSave);
+            for (MasterData record : recordsToSave) {
+                try {
+                    savedRecords.add(masterDataRepository.save(record));
+                } catch (DataIntegrityViolationException e) {
+                    log.error("Error saving record with code {}: {}", record.getCode(), e.getMessage());
+                    errors.add(createErrorMap(0, "database", "Duplicate entry for code: " + record.getCode()));
+                }
+            }
         }
 
-        int successCount = recordsToSave.size();
+        int successCount = savedRecords.size();
 
         Map<String, Object> result = new HashMap<>();
         result.put("uploadId", "upload_" + System.currentTimeMillis());
@@ -182,6 +222,7 @@ public class MasterDataServiceImpl implements MasterDataService {
 
     @Override
     @Transactional
+    @SuppressWarnings("null")
     @CacheEvict(value = CacheConstants.MASTER_DATA_CACHE, allEntries = true)
     public Map<String, Object> bulkUploadMasterDataV2(MultipartFile file) {
         // 1. File Type and Empty Validation
@@ -250,65 +291,102 @@ public class MasterDataServiceImpl implements MasterDataService {
             Map<String, String> rowData = parsedData.get(i);
             int rowNum = i + 2; // +1 for 0-based index, +1 for header row
 
+            MasterData masterData = new MasterData();
+
             String categoryType = rowData.get("categoryType");
             String code = rowData.get("code");
             String value = rowData.get("value");
+            String parentCode = rowData.get("parentCode");
+
+            boolean rowHasError = false;
+
+            log.info("Row {}: Raw categoryType='{}', Raw code='{}', Raw value='{}', Raw parentCode='{}'", rowNum,
+                    categoryType, code, value, parentCode);
 
             if (categoryType == null || categoryType.isEmpty()) {
                 errors.add(createErrorMap(rowNum, "categoryType", "CategoryType cannot be empty"));
-                continue;
+                rowHasError = true;
             }
             if (code == null || code.isEmpty()) {
                 errors.add(createErrorMap(rowNum, "code", "Code cannot be empty"));
-                continue;
+                rowHasError = true;
             }
             if (value == null || value.isEmpty()) {
                 errors.add(createErrorMap(rowNum, "value", "Value cannot be empty"));
-                continue;
+                rowHasError = true;
             }
 
             if (masterDataRepository.existsByDataTypeAndCode(categoryType, code)) {
                 errors.add(createErrorMap(rowNum, "code",
                         "Master data with type '" + categoryType + "' and code '" + code + "' already exists"));
+                rowHasError = true;
+            }
+
+            if (rowHasError) {
+                log.warn("Skipping row {} due to validation errors. Errors: {}", rowNum, errors);
                 continue;
             }
 
-            MasterData masterData = new MasterData();
             masterData.setDataType(categoryType);
             masterData.setCode(code);
             masterData.setValue(value);
-            masterData.setParentCode(rowData.get("parentCode"));
-
+            masterData.setParentCode(parentCode);
+            log.info("Processing row {}: dataType={}, code={}, value={}", rowNum, masterData.getDataType(),
+                    masterData.getCode(), masterData.getValue());
             // Data Type Validation for isActive
             String isActiveStr = rowData.getOrDefault("isActive", "true");
             if (!isActiveStr.equalsIgnoreCase("true") && !isActiveStr.equalsIgnoreCase("false")
                     && !isActiveStr.isEmpty()) {
                 errors.add(createErrorMap(rowNum, "isActive", "Invalid value. Must be 'true' or 'false'."));
-                continue;
+                rowHasError = true;
             }
             masterData.setIsActive(Boolean.parseBoolean(isActiveStr));
 
             // Data Type Validation for displayOrder
-            String displayOrderStr = rowData.getOrDefault("displayOrder", "0");
-            try {
-                masterData.setDisplayOrder(Integer.parseInt(displayOrderStr));
-            } catch (NumberFormatException e) {
-                errors.add(createErrorMap(rowNum, "displayOrder", "Invalid value. Must be a valid number."));
-                continue;
+            String displayOrderStr = rowData.get("displayOrder");
+            if (displayOrderStr != null && !displayOrderStr.isEmpty()) {
+                try {
+                    masterData.setDisplayOrder(Integer.parseInt(displayOrderStr));
+                } catch (NumberFormatException e) {
+                    errors.add(createErrorMap(rowNum, "displayOrder", "Invalid value. Must be a valid number."));
+                    rowHasError = true;
+                }
+            } else {
+                masterData.setDisplayOrder(0);
             }
 
             String metadataStr = rowData.get("metadata");
             if (metadataStr != null && !metadataStr.trim().isEmpty()) {
-                masterData.setMetadata(metadataStr);
+                try {
+                    Map<String, Object> metadata = new ObjectMapper().readValue(metadataStr,
+                            new TypeReference<Map<String, Object>>() {
+                            });
+                    masterData.setMetadata(metadata);
+                } catch (Exception e) {
+                    errors.add(createErrorMap(rowNum, "metadata", "Invalid JSON format for metadata."));
+                    rowHasError = true;
+                }
             }
-            recordsToSave.add(masterData);
+
+            if (!rowHasError) {
+                recordsToSave.add(masterData);
+            }
+
         }
 
+        List<MasterData> savedRecords = new ArrayList<>();
         if (!recordsToSave.isEmpty()) {
-            masterDataRepository.saveAll(recordsToSave);
+            for (MasterData record : recordsToSave) {
+                try {
+                    savedRecords.add(masterDataRepository.save(record));
+                } catch (DataIntegrityViolationException e) {
+                    log.error("Error saving record with code {}: {}", record.getCode(), e.getMessage());
+                    errors.add(createErrorMap(0, "database", "Duplicate entry for code: " + record.getCode()));
+                }
+            }
         }
 
-        int successCount = recordsToSave.size();
+        int successCount = savedRecords.size();
 
         Map<String, Object> result = new HashMap<>();
         result.put("uploadId", "upload_" + System.currentTimeMillis());

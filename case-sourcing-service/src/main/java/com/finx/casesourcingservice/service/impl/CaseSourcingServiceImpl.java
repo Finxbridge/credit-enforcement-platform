@@ -15,6 +15,8 @@ import com.finx.casesourcingservice.service.async.BatchProcessingService;
 import com.finx.casesourcingservice.util.csv.CsvExporter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -34,463 +36,476 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class CaseSourcingServiceImpl implements CaseSourcingService {
 
-    private final CaseRepository caseRepository;
-    private final CaseBatchRepository caseBatchRepository;
-    private final BatchErrorRepository batchErrorRepository;
-    private final BatchProcessingService batchProcessingService;
-    private final CsvExporter csvExporter;
+        private final CaseRepository caseRepository;
+        private final CaseBatchRepository caseBatchRepository;
+        private final BatchErrorRepository batchErrorRepository;
+        private final BatchProcessingService batchProcessingService;
+        private final CsvExporter csvExporter;
 
-    @Override
-    @Transactional(readOnly = true)
-    public DashboardSummaryDTO getDashboardSummary() {
-        log.info("Fetching dashboard summary");
+        @Override
+        @Transactional(readOnly = true)
+        @Cacheable(value = "dashboardSummary")
+        public DashboardSummaryDTO getDashboardSummary() {
+                log.info("Fetching dashboard summary");
 
-        Long totalReceived = caseBatchRepository.getTotalReceived();
-        Long validated = caseBatchRepository.getTotalValidated();
-        Long failed = caseBatchRepository.getTotalFailed();
-        Long unallocated = caseRepository.countByCaseStatus("UNALLOCATED");
+                Long totalReceived = caseBatchRepository.getTotalReceived();
+                Long validated = caseBatchRepository.getTotalValidated();
+                Long failed = caseBatchRepository.getTotalFailed();
+                Long unallocated = caseRepository.countByCaseStatus("UNALLOCATED");
 
-        return DashboardSummaryDTO.builder()
-                .totalReceived(totalReceived != null ? totalReceived : 0L)
-                .validated(validated != null ? validated : 0L)
-                .failed(failed != null ? failed : 0L)
-                .unallocated(unallocated != null ? unallocated : 0L)
-                .build();
-    }
-
-    @Override
-    @Transactional(readOnly = true)
-    public List<SourceStatsDTO> getSourceStats() {
-        log.info("Fetching source-wise statistics");
-
-        List<Object[]> stats = caseBatchRepository.getSourceStats();
-
-        return stats.stream()
-                .map(row -> SourceStatsDTO.builder()
-                        .source(row[0].toString())
-                        .total(row[1] != null ? ((Number) row[1]).longValue() : 0L)
-                        .successful(row[2] != null ? ((Number) row[2]).longValue() : 0L)
-                        .failed(row[3] != null ? ((Number) row[3]).longValue() : 0L)
-                        .build())
-                .collect(Collectors.toList());
-    }
-
-    @Override
-    @Transactional(readOnly = true)
-    public List<RecentUploadDTO> getRecentUploads(Pageable pageable) {
-        log.info("Fetching recent uploads");
-
-        Page<CaseBatch> batches = caseBatchRepository.findAllByOrderByCreatedAtDesc(pageable);
-
-        return batches.getContent().stream()
-                .map(batch -> RecentUploadDTO.builder()
-                        .batchId(batch.getBatchId())
-                        .source(batch.getSourceType().name())
-                        .uploadedBy(batch.getUploadedBy())
-                        .uploadedAt(batch.getCreatedAt())
-                        .totalCases(batch.getTotalCases())
-                        .status(batch.getStatus().name())
-                        .build())
-                .collect(Collectors.toList());
-    }
-
-    @Override
-    @Transactional
-    @SuppressWarnings("null")
-    public BatchUploadResponseDTO uploadCases(MultipartFile file, String uploadedBy) {
-        log.info("Uploading case data from file: {}", file.getOriginalFilename());
-
-        // Generate batch ID
-        String batchId = generateBatchId();
-
-        // Create batch record
-        CaseBatch batch = CaseBatch.builder()
-                .batchId(batchId)
-                .sourceType(SourceType.MANUAL)
-                .status(BatchStatus.PROCESSING)
-                .fileName(file.getOriginalFilename())
-                .uploadedBy(uploadedBy)
-                .totalCases(0)
-                .validCases(0)
-                .invalidCases(0)
-                .duplicateCases(0)
-                .validationJobId("job_" + System.currentTimeMillis())
-                .build();
-
-        caseBatchRepository.save(batch);
-
-        // Save the MultipartFile to a temporary location
-        Path tempFilePath;
-        try {
-            tempFilePath = Files.createTempFile("case_upload_", ".csv");
-            file.transferTo(tempFilePath);
-        } catch (IOException e) {
-            log.error("Failed to save uploaded file to temporary location", e);
-            throw new BusinessException("Failed to process file upload: " + e.getMessage());
+                return DashboardSummaryDTO.builder()
+                                .totalReceived(totalReceived != null ? totalReceived : 0L)
+                                .validated(validated != null ? validated : 0L)
+                                .failed(failed != null ? failed : 0L)
+                                .unallocated(unallocated != null ? unallocated : 0L)
+                                .build();
         }
 
-        // Process file asynchronously
-        batchProcessingService.processBatchAsync(batchId, tempFilePath.toString());
+        @Override
+        @Transactional(readOnly = true)
+        @Cacheable(value = "sourceStats")
+        public List<SourceStatsDTO> getSourceStats() {
+                log.info("Fetching source-wise statistics");
 
-        return BatchUploadResponseDTO.builder()
-                .batchId(batchId)
-                .totalCases(batch.getTotalCases())
-                .status(batch.getStatus().name())
-                .validationJobId(batch.getValidationJobId())
-                .build();
-    }
+                List<Object[]> stats = caseBatchRepository.getSourceStats();
 
-    @Override
-    @Transactional(readOnly = true)
-    public BatchStatusDTO getBatchStatus(String batchId) {
-        log.info("Fetching batch status for batchId: {}", batchId);
-
-        CaseBatch batch = caseBatchRepository.findByBatchId(batchId)
-                .orElseThrow(() -> new BusinessException("Batch not found: " + batchId));
-
-        List<BatchError> errors = batchErrorRepository.findByBatchId(batchId);
-
-        List<BatchErrorDTO> errorDTOs = errors.stream()
-                .map(error -> BatchErrorDTO.builder()
-                        .externalCaseId(error.getExternalCaseId())
-                        .errorType(error.getErrorType().name())
-                        .message(error.getErrorMessage())
-                        .build())
-                .collect(Collectors.toList());
-
-        return BatchStatusDTO.builder()
-                .batchId(batch.getBatchId())
-                .totalCases(batch.getTotalCases())
-                .validCases(batch.getValidCases())
-                .invalidCases(batch.getInvalidCases())
-                .status(batch.getStatus().name())
-                .errors(errorDTOs)
-                .completedAt(batch.getCompletedAt())
-                .build();
-    }
-
-    @Override
-    @Transactional(readOnly = true)
-    public BatchSummaryDTO getBatchSummary(String batchId) {
-        log.info("Fetching batch summary for batchId: {}", batchId);
-
-        CaseBatch batch = caseBatchRepository.findByBatchId(batchId)
-                .orElseThrow(() -> new BusinessException("Batch not found: " + batchId));
-
-        return BatchSummaryDTO.builder()
-                .batchId(batch.getBatchId())
-                .validCases(batch.getValidCases())
-                .invalidCases(batch.getInvalidCases())
-                .duplicates(batch.getDuplicateCases())
-                .build();
-    }
-
-    @Override
-    @Transactional(readOnly = true)
-    public List<FailedCaseRecordDTO> getFailedCaseRecords(String batchId) {
-        log.info("Fetching failed case records for batchId: {}", batchId);
-
-        List<BatchError> errors = batchErrorRepository.findByBatchId(batchId);
-
-        // Group errors by row number and external case ID
-        Map<String, FailedCaseRecordDTO> recordMap = new HashMap<>();
-
-        for (BatchError error : errors) {
-            String key = error.getRowNumber() + "_" + error.getExternalCaseId();
-
-            recordMap.computeIfAbsent(key, k -> FailedCaseRecordDTO.builder()
-                    .rowNumber(error.getRowNumber())
-                    .externalCaseId(error.getExternalCaseId())
-                    .errors(new ArrayList<>())
-                    .build())
-                    .getErrors().add(error.getErrorMessage());
+                return stats.stream()
+                                .map(row -> SourceStatsDTO.builder()
+                                                .source(row[0].toString())
+                                                .total(row[1] != null ? ((Number) row[1]).longValue() : 0L)
+                                                .successful(row[2] != null ? ((Number) row[2]).longValue() : 0L)
+                                                .failed(row[3] != null ? ((Number) row[3]).longValue() : 0L)
+                                                .build())
+                                .collect(Collectors.toList());
         }
 
-        return new ArrayList<>(recordMap.values());
-    }
+        @Override
+        @Transactional(readOnly = true)
+        @Cacheable(value = "recentUploads", key = "#pageable.pageNumber + '-' + #pageable.pageSize")
+        public List<RecentUploadDTO> getRecentUploads(Pageable pageable) {
+                log.info("Fetching recent uploads");
 
-    @Override
-    @Transactional(readOnly = true)
-    public Page<UnallocatedCaseDTO> getUnallocatedCases(Pageable pageable) {
-        log.info("Fetching unallocated cases");
+                Page<CaseBatch> batches = caseBatchRepository.findAllByOrderByCreatedAtDesc(pageable);
 
-        Page<Case> cases = caseRepository.findByCaseStatus("UNALLOCATED", pageable);
-
-        return cases.map(this::mapToUnallocatedCaseDTO);
-    }
-
-    @Override
-    @Transactional(readOnly = true)
-    @SuppressWarnings("null")
-    public UnallocatedCaseDTO getUnallocatedCaseDetails(Long caseId) {
-        log.info("Fetching unallocated case details for caseId: {}", caseId);
-
-        Case caseEntity = caseRepository.findById(caseId)
-                .orElseThrow(() -> new BusinessException("Case not found: " + caseId));
-
-        if (!"UNALLOCATED".equals(caseEntity.getCaseStatus())) {
-            throw new BusinessException("Case is not unallocated: " + caseId);
+                return batches.getContent().stream()
+                                .map(batch -> RecentUploadDTO.builder()
+                                                .batchId(batch.getBatchId())
+                                                .source(batch.getSourceType().name())
+                                                .uploadedBy(batch.getUploadedBy())
+                                                .uploadedAt(batch.getCreatedAt())
+                                                .totalCases(batch.getTotalCases())
+                                                .status(batch.getStatus().name())
+                                                .build())
+                                .collect(Collectors.toList());
         }
 
-        return mapToUnallocatedCaseDTO(caseEntity);
-    }
+        @Override
+        @Transactional
+        @CacheEvict(value = { "dashboardSummary", "sourceStats", "recentUploads", "batchStatus", "batchSummary",
+                        "failedCaseRecords", "unallocatedCases", "unallocatedCaseDetails", "intakeReport",
+                        "unallocatedCasesReport" }, allEntries = true)
+        @SuppressWarnings("null")
+        public BatchUploadResponseDTO uploadCases(MultipartFile file, String uploadedBy) {
+                log.info("Uploading case data from file: {}", file.getOriginalFilename());
 
-    @Override
-    @Transactional
-    @SuppressWarnings("null")
-    public BatchUploadResponseDTO reuploadCases(String batchId, MultipartFile file, String uploadedBy) {
-        log.info("Re-uploading corrected cases for batchId: {}", batchId);
+                // Generate batch ID
+                String batchId = generateBatchId();
 
-        // Verify original batch exists
-        if (!caseBatchRepository.existsByBatchId(batchId)) {
-            throw new BusinessException("Original batch not found: " + batchId);
+                // Create batch record
+                CaseBatch batch = CaseBatch.builder()
+                                .batchId(batchId)
+                                .sourceType(SourceType.MANUAL)
+                                .status(BatchStatus.PROCESSING)
+                                .fileName(file.getOriginalFilename())
+                                .uploadedBy(uploadedBy)
+                                .totalCases(0)
+                                .validCases(0)
+                                .invalidCases(0)
+                                .duplicateCases(0)
+                                .validationJobId("job_" + System.currentTimeMillis())
+                                .build();
+
+                caseBatchRepository.save(batch);
+
+                // Save the MultipartFile to a temporary location
+                Path tempFilePath;
+                try {
+                        tempFilePath = Files.createTempFile("case_upload_", ".csv");
+                        file.transferTo(tempFilePath);
+                } catch (IOException e) {
+                        log.error("Failed to save uploaded file to temporary location", e);
+                        throw new BusinessException("Failed to process file upload: " + e.getMessage());
+                }
+
+                // Process file asynchronously
+                batchProcessingService.processBatchAsync(batchId, tempFilePath.toString());
+
+                return BatchUploadResponseDTO.builder()
+                                .batchId(batchId)
+                                .totalCases(batch.getTotalCases())
+                                .status(batch.getStatus().name())
+                                .validationJobId(batch.getValidationJobId())
+                                .build();
         }
 
-        // Generate new batch ID for reupload
-        String newBatchId = batchId + "_REUPLOAD_" + System.currentTimeMillis();
+        @Override
+        @Transactional(readOnly = true)
+        @Cacheable(value = "batchStatus", key = "#batchId")
+        public BatchStatusDTO getBatchStatus(String batchId) {
+                log.info("Fetching batch status for batchId: {}", batchId);
 
-        // Create new batch record
-        CaseBatch batch = CaseBatch.builder()
-                .batchId(newBatchId)
-                .sourceType(SourceType.MANUAL)
-                .status(BatchStatus.PROCESSING)
-                .fileName(file.getOriginalFilename())
-                .uploadedBy(uploadedBy)
-                .totalCases(0)
-                .validCases(0)
-                .invalidCases(0)
-                .duplicateCases(0)
-                .validationJobId("job_" + System.currentTimeMillis())
-                .build();
+                CaseBatch batch = caseBatchRepository.findByBatchId(batchId)
+                                .orElseThrow(() -> new BusinessException("Batch not found: " + batchId));
 
-        caseBatchRepository.save(batch);
+                List<BatchError> errors = batchErrorRepository.findByBatchId(batchId);
 
-        // Save the MultipartFile to a temporary location
-        Path tempFilePath;
-        try {
-            tempFilePath = Files.createTempFile("case_reupload_", ".csv");
-            file.transferTo(tempFilePath);
-        } catch (IOException e) {
-            log.error("Failed to save re-uploaded file to temporary location", e);
-            throw new BusinessException("Failed to process file re-upload: " + e.getMessage());
+                List<BatchErrorDTO> errorDTOs = errors.stream()
+                                .map(error -> BatchErrorDTO.builder()
+                                                .externalCaseId(error.getExternalCaseId())
+                                                .errorType(error.getErrorType().name())
+                                                .message(error.getErrorMessage())
+                                                .build())
+                                .collect(Collectors.toList());
+
+                return BatchStatusDTO.builder()
+                                .batchId(batch.getBatchId())
+                                .totalCases(batch.getTotalCases())
+                                .validCases(batch.getValidCases())
+                                .invalidCases(batch.getInvalidCases())
+                                .status(batch.getStatus().name())
+                                .errors(errorDTOs)
+                                .completedAt(batch.getCompletedAt())
+                                .build();
         }
 
-        // Process file asynchronously
-        batchProcessingService.processBatchAsync(newBatchId, tempFilePath.toString());
+        @Override
+        @Transactional(readOnly = true)
+        @Cacheable(value = "batchSummary", key = "#batchId")
+        public BatchSummaryDTO getBatchSummary(String batchId) {
+                log.info("Fetching batch summary for batchId: {}", batchId);
 
-        return BatchUploadResponseDTO.builder()
-                .batchId(newBatchId)
-                .totalCases(batch.getTotalCases())
-                .status(batch.getStatus().name())
-                .validationJobId(batch.getValidationJobId())
-                .build();
-    }
+                CaseBatch batch = caseBatchRepository.findByBatchId(batchId)
+                                .orElseThrow(() -> new BusinessException("Batch not found: " + batchId));
 
-    private String generateBatchId() {
-        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss");
-        return "BATCH_" + LocalDateTime.now().format(formatter);
-    }
-
-    @Override
-    @Transactional(readOnly = true)
-    public byte[] exportFailedCases(String batchId) {
-        log.info("Exporting failed cases for batch: {}", batchId);
-
-        List<BatchError> errors = batchErrorRepository.findByBatchId(batchId);
-
-        if (errors.isEmpty()) {
-            throw new BusinessException("No errors found for batch: " + batchId);
+                return BatchSummaryDTO.builder()
+                                .batchId(batch.getBatchId())
+                                .validCases(batch.getValidCases())
+                                .invalidCases(batch.getInvalidCases())
+                                .duplicates(batch.getDuplicateCases())
+                                .build();
         }
 
-        return csvExporter.exportBatchErrors(errors);
-    }
+        @Override
+        @Transactional(readOnly = true)
+        @Cacheable(value = "failedCaseRecords", key = "#batchId")
+        public List<FailedCaseRecordDTO> getFailedCaseRecords(String batchId) {
+                log.info("Fetching failed case records for batchId: {}", batchId);
 
-    @Override
-    @Transactional(readOnly = true)
-    public byte[] exportBatchCases(String batchId) {
-        log.info("Exporting cases for batch: {}", batchId);
+                List<BatchError> errors = batchErrorRepository.findByBatchId(batchId);
 
-        // Find all cases for this batch
-        List<Case> cases = caseRepository.findAll().stream()
-                .filter(c -> batchId.equals(c.getImportBatchId()))
-                .collect(Collectors.toList());
+                // Group errors by row number and external case ID
+                Map<String, FailedCaseRecordDTO> recordMap = new HashMap<>();
 
-        if (cases.isEmpty()) {
-            throw new BusinessException("No cases found for batch: " + batchId);
+                for (BatchError error : errors) {
+                        String key = error.getRowNumber() + "_" + error.getExternalCaseId();
+
+                        recordMap.computeIfAbsent(key, k -> FailedCaseRecordDTO.builder()
+                                        .rowNumber(error.getRowNumber())
+                                        .externalCaseId(error.getExternalCaseId())
+                                        .errors(new ArrayList<>())
+                                        .build())
+                                        .getErrors().add(error.getErrorMessage());
+                }
+
+                return new ArrayList<>(recordMap.values());
         }
 
-        return csvExporter.exportCases(cases);
-    }
+        @Override
+        @Transactional(readOnly = true)
+        @Cacheable(value = "unallocatedCases", key = "#pageable.pageNumber + '-' + #pageable.pageSize")
+        public Page<UnallocatedCaseDTO> getUnallocatedCases(Pageable pageable) {
+                log.info("Fetching unallocated cases");
 
-    @Override
-    @Transactional(readOnly = true)
-    public IntakeReportDTO getIntakeReport(String startDate, String endDate) {
-        log.info("Generating intake report from {} to {}", startDate, endDate);
+                Page<Case> cases = caseRepository.findByCaseStatus("UNALLOCATED", pageable);
 
-        // Parse dates
-        LocalDateTime startDateTime = parseDate(startDate, true);
-        LocalDateTime endDateTime = parseDate(endDate, false);
-
-        // Get overall stats
-        List<CaseBatch> batches = caseBatchRepository.findBatchesByDateRange(startDateTime, endDateTime);
-
-        long totalReceived = batches.stream().mapToLong(CaseBatch::getTotalCases).sum();
-        long totalValidated = batches.stream().mapToLong(CaseBatch::getValidCases).sum();
-        long totalFailed = batches.stream().mapToLong(CaseBatch::getInvalidCases).sum();
-
-        double successRate = totalReceived > 0 ? (totalValidated * 100.0 / totalReceived) : 0.0;
-
-        // Get daily breakdown
-        List<Object[]> dailyStats = caseBatchRepository.getDailyIntakeStats(startDateTime, endDateTime);
-        List<IntakeReportItemDTO> dailyBreakdown = dailyStats.stream()
-                .map(row -> {
-                    java.sql.Date sqlDate = (java.sql.Date) row[0];
-                    long total = row[1] != null ? ((Number) row[1]).longValue() : 0L;
-                    long validated = row[2] != null ? ((Number) row[2]).longValue() : 0L;
-                    long failed = row[3] != null ? ((Number) row[3]).longValue() : 0L;
-                    double rate = total > 0 ? (validated * 100.0 / total) : 0.0;
-
-                    return IntakeReportItemDTO.builder()
-                            .date(sqlDate.toLocalDate())
-                            .totalReceived(total)
-                            .validated(validated)
-                            .failed(failed)
-                            .successRate(Math.round(rate * 100.0) / 100.0)
-                            .build();
-                })
-                .collect(Collectors.toList());
-
-        // Get source-wise breakdown
-        List<Object[]> sourceStats = caseBatchRepository.getSourceWiseIntakeStats(startDateTime, endDateTime);
-        List<SourceWiseIntakeDTO> sourceBreakdown = sourceStats.stream()
-                .map(row -> {
-                    String source = row[0].toString();
-                    long total = row[1] != null ? ((Number) row[1]).longValue() : 0L;
-                    long validated = row[2] != null ? ((Number) row[2]).longValue() : 0L;
-                    long failed = row[3] != null ? ((Number) row[3]).longValue() : 0L;
-                    double rate = total > 0 ? (validated * 100.0 / total) : 0.0;
-
-                    return SourceWiseIntakeDTO.builder()
-                            .source(source)
-                            .totalReceived(total)
-                            .validated(validated)
-                            .failed(failed)
-                            .successRate(Math.round(rate * 100.0) / 100.0)
-                            .build();
-                })
-                .collect(Collectors.toList());
-
-        return IntakeReportDTO.builder()
-                .startDate(startDateTime.toLocalDate())
-                .endDate(endDateTime.toLocalDate())
-                .totalReceived(totalReceived)
-                .totalValidated(totalValidated)
-                .totalFailed(totalFailed)
-                .successRate(Math.round(successRate * 100.0) / 100.0)
-                .dailyBreakdown(dailyBreakdown)
-                .sourceBreakdown(sourceBreakdown)
-                .build();
-    }
-
-    @Override
-    @Transactional(readOnly = true)
-    public UnallocatedReportDTO getUnallocatedCasesReport(String startDate, String endDate) {
-        log.info("Generating unallocated cases report from {} to {}", startDate, endDate);
-
-        // Parse dates
-        LocalDateTime startDateTime = parseDate(startDate, true);
-        LocalDateTime endDateTime = parseDate(endDate, false);
-
-        // Get total unallocated count
-        Long totalUnallocated = caseRepository.countUnallocatedCasesByDateRange(startDateTime, endDateTime);
-
-        // Get detailed breakdown
-        List<Object[]> detailedStats = caseRepository.getUnallocatedCasesGroupedByDateBucketSource(startDateTime, endDateTime);
-        List<UnallocatedReportItemDTO> breakdown = detailedStats.stream()
-                .map(row -> {
-                    java.sql.Date sqlDate = (java.sql.Date) row[0];
-                    long count = row[1] != null ? ((Number) row[1]).longValue() : 0L;
-                    String bucket = row[2] != null ? row[2].toString() : "UNKNOWN";
-                    String batchId = row[3] != null ? row[3].toString() : "UNKNOWN";
-
-                    return UnallocatedReportItemDTO.builder()
-                            .date(sqlDate.toLocalDate())
-                            .unallocatedCount(count)
-                            .bucket(bucket)
-                            .source(batchId)
-                            .build();
-                })
-                .collect(Collectors.toList());
-
-        // Get bucket-wise breakdown
-        List<Object[]> bucketStats = caseRepository.getUnallocatedCasesByBucket(startDateTime, endDateTime);
-        List<BucketWiseUnallocatedDTO> bucketBreakdown = bucketStats.stream()
-                .map(row -> BucketWiseUnallocatedDTO.builder()
-                        .bucket(row[0] != null ? row[0].toString() : "UNKNOWN")
-                        .count(row[1] != null ? ((Number) row[1]).longValue() : 0L)
-                        .build())
-                .collect(Collectors.toList());
-
-        // Get source-wise breakdown
-        List<Object[]> sourceStats = caseRepository.getUnallocatedCasesBySource(startDateTime, endDateTime);
-        List<SourceWiseUnallocatedDTO> sourceBreakdown = sourceStats.stream()
-                .map(row -> SourceWiseUnallocatedDTO.builder()
-                        .source(row[0] != null ? row[0].toString() : "UNKNOWN")
-                        .count(row[1] != null ? ((Number) row[1]).longValue() : 0L)
-                        .build())
-                .collect(Collectors.toList());
-
-        return UnallocatedReportDTO.builder()
-                .startDate(startDateTime.toLocalDate())
-                .endDate(endDateTime.toLocalDate())
-                .totalUnallocated(totalUnallocated != null ? totalUnallocated : 0L)
-                .breakdown(breakdown)
-                .bucketBreakdown(bucketBreakdown)
-                .sourceBreakdown(sourceBreakdown)
-                .build();
-    }
-
-    /**
-     * Parse date string to LocalDateTime
-     */
-    private LocalDateTime parseDate(String dateStr, boolean startOfDay) {
-        if (dateStr == null || dateStr.trim().isEmpty()) {
-            // Default to last 30 days if not provided
-            return startOfDay ?
-                    LocalDateTime.now().minusDays(30).withHour(0).withMinute(0).withSecond(0) :
-                    LocalDateTime.now().withHour(23).withMinute(59).withSecond(59);
+                return cases.map(this::mapToUnallocatedCaseDTO);
         }
 
-        try {
-            java.time.LocalDate localDate = java.time.LocalDate.parse(dateStr);
-            return startOfDay ?
-                    localDate.atStartOfDay() :
-                    localDate.atTime(23, 59, 59);
-        } catch (Exception e) {
-            log.warn("Invalid date format: {}, using defaults", dateStr);
-            return startOfDay ?
-                    LocalDateTime.now().minusDays(30).withHour(0).withMinute(0).withSecond(0) :
-                    LocalDateTime.now().withHour(23).withMinute(59).withSecond(59);
-        }
-    }
+        @SuppressWarnings("null")
+        @Override
+        @Transactional(readOnly = true)
+        @Cacheable(value = "unallocatedCaseDetails", key = "#caseId")
+        public UnallocatedCaseDTO getUnallocatedCaseDetails(Long caseId) {
+                log.info("Fetching unallocated case details for caseId: {}", caseId);
 
-    private UnallocatedCaseDTO mapToUnallocatedCaseDTO(Case caseEntity) {
-        return UnallocatedCaseDTO.builder()
-                .id(caseEntity.getId())
-                .caseNumber(caseEntity.getCaseNumber())
-                .externalCaseId(caseEntity.getExternalCaseId())
-                .customer(CustomerDTO.builder()
-                        .id(caseEntity.getLoan().getPrimaryCustomer().getId())
-                        .name(caseEntity.getLoan().getPrimaryCustomer().getFullName())
-                        .mobile(caseEntity.getLoan().getPrimaryCustomer().getMobileNumber())
-                        .build())
-                .loanDetails(LoanDetailsDTO.builder()
-                        .totalOutstanding(caseEntity.getLoan().getTotalOutstanding())
-                        .dpd(caseEntity.getLoan().getDpd())
-                        .bucket(caseEntity.getLoan().getBucket())
-                        .build())
-                .status(caseEntity.getCaseStatus())
-                .createdAt(caseEntity.getCreatedAt())
-                .build();
-    }
+                Case caseEntity = caseRepository.findById(caseId)
+                                .orElseThrow(() -> new BusinessException("Case not found: " + caseId));
+
+                if (!"UNALLOCATED".equals(caseEntity.getCaseStatus())) {
+                        throw new BusinessException("Case is not unallocated: " + caseId);
+                }
+
+                return mapToUnallocatedCaseDTO(caseEntity);
+        }
+
+        @Override
+        @Transactional
+        @CacheEvict(value = { "dashboardSummary", "sourceStats", "recentUploads", "batchStatus", "batchSummary",
+                        "failedCaseRecords", "unallocatedCases", "unallocatedCaseDetails", "intakeReport",
+                        "unallocatedCasesReport" }, allEntries = true)
+        @SuppressWarnings("null")
+        public BatchUploadResponseDTO reuploadCases(String batchId, MultipartFile file, String uploadedBy) {
+                log.info("Re-uploading corrected cases for batchId: {}", batchId);
+
+                // Verify original batch exists
+                if (!caseBatchRepository.existsByBatchId(batchId)) {
+                        throw new BusinessException("Original batch not found: " + batchId);
+                }
+
+                // Generate new batch ID for reupload
+                String newBatchId = batchId + "_REUPLOAD_" + System.currentTimeMillis();
+
+                // Create new batch record
+                CaseBatch batch = CaseBatch.builder()
+                                .batchId(newBatchId)
+                                .sourceType(SourceType.MANUAL)
+                                .status(BatchStatus.PROCESSING)
+                                .fileName(file.getOriginalFilename())
+                                .uploadedBy(uploadedBy)
+                                .totalCases(0)
+                                .validCases(0)
+                                .invalidCases(0)
+                                .duplicateCases(0)
+                                .validationJobId("job_" + System.currentTimeMillis())
+                                .build();
+
+                caseBatchRepository.save(batch);
+
+                // Save the MultipartFile to a temporary location
+                Path tempFilePath;
+                try {
+                        tempFilePath = Files.createTempFile("case_reupload_", ".csv");
+                        file.transferTo(tempFilePath);
+                } catch (IOException e) {
+                        log.error("Failed to save re-uploaded file to temporary location", e);
+                        throw new BusinessException("Failed to process file re-upload: " + e.getMessage());
+                }
+
+                // Process file asynchronously
+                batchProcessingService.processBatchAsync(newBatchId, tempFilePath.toString());
+
+                return BatchUploadResponseDTO.builder()
+                                .batchId(newBatchId)
+                                .totalCases(batch.getTotalCases())
+                                .status(batch.getStatus().name())
+                                .validationJobId(batch.getValidationJobId())
+                                .build();
+        }
+
+        private String generateBatchId() {
+                DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss");
+                return "BATCH_" + LocalDateTime.now().format(formatter);
+        }
+
+        @Override
+        @Transactional(readOnly = true)
+        public byte[] exportFailedCases(String batchId) {
+                log.info("Exporting failed cases for batch: {}", batchId);
+
+                List<BatchError> errors = batchErrorRepository.findByBatchId(batchId);
+
+                if (errors.isEmpty()) {
+                        throw new BusinessException("No errors found for batch: " + batchId);
+                }
+
+                return csvExporter.exportBatchErrors(errors);
+        }
+
+        @Override
+        @Transactional(readOnly = true)
+        public byte[] exportBatchCases(String batchId) {
+                log.info("Exporting cases for batch: {}", batchId);
+
+                // Find all cases for this batch
+                List<Case> cases = caseRepository.findAll().stream()
+                                .filter(c -> batchId.equals(c.getImportBatchId()))
+                                .collect(Collectors.toList());
+
+                if (cases.isEmpty()) {
+                        throw new BusinessException("No cases found for batch: " + batchId);
+                }
+
+                return csvExporter.exportCases(cases);
+        }
+
+        @Override
+        @Transactional(readOnly = true)
+        @Cacheable(value = "intakeReport", key = "#startDate + '-' + #endDate")
+        public IntakeReportDTO getIntakeReport(String startDate, String endDate) {
+                log.info("Generating intake report from {} to {}", startDate, endDate);
+
+                // Parse dates
+                LocalDateTime startDateTime = parseDate(startDate, true);
+                LocalDateTime endDateTime = parseDate(endDate, false);
+
+                // Get overall stats
+                List<CaseBatch> batches = caseBatchRepository.findBatchesByDateRange(startDateTime, endDateTime);
+
+                long totalReceived = batches.stream().mapToLong(CaseBatch::getTotalCases).sum();
+                long totalValidated = batches.stream().mapToLong(CaseBatch::getValidCases).sum();
+                long totalFailed = batches.stream().mapToLong(CaseBatch::getInvalidCases).sum();
+
+                double successRate = totalReceived > 0 ? (totalValidated * 100.0 / totalReceived) : 0.0;
+
+                // Get daily breakdown
+                List<Object[]> dailyStats = caseBatchRepository.getDailyIntakeStats(startDateTime, endDateTime);
+                List<IntakeReportItemDTO> dailyBreakdown = dailyStats.stream()
+                                .map(row -> {
+                                        java.sql.Date sqlDate = (java.sql.Date) row[0];
+                                        long total = row[1] != null ? ((Number) row[1]).longValue() : 0L;
+                                        long validated = row[2] != null ? ((Number) row[2]).longValue() : 0L;
+                                        long failed = row[3] != null ? ((Number) row[3]).longValue() : 0L;
+                                        double rate = total > 0 ? (validated * 100.0 / total) : 0.0;
+
+                                        return IntakeReportItemDTO.builder()
+                                                        .date(sqlDate.toLocalDate())
+                                                        .totalReceived(total)
+                                                        .validated(validated)
+                                                        .failed(failed)
+                                                        .successRate(Math.round(rate * 100.0) / 100.0)
+                                                        .build();
+                                })
+                                .collect(Collectors.toList());
+
+                // Get source-wise breakdown
+                List<Object[]> sourceStats = caseBatchRepository.getSourceWiseIntakeStats(startDateTime, endDateTime);
+                List<SourceWiseIntakeDTO> sourceBreakdown = sourceStats.stream()
+                                .map(row -> {
+                                        String source = row[0].toString();
+                                        long total = row[1] != null ? ((Number) row[1]).longValue() : 0L;
+                                        long validated = row[2] != null ? ((Number) row[2]).longValue() : 0L;
+                                        long failed = row[3] != null ? ((Number) row[3]).longValue() : 0L;
+                                        double rate = total > 0 ? (validated * 100.0 / total) : 0.0;
+
+                                        return SourceWiseIntakeDTO.builder()
+                                                        .source(source)
+                                                        .totalReceived(total)
+                                                        .validated(validated)
+                                                        .failed(failed)
+                                                        .successRate(Math.round(rate * 100.0) / 100.0)
+                                                        .build();
+                                })
+                                .collect(Collectors.toList());
+
+                return IntakeReportDTO.builder()
+                                .startDate(startDateTime.toLocalDate())
+                                .endDate(endDateTime.toLocalDate())
+                                .totalReceived(totalReceived)
+                                .totalValidated(totalValidated)
+                                .totalFailed(totalFailed)
+                                .successRate(Math.round(successRate * 100.0) / 100.0)
+                                .dailyBreakdown(dailyBreakdown)
+                                .sourceBreakdown(sourceBreakdown)
+                                .build();
+        }
+
+        @Override
+        @Transactional(readOnly = true)
+        @Cacheable(value = "unallocatedCasesReport", key = "#startDate + '-' + #endDate")
+        public UnallocatedReportDTO getUnallocatedCasesReport(String startDate, String endDate) {
+                log.info("Generating unallocated cases report from {} to {}", startDate, endDate);
+
+                // Parse dates
+                LocalDateTime startDateTime = parseDate(startDate, true);
+                LocalDateTime endDateTime = parseDate(endDate, false);
+
+                // Get total unallocated count
+                Long totalUnallocated = caseRepository.countUnallocatedCasesByDateRange(startDateTime, endDateTime);
+
+                // Get detailed breakdown
+                List<Object[]> detailedStats = caseRepository
+                                .getUnallocatedCasesGroupedByDateBucketSource(startDateTime, endDateTime);
+                List<UnallocatedReportItemDTO> breakdown = detailedStats.stream()
+                                .map(row -> {
+                                        java.sql.Date sqlDate = (java.sql.Date) row[0];
+                                        long count = row[1] != null ? ((Number) row[1]).longValue() : 0L;
+                                        String bucket = row[2] != null ? row[2].toString() : "UNKNOWN";
+                                        String batchId = row[3] != null ? row[3].toString() : "UNKNOWN";
+
+                                        return UnallocatedReportItemDTO.builder()
+                                                        .date(sqlDate.toLocalDate())
+                                                        .unallocatedCount(count)
+                                                        .bucket(bucket)
+                                                        .source(batchId)
+                                                        .build();
+                                })
+                                .collect(Collectors.toList());
+
+                // Get bucket-wise breakdown
+                List<Object[]> bucketStats = caseRepository.getUnallocatedCasesByBucket(startDateTime, endDateTime);
+                List<BucketWiseUnallocatedDTO> bucketBreakdown = bucketStats.stream()
+                                .map(row -> BucketWiseUnallocatedDTO.builder()
+                                                .bucket(row[0] != null ? row[0].toString() : "UNKNOWN")
+                                                .count(row[1] != null ? ((Number) row[1]).longValue() : 0L)
+                                                .build())
+                                .collect(Collectors.toList());
+
+                // Get source-wise breakdown
+                List<Object[]> sourceStats = caseRepository.getUnallocatedCasesBySource(startDateTime, endDateTime);
+                List<SourceWiseUnallocatedDTO> sourceBreakdown = sourceStats.stream()
+                                .map(row -> SourceWiseUnallocatedDTO.builder()
+                                                .source(row[0] != null ? row[0].toString() : "UNKNOWN")
+                                                .count(row[1] != null ? ((Number) row[1]).longValue() : 0L)
+                                                .build())
+                                .collect(Collectors.toList());
+
+                return UnallocatedReportDTO.builder()
+                                .startDate(startDateTime.toLocalDate())
+                                .endDate(endDateTime.toLocalDate())
+                                .totalUnallocated(totalUnallocated != null ? totalUnallocated : 0L)
+                                .breakdown(breakdown)
+                                .bucketBreakdown(bucketBreakdown)
+                                .sourceBreakdown(sourceBreakdown)
+                                .build();
+        }
+
+        /**
+         * Parse date string to LocalDateTime
+         */
+        private LocalDateTime parseDate(String dateStr, boolean startOfDay) {
+                if (dateStr == null || dateStr.trim().isEmpty()) {
+                        // Default to last 30 days if not provided
+                        return startOfDay ? LocalDateTime.now().minusDays(30).withHour(0).withMinute(0).withSecond(0)
+                                        : LocalDateTime.now().withHour(23).withMinute(59).withSecond(59);
+                }
+
+                try {
+                        java.time.LocalDate localDate = java.time.LocalDate.parse(dateStr);
+                        return startOfDay ? localDate.atStartOfDay() : localDate.atTime(23, 59, 59);
+                } catch (Exception e) {
+                        log.warn("Invalid date format: {}, using defaults", dateStr);
+                        return startOfDay ? LocalDateTime.now().minusDays(30).withHour(0).withMinute(0).withSecond(0)
+                                        : LocalDateTime.now().withHour(23).withMinute(59).withSecond(59);
+                }
+        }
+
+        private UnallocatedCaseDTO mapToUnallocatedCaseDTO(Case caseEntity) {
+                return UnallocatedCaseDTO.builder()
+                                .id(caseEntity.getId())
+                                .caseNumber(caseEntity.getCaseNumber())
+                                .externalCaseId(caseEntity.getExternalCaseId())
+                                .customer(CustomerDTO.builder()
+                                                .id(caseEntity.getLoan().getPrimaryCustomer().getId())
+                                                .name(caseEntity.getLoan().getPrimaryCustomer().getFullName())
+                                                .mobile(caseEntity.getLoan().getPrimaryCustomer().getMobileNumber())
+                                                .build())
+                                .loanDetails(LoanDetailsDTO.builder()
+                                                .totalOutstanding(caseEntity.getLoan().getTotalOutstanding())
+                                                .dpd(caseEntity.getLoan().getDpd())
+                                                .bucket(caseEntity.getLoan().getBucket())
+                                                .build())
+                                .status(caseEntity.getCaseStatus())
+                                .createdAt(caseEntity.getCreatedAt())
+                                .build();
+        }
 }

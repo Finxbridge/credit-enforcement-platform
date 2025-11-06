@@ -5,6 +5,8 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
+import jakarta.validation.constraints.Pattern;
+
 import java.util.Set;
 
 @Data
@@ -30,6 +32,7 @@ public class CreateUserRequest {
     @Size(max = 100)
     private String lastName;
 
+    @Pattern(regexp = "^[6-9]\\d{9}$", message = "Invalid mobile number. Must be 10 digits and start with 6-9.")
     @Size(max = 15)
     private String mobileNumber;
 
