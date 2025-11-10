@@ -176,9 +176,9 @@ public class AuthController {
      */
     @PostMapping("/unlock-account/{username}")
     @Operation(summary = "Unlock account", description = "Unlock user account after lockout (Admin only).")
-    public ResponseEntity<CommonResponse<Void>> unlockAccount(@PathVariable String username) {
-        authenticationService.unlockAccount(username);
-        return ResponseWrapper.okMessage("Account unlocked successfully");
+    public ResponseEntity<CommonResponse<String>> unlockAccount(@PathVariable String username) {
+        String message = authenticationService.unlockAccount(username);
+        return ResponseWrapper.ok(message, message);
     }
 
     /**

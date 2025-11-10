@@ -35,7 +35,7 @@ public class LoginResponse {
     private String refreshToken;
     @Builder.Default
     private String tokenType = "Bearer";
-    private Long expiresAt;
-    private Long refreshExpiresAt;
+    private String expiresAt;
+    private String refreshExpiresAt;
     private String sessionId;
 }

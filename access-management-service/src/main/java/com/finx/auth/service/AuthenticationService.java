@@ -27,6 +27,7 @@ import java.util.UUID;
 import java.util.HashMap;
 import java.util.Map;
 import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.concurrent.CompletableFuture;
 import java.util.Optional;
 
@@ -64,6 +65,7 @@ public class AuthenticationService {
     private static final int DEFAULT_OTP_MAX_ATTEMPTS = 3;
 
     private static final SecureRandom RANDOM = new SecureRandom();
+    private static final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     /**
      * User Login
@@ -157,10 +159,12 @@ public class AuthenticationService {
                 .message("Login successful.")
                 .accessToken(accessToken)
                 .refreshToken(refreshToken)
-                .expiresAt(jwtUtil.getAccessTokenExpirationTime().atZone(ZoneId.systemDefault()).toInstant()
-                        .toEpochMilli())
-                .refreshExpiresAt(jwtUtil.getRefreshTokenExpirationTime().atZone(ZoneId.systemDefault()).toInstant()
-                        .toEpochMilli())
+                .expiresAt(jwtUtil.getAccessTokenExpirationTime()
+                        .atZone(ZoneId.systemDefault())
+                        .format(formatter))
+                .refreshExpiresAt(jwtUtil.getRefreshTokenExpirationTime()
+                        .atZone(ZoneId.systemDefault())
+                        .format(formatter))
                 .sessionId(session.getSessionId())
                 .build();
     }
@@ -173,7 +177,8 @@ public class AuthenticationService {
     public RequestOtpResponse requestOtp(RequestOtpRequest request) {
         log.info("OTP request for user: {}", request.getUsername());
 
-        int otpExpiryMinutes = configCacheService.getIntConfig(CacheConstants.OTP_EXPIRY_MINUTES, DEFAULT_OTP_EXPIRY_MINUTES);
+        int otpExpiryMinutes = configCacheService.getIntConfig(CacheConstants.OTP_EXPIRY_MINUTES,
+                DEFAULT_OTP_EXPIRY_MINUTES);
         int otpMaxAttempts = configCacheService.getIntConfig(CacheConstants.OTP_MAX_ATTEMPTS, DEFAULT_OTP_MAX_ATTEMPTS);
 
         // Find user
@@ -187,7 +192,8 @@ public class AuthenticationService {
         OtpRequest otpRequest;
         if (existingOtpRequest.isPresent()) {
             otpRequest = existingOtpRequest.get();
-            // Reset attempt count for verification when a new OTP is requested (e.g., resend)
+            // Reset attempt count for verification when a new OTP is requested (e.g.,
+            // resend)
             otpRequest.setAttemptCount(0);
             otpRequest.setExpiresAt(LocalDateTime.now().plusMinutes(otpExpiryMinutes));
             otpRequest.setStatus("PENDING"); // Reset status to PENDING for new OTP
@@ -263,7 +269,8 @@ public class AuthenticationService {
         if (!passwordPolicyService.verifyPassword(request.getOtpCode(), otpRequest.getOtpHash())) {
             otpRequest.incrementAttempt();
             otpRequestRepository.save(otpRequest);
-            int otpMaxAttempts = configCacheService.getIntConfig(CacheConstants.OTP_MAX_ATTEMPTS, DEFAULT_OTP_MAX_ATTEMPTS);
+            int otpMaxAttempts = configCacheService.getIntConfig(CacheConstants.OTP_MAX_ATTEMPTS,
+                    DEFAULT_OTP_MAX_ATTEMPTS);
             int remainingAttempts = otpMaxAttempts - otpRequest.getAttemptCount();
             throw new BusinessException("Invalid OTP. " + remainingAttempts + " attempts remaining.");
         }
@@ -441,12 +448,18 @@ public class AuthenticationService {
      * Unlock account (Admin action)
      */
     @Transactional
-    public void unlockAccount(String username) {
+    public String unlockAccount(String username) {
         User user = authUserRepository.findByUsername(username)
                 .orElseThrow(() -> new ResourceNotFoundException(USER_NOT_FOUND));
 
+        if (!passwordPolicyService.isAccountLocked(user)) {
+            log.info("Attempted to unlock an already unlocked account for user: {}", username);
+            return "Account is not locked";
+        }
+
         passwordPolicyService.unlockAccount(user);
         log.info("Admin unlocked account for user: {}", username);
+        return "Account unlocked successfully";
     }
 
     /**

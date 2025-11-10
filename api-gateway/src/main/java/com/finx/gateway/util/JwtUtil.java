@@ -29,6 +29,7 @@ public class JwtUtil {
     public Claims getAllClaimsFromToken(String token) {
         return Jwts.parser()
                 .verifyWith(key)
+                .setAllowedClockSkewSeconds(300) // 5 minutes clock skew
                 .build()
                 .parseSignedClaims(token)
                 .getPayload();

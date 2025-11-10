@@ -7,6 +7,7 @@ import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.cloud.openfeign.EnableFeignClients;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 
 /**
  * Authentication Service Application
@@ -36,6 +37,7 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
                 "com.finx.common.repository" })
 @EntityScan(basePackages = { "com.finx.auth.domain.entity", "com.finx.common.model", "com.finx.common.domain.entity",
                 "com.finx.management.domain.entity" })
+@EnableMethodSecurity
 public class AccessManagementServiceApplication {
 
         public static void main(String[] args) {

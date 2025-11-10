@@ -8,6 +8,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import org.springframework.security.access.prepost.PreAuthorize;
+
 import java.util.List;
 
 @RestController
@@ -17,12 +19,14 @@ public class PermissionController {
 
     private final PermissionService permissionService;
 
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
     @GetMapping
     public ResponseEntity<CommonResponse<List<PermissionDTO>>> getAllPermissions() {
         List<PermissionDTO> permissions = permissionService.getAllPermissions();
         return ResponseWrapper.ok("Permissions retrieved successfully.", permissions);
     }
 
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
     @GetMapping("/{id}")
     public ResponseEntity<CommonResponse<PermissionDTO>> getPermissionById(@PathVariable Long id) {
         PermissionDTO permission = permissionService.getPermissionById(id);

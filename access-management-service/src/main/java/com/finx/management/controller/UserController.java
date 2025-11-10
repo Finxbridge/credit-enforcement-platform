@@ -15,6 +15,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.security.access.prepost.PreAuthorize;
 
 import java.util.List;
 
@@ -25,6 +26,7 @@ public class UserController {
 
     private final UserService userService;
 
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
     @GetMapping
     public ResponseEntity<CommonResponse<Page<UserDTO>>> getAllUsers(
             @RequestParam(defaultValue = "0") int page,
@@ -39,18 +41,21 @@ public class UserController {
         return ResponseWrapper.ok("Users retrieved successfully.", users);
     }
 
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
     @GetMapping("/{id}")
     public ResponseEntity<CommonResponse<UserDTO>> getUserById(@PathVariable Long id) {
         UserDTO user = userService.getUserById(id);
         return ResponseWrapper.ok("User retrieved successfully.", user);
     }
 
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
     @PostMapping
     public ResponseEntity<CommonResponse<UserDTO>> createUser(@Valid @RequestBody CreateUserRequest request) {
         UserDTO createdUser = userService.createUser(request);
         return ResponseWrapper.created("User created successfully.", createdUser);
     }
 
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
     @PutMapping("/{id}")
     public ResponseEntity<CommonResponse<UserDTO>> updateUser(@PathVariable Long id,
             @Valid @RequestBody UpdateUserRequest request) {
@@ -58,12 +63,14 @@ public class UserController {
         return ResponseWrapper.ok("User updated successfully.", updatedUser);
     }
 
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
     @DeleteMapping("/{id}")
     public ResponseEntity<CommonResponse<Void>> deleteUser(@PathVariable Long id) {
         userService.deleteUser(id);
         return ResponseWrapper.okMessage("User deleted successfully.");
     }
 
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
     @GetMapping("/{userId}/permissions")
     public ResponseEntity<CommonResponse<List<UserPermissionDTO>>> getUserPermissions(@PathVariable Long userId) {
         List<UserPermissionDTO> permissions = userService.getUserPermissions(userId);

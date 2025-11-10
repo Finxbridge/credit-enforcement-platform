@@ -37,6 +37,7 @@ public class AuthenticationGatewayFilterFactory
     public static class Config {
     }
 
+    @SuppressWarnings("unchecked")
     @Override
     public GatewayFilter apply(Config config) {
         return (exchange, chain) -> {
@@ -72,10 +73,16 @@ public class AuthenticationGatewayFilterFactory
 
             // Add user context to request headers for downstream services
             Claims claims = jwtUtil.getAllClaimsFromToken(token);
+            List<String> roles = (List<String>) claims.get("roles"); // Assuming "roles" claim is a List<String>
+            String rolesHeader = String.join(",", roles); // Format roles as comma-separated string
+
+            log.info("Adding headers: X-User-Id={}, X-Username={}, X-Roles={}",
+                    claims.get("userId"), claims.getSubject(), rolesHeader);
+
             ServerHttpRequest modifiedRequest = exchange.getRequest().mutate()
                     .header("X-User-Id", claims.get("userId").toString())
                     .header("X-Username", claims.getSubject())
-                    .header("X-Roles", claims.get("roles").toString())
+                    .header("X-Roles", rolesHeader) // Use the formatted roles string
                     .build();
 
             return chain.filter(exchange.mutate().request(modifiedRequest).build());
