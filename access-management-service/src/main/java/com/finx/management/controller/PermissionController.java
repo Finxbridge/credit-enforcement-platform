@@ -19,14 +19,14 @@ public class PermissionController {
 
     private final PermissionService permissionService;
 
-    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('PERMISSION_READ')")
     @GetMapping
     public ResponseEntity<CommonResponse<List<PermissionDTO>>> getAllPermissions() {
         List<PermissionDTO> permissions = permissionService.getAllPermissions();
         return ResponseWrapper.ok("Permissions retrieved successfully.", permissions);
     }
 
-    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('PERMISSION_READ')")
     @GetMapping("/{id}")
     public ResponseEntity<CommonResponse<PermissionDTO>> getPermissionById(@PathVariable Long id) {
         PermissionDTO permission = permissionService.getPermissionById(id);

@@ -11,15 +11,18 @@ import org.springframework.security.core.authority.mapping.GrantedAuthoritiesMap
 import org.springframework.security.core.authority.mapping.SimpleAuthorityMapper;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
+
 @Configuration
 @EnableWebSecurity
+@EnableMethodSecurity // Enable method-level security
 public class SecurityConfig {
 
     @Bean
     public GrantedAuthoritiesMapper grantedAuthoritiesMapper() {
         SimpleAuthorityMapper mapper = new SimpleAuthorityMapper();
-        mapper.setConvertToUpperCase(true); // Ensure roles are uppercase
-        mapper.setDefaultAuthority("ROLE_USER"); // Default role if none specified
+        mapper.setConvertToUpperCase(false); // Permissions are already in the correct case
+        mapper.setPrefix(""); // Permissions do not have a "ROLE_" prefix
         return mapper;
     }
 

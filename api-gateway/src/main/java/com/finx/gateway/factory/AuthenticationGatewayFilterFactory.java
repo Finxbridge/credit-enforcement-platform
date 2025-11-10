@@ -76,13 +76,17 @@ public class AuthenticationGatewayFilterFactory
             List<String> roles = (List<String>) claims.get("roles"); // Assuming "roles" claim is a List<String>
             String rolesHeader = String.join(",", roles); // Format roles as comma-separated string
 
-            log.info("Adding headers: X-User-Id={}, X-Username={}, X-Roles={}",
-                    claims.get("userId"), claims.getSubject(), rolesHeader);
+            List<String> permissions = jwtUtil.extractPermissions(token);
+            String permissionsHeader = String.join(",", permissions);
+
+            log.info("Adding headers: X-User-Id={}, X-Username={}, X-Roles={}, X-Permissions={}",
+                    claims.get("userId"), claims.getSubject(), rolesHeader, permissionsHeader);
 
             ServerHttpRequest modifiedRequest = exchange.getRequest().mutate()
                     .header("X-User-Id", claims.get("userId").toString())
                     .header("X-Username", claims.getSubject())
                     .header("X-Roles", rolesHeader) // Use the formatted roles string
+                    .header("X-Permissions", permissionsHeader)
                     .build();
 
             return chain.filter(exchange.mutate().request(modifiedRequest).build());

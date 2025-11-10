@@ -30,6 +30,7 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.concurrent.CompletableFuture;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * AuthenticationService
@@ -128,9 +129,13 @@ public class AuthenticationService {
         List<Long> roleIds = userRoleRepository.findRoleIdsByUserId(user.getId());
         List<Role> roles = authRoleRepository.findAllById(roleIds);
         List<String> roleCodes = roles.stream().map(Role::getRoleCode).toList();
+        List<String> permissionCodes = getUserPermissions(user.getId()).getPermissions().stream()
+                .map(PermissionDTO::getPermissionCode)
+                .collect(Collectors.toList());
 
         // Generate tokens
-        String accessToken = jwtUtil.generateAccessToken(user.getId(), user.getUsername(), user.getEmail(), roleCodes);
+        String accessToken = jwtUtil.generateAccessToken(user.getId(), user.getUsername(), user.getEmail(), roleCodes,
+                permissionCodes);
         String refreshToken = jwtUtil.generateRefreshToken(user.getId(), user.getUsername());
 
         // Create session
@@ -388,10 +393,13 @@ public class AuthenticationService {
             List<Long> roleIds = userRoleRepository.findRoleIdsByUserId(user.getId());
             List<Role> roles = authRoleRepository.findAllById(roleIds);
             List<String> roleCodes = roles.stream().map(Role::getRoleCode).toList();
+            List<String> permissionCodes = getUserPermissions(user.getId()).getPermissions().stream()
+                    .map(PermissionDTO::getPermissionCode)
+                    .collect(Collectors.toList());
 
             // Generate new access token
             String newAccessToken = jwtUtil.generateAccessToken(user.getId(), user.getUsername(), user.getEmail(),
-                    roleCodes);
+                    roleCodes, permissionCodes);
 
             // Find and update session with new access token
             UserSession session = sessionManagementService.getSessionByRefreshToken(request.getRefreshToken());

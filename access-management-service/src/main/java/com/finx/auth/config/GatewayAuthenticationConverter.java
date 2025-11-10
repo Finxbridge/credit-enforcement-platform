@@ -17,6 +17,7 @@ public class GatewayAuthenticationConverter implements ServerAuthenticationConve
 
     private static final String X_USERNAME_HEADER = "X-Username";
     private static final String X_ROLES_HEADER = "X-Roles";
+    private static final String X_PERMISSIONS_HEADER = "X-Permissions";
 
     @Override
     public Mono<Authentication> convert(ServerWebExchange exchange) {
@@ -24,12 +25,23 @@ public class GatewayAuthenticationConverter implements ServerAuthenticationConve
                 .filter(username -> username != null && !username.isEmpty())
                 .flatMap(username -> {
                     String rolesHeader = exchange.getRequest().getHeaders().getFirst(X_ROLES_HEADER);
+                    String permissionsHeader = exchange.getRequest().getHeaders().getFirst(X_PERMISSIONS_HEADER);
 
-                    List<SimpleGrantedAuthority> authorities = Arrays
-                            .stream(rolesHeader != null ? rolesHeader.split(",") : new String[0])
-                            .filter(role -> !role.trim().isEmpty())
-                            .map(role -> new SimpleGrantedAuthority(role.trim()))
-                            .collect(Collectors.toList());
+                    List<SimpleGrantedAuthority> authorities = new java.util.ArrayList<>();
+
+                    if (rolesHeader != null && !rolesHeader.isEmpty()) {
+                        Arrays.stream(rolesHeader.split(","))
+                                .filter(role -> !role.trim().isEmpty())
+                                .map(role -> new SimpleGrantedAuthority(role.trim()))
+                                .forEach(authorities::add);
+                    }
+
+                    if (permissionsHeader != null && !permissionsHeader.isEmpty()) {
+                        Arrays.stream(permissionsHeader.split(","))
+                                .filter(permission -> !permission.trim().isEmpty())
+                                .map(permission -> new SimpleGrantedAuthority(permission.trim()))
+                                .forEach(authorities::add);
+                    }
 
                     // Create an authenticated token. The credentials can be null or a dummy value.
                     // The principal can be the username or a custom UserDetails object.

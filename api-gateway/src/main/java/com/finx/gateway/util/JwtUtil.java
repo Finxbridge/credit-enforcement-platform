@@ -35,6 +35,10 @@ public class JwtUtil {
                 .getPayload();
     }
 
+    public java.util.List<String> extractPermissions(String token) {
+        return (java.util.List<String>) getAllClaimsFromToken(token).get("permissions");
+    }
+
     public Date getExpirationDateFromToken(String token) {
         return getAllClaimsFromToken(token).getExpiration();
     }

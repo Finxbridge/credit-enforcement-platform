@@ -52,7 +52,7 @@ public class JwtUtil {
     /**
      * Generate Access Token (expiry from config)
      */
-    public String generateAccessToken(Long userId, String username, String email, java.util.List<String> roles) {
+    public String generateAccessToken(Long userId, String username, String email, java.util.List<String> roles, java.util.List<String> permissions) {
         int expirationMinutes = configCacheService.getIntConfig(CacheConstants.JWT_ACCESS_TOKEN_EXPIRATION_MINUTES, DEFAULT_ACCESS_TOKEN_EXPIRATION);
 
         Map<String, Object> claims = new HashMap<>();
@@ -60,6 +60,7 @@ public class JwtUtil {
         claims.put("username", username);
         claims.put("email", email);
         claims.put("roles", roles);
+        claims.put("permissions", permissions);
         claims.put("tokenType", "ACCESS");
 
         return Jwts.builder()
