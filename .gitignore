@@ -12,7 +12,8 @@
 *.zip
 *.tar.gz
 *.rar
-
+*.csv
+*.json
 # Maven
 target/
 pom.xml.tag

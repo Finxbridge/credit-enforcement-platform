@@ -5,6 +5,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.io.Serializable;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -12,11 +13,14 @@ import java.util.List;
  * Active Session Response DTO
  * Purpose: Return active sessions for user
  */
+
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class ActiveSessionResponse {
+public class ActiveSessionResponse implements Serializable {
+
+    private static final long serialVersionUID = 1L;
 
     private Long userId;
     private String username;
@@ -26,7 +30,9 @@ public class ActiveSessionResponse {
     @NoArgsConstructor
     @AllArgsConstructor
     @Builder
-    public static class SessionInfo {
+    public static class SessionInfo implements Serializable {
+        private static final long serialVersionUID = 1L;
+
         private String sessionId;
         private String deviceType;
         private String ipAddress;
