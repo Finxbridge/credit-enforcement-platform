@@ -82,7 +82,7 @@ CREATE TABLE IF NOT EXISTS allocation_rules (
     name VARCHAR(200) NOT NULL,
     description TEXT,
     criteria JSONB NOT NULL,
-    status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'INACTIVE', 'DRAFT')),
+    status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'INACTIVE', 'DRAFT', 'READY_FOR_APPLY')),
     priority INTEGER DEFAULT 0,
     created_by BIGINT,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,

@@ -289,7 +289,8 @@ public class AllocationController {
     public ResponseEntity<CommonResponse<AllocationRuleExecutionResponseDTO>> applyAllocationRule(
             @PathVariable Long ruleId,
             @Valid @RequestBody AllocationRuleExecutionRequestDTO request) {
-        log.info("Applying allocation rule: {} with dryRun: {}", ruleId, request.getDryRun());
+        log.info("Applying allocation rule: {} with agentIds: {}, percentages: {}",
+                ruleId, request.getAgentIds(), request.getPercentages());
 
         AllocationRuleExecutionResponseDTO response = allocationService.applyAllocationRule(ruleId, request);
 

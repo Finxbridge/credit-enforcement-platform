@@ -56,6 +56,8 @@ public class ReallocationServiceImpl implements ReallocationService {
     private final BatchErrorRepository batchErrorRepository;
     private final CsvExporter csvExporter;
     private final ObjectMapper objectMapper;
+    private final com.finx.allocationreallocationservice.repository.UserRepository userRepository;
+    private final com.finx.allocationreallocationservice.repository.CaseReadRepository caseReadRepository;
 
     @Override
     @Transactional
@@ -120,7 +122,29 @@ public class ReallocationServiceImpl implements ReallocationService {
 
         List<CaseAllocation> oldAllocations = allocations.stream().map(alloc -> alloc.toBuilder().build()).collect(Collectors.toList());
 
-        allocations.forEach(alloc -> alloc.setPrimaryAgentId(request.getToUserId()));
+        int casesReallocated = allocations.size();
+
+        // Update allocations with new agent and maintain/update fields
+        allocations.forEach(alloc -> {
+            alloc.setPrimaryAgentId(request.getToUserId());
+
+            // Maintain workload_percentage (default 100.00 if not set)
+            if (alloc.getWorkloadPercentage() == null) {
+                alloc.setWorkloadPercentage(new java.math.BigDecimal("100.00"));
+            }
+
+            // Update geography code from case entity if possible
+            try {
+                java.util.Optional<com.finx.allocationreallocationservice.domain.entity.Case> caseOpt =
+                    caseReadRepository.findById(alloc.getCaseId());
+                if (caseOpt.isPresent() && caseOpt.get().getGeographyCode() != null) {
+                    alloc.setGeographyCode(caseOpt.get().getGeographyCode());
+                }
+            } catch (Exception e) {
+                log.warn("Failed to fetch case entity for caseId {}: {}", alloc.getCaseId(), e.getMessage());
+            }
+        });
+
         caseAllocationRepository.saveAll(allocations);
 
         List<AllocationHistory> history = allocations.stream()
@@ -141,10 +165,17 @@ public class ReallocationServiceImpl implements ReallocationService {
             saveAuditLog("CASE_ALLOCATION", allocations.get(i).getId(), "REALLOCATE_BY_AGENT", oldAllocations.get(i), allocations.get(i));
         }
 
+        // Update user statistics
+        java.util.Map<Long, Integer> decrements = new java.util.HashMap<>();
+        java.util.Map<Long, Integer> increments = new java.util.HashMap<>();
+        decrements.put(request.getFromUserId(), casesReallocated);
+        increments.put(request.getToUserId(), casesReallocated);
+        updateUserStatisticsForReallocation(decrements, increments);
+
         return ReallocationResponseDTO.builder()
                 .jobId(jobId)
                 .status("COMPLETED")
-                .casesReallocated((long) allocations.size())
+                .casesReallocated((long) casesReallocated)
                 .build();
     }
 
@@ -181,7 +212,34 @@ public class ReallocationServiceImpl implements ReallocationService {
 
         List<CaseAllocation> oldAllocations = allocations.stream().map(alloc -> alloc.toBuilder().build()).collect(Collectors.toList());
 
-        allocations.forEach(alloc -> alloc.setPrimaryAgentId(request.getToUserId()));
+        // Track agent changes for statistics update
+        java.util.Map<Long, Integer> decrements = new java.util.HashMap<>();
+        java.util.Map<Long, Integer> increments = new java.util.HashMap<>();
+
+        // Update allocations with new agent and maintain/update fields
+        allocations.forEach(alloc -> {
+            Long oldAgentId = alloc.getPrimaryAgentId();
+            decrements.put(oldAgentId, decrements.getOrDefault(oldAgentId, 0) + 1);
+            alloc.setPrimaryAgentId(request.getToUserId());
+
+            // Maintain workload_percentage (default 100.00 if not set)
+            if (alloc.getWorkloadPercentage() == null) {
+                alloc.setWorkloadPercentage(new java.math.BigDecimal("100.00"));
+            }
+
+            // Update geography code from case entity if possible
+            try {
+                java.util.Optional<com.finx.allocationreallocationservice.domain.entity.Case> caseOpt =
+                    caseReadRepository.findById(alloc.getCaseId());
+                if (caseOpt.isPresent() && caseOpt.get().getGeographyCode() != null) {
+                    alloc.setGeographyCode(caseOpt.get().getGeographyCode());
+                }
+            } catch (Exception e) {
+                log.warn("Failed to fetch case entity for caseId {}: {}", alloc.getCaseId(), e.getMessage());
+            }
+        });
+        increments.put(request.getToUserId(), allocations.size());
+
         caseAllocationRepository.saveAll(allocations);
 
         List<AllocationHistory> history = new ArrayList<>();
@@ -204,6 +262,9 @@ public class ReallocationServiceImpl implements ReallocationService {
         for (int i = 0; i < allocations.size(); i++) {
             saveAuditLog("CASE_ALLOCATION", allocations.get(i).getId(), "REALLOCATE_BY_FILTER", oldAllocations.get(i), allocations.get(i));
         }
+
+        // Update user statistics
+        updateUserStatisticsForReallocation(decrements, increments);
 
         return ReallocationResponseDTO.builder()
                 .jobId(jobId)
@@ -243,6 +304,95 @@ public class ReallocationServiceImpl implements ReallocationService {
         }
 
         return csvExporter.exportBatchErrors(errors);
+    }
+
+    /**
+     * Update user statistics after reallocation
+     * Decreases current_case_count for old agents and increases for new agents
+     * Recalculates allocation_percentage for all affected agents
+     * @param agentDecrements Map of agentId to number of cases removed
+     * @param agentIncrements Map of agentId to number of cases added
+     */
+    private void updateUserStatisticsForReallocation(Map<Long, Integer> agentDecrements,
+                                                       Map<Long, Integer> agentIncrements) {
+        log.info("Updating user statistics for reallocation: {} agents decremented, {} agents incremented",
+                agentDecrements.size(), agentIncrements.size());
+
+        // Process decrements (cases removed from old agents)
+        for (Map.Entry<Long, Integer> entry : agentDecrements.entrySet()) {
+            Long agentId = entry.getKey();
+            Integer casesRemoved = entry.getValue();
+
+            try {
+                com.finx.allocationreallocationservice.domain.entity.User user = userRepository.findById(agentId).orElse(null);
+                if (user == null) {
+                    log.warn("User {} not found for statistics update (decrement)", agentId);
+                    continue;
+                }
+
+                // Decrease current_case_count
+                Integer currentCaseCount = user.getCurrentCaseCount() != null ? user.getCurrentCaseCount() : 0;
+                Integer newCaseCount = Math.max(0, currentCaseCount - casesRemoved); // Ensure non-negative
+                user.setCurrentCaseCount(newCaseCount);
+
+                // Recalculate allocation_percentage
+                Integer maxCapacity = user.getMaxCaseCapacity() != null ? user.getMaxCaseCapacity() : 100;
+                if (maxCapacity > 0) {
+                    double allocationPercentage = ((double) newCaseCount / maxCapacity) * 100.0;
+                    allocationPercentage = Math.round(allocationPercentage * 100.0) / 100.0;
+                    user.setAllocationPercentage(allocationPercentage);
+                } else {
+                    user.setAllocationPercentage(0.0);
+                }
+
+                user.setUpdatedAt(LocalDateTime.now());
+                userRepository.save(user);
+
+                log.info("Decremented user {} statistics: removed {} cases, currentCaseCount={}, allocationPercentage={}%",
+                        agentId, casesRemoved, newCaseCount, user.getAllocationPercentage());
+
+            } catch (Exception e) {
+                log.error("Failed to update statistics for user {} (decrement): {}", agentId, e.getMessage(), e);
+            }
+        }
+
+        // Process increments (cases added to new agents)
+        for (Map.Entry<Long, Integer> entry : agentIncrements.entrySet()) {
+            Long agentId = entry.getKey();
+            Integer casesAdded = entry.getValue();
+
+            try {
+                com.finx.allocationreallocationservice.domain.entity.User user = userRepository.findById(agentId).orElse(null);
+                if (user == null) {
+                    log.warn("User {} not found for statistics update (increment)", agentId);
+                    continue;
+                }
+
+                // Increase current_case_count
+                Integer currentCaseCount = user.getCurrentCaseCount() != null ? user.getCurrentCaseCount() : 0;
+                Integer newCaseCount = currentCaseCount + casesAdded;
+                user.setCurrentCaseCount(newCaseCount);
+
+                // Recalculate allocation_percentage
+                Integer maxCapacity = user.getMaxCaseCapacity() != null ? user.getMaxCaseCapacity() : 100;
+                if (maxCapacity > 0) {
+                    double allocationPercentage = ((double) newCaseCount / maxCapacity) * 100.0;
+                    allocationPercentage = Math.round(allocationPercentage * 100.0) / 100.0;
+                    user.setAllocationPercentage(allocationPercentage);
+                } else {
+                    user.setAllocationPercentage(0.0);
+                }
+
+                user.setUpdatedAt(LocalDateTime.now());
+                userRepository.save(user);
+
+                log.info("Incremented user {} statistics: added {} cases, currentCaseCount={}, allocationPercentage={}%",
+                        agentId, casesAdded, newCaseCount, user.getAllocationPercentage());
+
+            } catch (Exception e) {
+                log.error("Failed to update statistics for user {} (increment): {}", agentId, e.getMessage(), e);
+            }
+        }
     }
 
     private void saveAuditLog(String entityType, Long entityId, String action, Object before, Object after) {

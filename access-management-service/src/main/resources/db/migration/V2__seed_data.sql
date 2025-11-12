@@ -6,17 +6,13 @@
 -- Purpose: Sample user groups for organizing users
 -- ===============================================
 INSERT INTO user_groups (group_name, group_code, group_type, parent_group_id, description, is_active) VALUES
-('Head Office', 'REGION_HO', 'REGION', NULL, 'Central administrative region', TRUE),
-('Collections Department', 'DEPT_COLLECTIONS', 'DEPARTMENT', 1, 'Collections operations department', TRUE),
-('Collections Team A', 'TEAM_COLL_A', 'TEAM', 2, 'Primary collections team', TRUE);
+('Head Office', 'REGION_HO', 'REGION', NULL, 'Central administrative region', TRUE);
 
 -- ===============================================
 -- INSERT: role_groups (Minimal)
 -- ===============================================
 INSERT INTO role_groups (group_name, group_code, description, display_order, is_active) VALUES
-('System Administration', 'GRP_SYS_ADMIN', 'System-level admin roles', 1, TRUE),
-('Collections Management', 'GRP_COLL_MGMT', 'Collections management roles', 2, TRUE),
-('Collections Operations', 'GRP_COLL_OPS', 'Collections operations roles', 3, TRUE);
+('System Administration', 'GRP_SYS_ADMIN', 'System-level admin roles', 1, TRUE);
 
 -- ===============================================
 -- INSERT: roles (Only the needed ones)
@@ -32,9 +28,7 @@ INSERT INTO roles (role_name, role_code, role_group_id, description, is_active) 
 -- ===============================================
 INSERT INTO users (username, password_hash, email, first_name, last_name, status, is_first_login) VALUES
 ('superadmin', '$2a$10$KAqljhNBfn0kawY8/eVDI.y9.9sUMZsYdFy3jDPrjhjQNZ1TpqJTW', 'naveen@finxbridge.com', 'Super', 'Admin', 'ACTIVE', TRUE),
-('admin', '$2a$10$KAqljhNBfn0kawY8/eVDI.y9.9sUMZsYdFy3jDPrjhjQNZ1TpqJTW', 'shivani@finxbridge.com', 'Admin', 'User', 'ACTIVE', TRUE),
-('collmanager', '$2a$10$KAqljhNBfn0kawY8/eVDI.y9.9sUMZsYdFy3jDPrjhjQNZ1TpqJTW', 'naveenfinxbridge@gmail.com', 'Collections', 'Manager', 'ACTIVE', TRUE),
-('agent1', '$2a$10$KAqljhNBfn0kawY8/eVDI.y9.9sUMZsYdFy3jDPrjhjQNZ1TpqJTW', 'agent1@example.com', 'Collections', 'Agent1', 'ACTIVE', TRUE);
+('admin', '$2a$10$KAqljhNBfn0kawY8/eVDI.y9.9sUMZsYdFy3jDPrjhjQNZ1TpqJTW', 'shivani@finxbridge.com', 'Admin', 'User', 'ACTIVE', TRUE);
 
 -- ===============================================
 -- INSERT: permissions (Retain only essential ones)
@@ -44,24 +38,29 @@ INSERT INTO permissions (permission_name, permission_code, resource, action, des
 ('View Users', 'USER_READ', 'USER', 'READ', 'View user details'),
 ('Create Users', 'USER_CREATE', 'USER', 'CREATE', 'Create new users'),
 ('Update Users', 'USER_UPDATE', 'USER', 'UPDATE', 'Update user information'),
+('Delete Users', 'USER_DELETE', 'USER', 'DELETE', 'Delete users'),
 
--- Case Management
-('View Cases', 'CASE_READ', 'CASE', 'READ', 'View case details'),
-('Update Cases', 'CASE_UPDATE', 'CASE', 'UPDATE', 'Update case information'),
-('Allocate Cases', 'CASE_ALLOCATE', 'CASE', 'ALLOCATE', 'Allocate cases to agents'),
+-- Role Management
+('View Roles', 'ROLE_READ', 'ROLE', 'READ', 'View role details'),
+('Create Roles', 'ROLE_CREATE', 'ROLE', 'CREATE', 'Create new roles'),
+('Update Roles', 'ROLE_UPDATE', 'ROLE', 'UPDATE', 'Update role information'),
+('Delete Roles', 'ROLE_DELETE', 'ROLE', 'DELETE', 'Delete roles'),
 
--- Payment
-('View Payments', 'PAYMENT_READ', 'PAYMENT', 'READ', 'View payment details'),
-('Record Payments', 'PAYMENT_CREATE', 'PAYMENT', 'CREATE', 'Record new payments');
+-- Permission Management
+('View Permissions', 'PERMISSION_READ', 'PERMISSION', 'READ', 'View permission details'),
+('Create Permissions', 'PERMISSION_CREATE', 'PERMISSION', 'CREATE', 'Create new permissions'),
+('Update Permissions', 'PERMISSION_UPDATE', 'PERMISSION', 'UPDATE', 'Update permission information'),
+('Delete Permissions', 'PERMISSION_DELETE', 'PERMISSION', 'DELETE', 'Delete permissions');
 
 -- ===============================================
 -- INSERT: role_permissions (minimal mappings)
 -- ===============================================
 INSERT INTO role_permissions (role_id, permission_id) VALUES
-(1, 1), (1, 2), (1, 3), -- Super Admin: all user permissions
-(2, 1), (2, 3),         -- Admin: view & update users
-(3, 4), (3, 5), (3, 6), -- Coll Manager: manage cases
-(4, 4), (4, 8);         -- Agent: view cases, record payments
+-- Super Admin: all permissions
+(1, 1), (1, 2), (1, 3), (1, 4), (1, 5), (1, 6), (1, 7), (1, 8), (1, 9), (1, 10), (1, 11), (1, 12),
+
+-- Admin: all permissions
+(2, 1), (2, 2), (2, 3), (2, 4), (2, 5), (2, 6), (2, 7), (2, 8), (2, 9), (2, 10), (2, 11), (2, 12);
 
 -- ===============================================
 -- INSERT: user_roles
@@ -69,9 +68,7 @@ INSERT INTO role_permissions (role_id, permission_id) VALUES
 -- ===============================================
 INSERT INTO user_roles (user_id, role_id) VALUES
 (1, 1), -- superadmin -> Super Admin
-(2, 2), -- admin -> Admin
-(3, 3), -- collmanager -> Collections Manager
-(4, 4); -- agent1 -> Collections Agent
+(2, 2); -- admin -> Admin
 
 -- ===============================================
 -- INSERT: system_config
@@ -93,7 +90,7 @@ INSERT INTO system_config (config_key, config_value, data_type, description, is_
 -- Account Lockout & Security Configuration
 ('SECURITY_MAX_FAILED_LOGIN_ATTEMPTS', '5', 'INTEGER', 'Maximum failed login attempts before lockout', TRUE),
 ('SECURITY_ACCOUNT_LOCKOUT_DURATION_MINUTES', '30', 'INTEGER', 'Account lockout duration in minutes', TRUE),
-('JWT_ACCESS_TOKEN_EXPIRATION_MINUTES', '15', 'INTEGER', 'JWT Access Token expiration in minutes', TRUE), -- Added
+('JWT_ACCESS_TOKEN_EXPIRATION_MINUTES', '60', 'INTEGER', 'JWT Access Token expiration in minutes', TRUE), -- Added
 ('JWT_REFRESH_TOKEN_EXPIRATION_DAYS', '7', 'INTEGER', 'JWT Refresh Token expiration in days', TRUE), -- Added
 ('JWT_RESET_TOKEN_EXPIRATION_MINUTES', '10', 'INTEGER', 'JWT Reset Token expiration in minutes', TRUE), -- Added
 

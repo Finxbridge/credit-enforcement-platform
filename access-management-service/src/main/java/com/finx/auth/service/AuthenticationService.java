@@ -19,6 +19,7 @@ import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
@@ -267,13 +268,23 @@ public class AuthenticationService {
         if (otpRequest.isMaxAttemptsReached()) {
             // Lock account after max OTP verification failures
             passwordPolicyService.lockAccount(user);
+            authUserRepository.save(user); // Ensure user lock status is persisted
             throw new BusinessException("Maximum OTP verification attempts exceeded. Account has been locked.");
         }
 
         // Verify OTP
         if (!passwordPolicyService.verifyPassword(request.getOtpCode(), otpRequest.getOtpHash())) {
-            otpRequest.incrementAttempt();
-            otpRequestRepository.save(otpRequest);
+            // Increment attempt count and save in a new transaction
+            otpRequest = incrementOtpAttemptAndSave(otpRequest);
+
+            // Check if max attempts reached AFTER incrementing
+            if (otpRequest.isMaxAttemptsReached()) {
+                // Lock account after max OTP verification failures
+                passwordPolicyService.lockAccount(user);
+                authUserRepository.save(user); // Ensure user lock status is persisted
+                throw new BusinessException("Maximum OTP verification attempts exceeded. Account has been locked.");
+            }
+
             int otpMaxAttempts = configCacheService.getIntConfig(CacheConstants.OTP_MAX_ATTEMPTS,
                     DEFAULT_OTP_MAX_ATTEMPTS);
             int remainingAttempts = otpMaxAttempts - otpRequest.getAttemptCount();
@@ -295,6 +306,16 @@ public class AuthenticationService {
                 .message("OTP verified successfully. You can now reset your password.")
                 .resetToken(resetToken)
                 .build();
+    }
+
+    /**
+     * Helper method to increment OTP attempt count and save in a new transaction.
+     * This ensures the attempt count is persisted even if the calling transaction rolls back.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    protected OtpRequest incrementOtpAttemptAndSave(OtpRequest otpRequest) {
+        otpRequest.incrementAttempt();
+        return otpRequestRepository.save(otpRequest);
     }
 
     /**

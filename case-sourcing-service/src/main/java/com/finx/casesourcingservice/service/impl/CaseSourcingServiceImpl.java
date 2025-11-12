@@ -111,22 +111,6 @@ public class CaseSourcingServiceImpl implements CaseSourcingService {
                 // Generate batch ID
                 String batchId = generateBatchId();
 
-                // Create batch record
-                CaseBatch batch = CaseBatch.builder()
-                                .batchId(batchId)
-                                .sourceType(SourceType.MANUAL)
-                                .status(BatchStatus.PROCESSING)
-                                .fileName(file.getOriginalFilename())
-                                .uploadedBy(uploadedBy)
-                                .totalCases(0)
-                                .validCases(0)
-                                .invalidCases(0)
-                                .duplicateCases(0)
-                                .validationJobId("job_" + System.currentTimeMillis())
-                                .build();
-
-                caseBatchRepository.save(batch);
-
                 // Save the MultipartFile to a temporary location
                 Path tempFilePath;
                 try {
@@ -137,6 +121,30 @@ public class CaseSourcingServiceImpl implements CaseSourcingService {
                         throw new BusinessException("Failed to process file upload: " + e.getMessage());
                 }
 
+                // Quick count of CSV rows (excluding header)
+                int estimatedRowCount = 0;
+                try {
+                        estimatedRowCount = countCsvRows(tempFilePath);
+                } catch (Exception e) {
+                        log.warn("Failed to count CSV rows: {}", e.getMessage());
+                }
+
+                // Create batch record
+                CaseBatch batch = CaseBatch.builder()
+                                .batchId(batchId)
+                                .sourceType(SourceType.MANUAL)
+                                .status(BatchStatus.PROCESSING)
+                                .fileName(file.getOriginalFilename())
+                                .uploadedBy(uploadedBy)
+                                .totalCases(estimatedRowCount)
+                                .validCases(0)
+                                .invalidCases(0)
+                                .duplicateCases(0)
+                                .validationJobId("job_" + System.currentTimeMillis())
+                                .build();
+
+                caseBatchRepository.save(batch);
+
                 // Process file asynchronously
                 batchProcessingService.processBatchAsync(batchId, tempFilePath.toString());
 
@@ -146,6 +154,23 @@ public class CaseSourcingServiceImpl implements CaseSourcingService {
                                 .status(batch.getStatus().name())
                                 .validationJobId(batch.getValidationJobId())
                                 .build();
+        }
+
+        private int countCsvRows(Path filePath) throws IOException {
+                try (java.io.BufferedReader reader = Files.newBufferedReader(filePath)) {
+                        // Skip header line
+                        reader.readLine();
+
+                        // Count data rows (skip empty lines)
+                        int count = 0;
+                        String line;
+                        while ((line = reader.readLine()) != null) {
+                                if (!line.trim().isEmpty()) {
+                                        count++;
+                                }
+                        }
+                        return count;
+                }
         }
 
         @Override

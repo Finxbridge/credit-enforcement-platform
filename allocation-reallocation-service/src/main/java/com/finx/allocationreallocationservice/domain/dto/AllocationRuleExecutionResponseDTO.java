@@ -12,21 +12,17 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 public class AllocationRuleExecutionResponseDTO {
-    private String executionId;
     private Long ruleId;
-    private String ruleName;
     private Integer totalCasesAllocated;
-    private Boolean dryRun;
+    private List<AllocationResultDTO> allocations;
     private String status;
-    private List<AllocationResultDTO> allocationResults;
 
     @Data
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
     public static class AllocationResultDTO {
-        private Long userId;
-        private String username;
-        private Integer casesAllocated;
+        private Long agentId;
+        private Integer allocated;
     }
 }

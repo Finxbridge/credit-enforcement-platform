@@ -240,6 +240,48 @@ services:
       - backend-net
 
   # ---------------------------------------------------
+  # Allocation-reallocation Service
+  # ---------------------------------------------------
+  allocation-reallocation-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE_NAME: allocation-reallocation-service
+    container_name: allocation-reallocation-service
+    ports:
+      - "8084:8084"
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8084/actuator/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    environment:
+      - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE}
+      - SPRING_CLOUD_CONFIG_URI=http://config-server:8888
+      - SPRING_CLOUD_CONFIG_LABEL=main
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka-server:8761/eureka/
+      - eureka.client.service-url.defaultZone=http://eureka-server:8761/eureka/
+      - SPRING_CONFIG_IMPORT=${SPRING_CONFIG_IMPORT}
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://host.docker.internal:5432/${POSTGRES_DB}
+      - SPRING_DATASOURCE_USERNAME=${POSTGRES_USER}
+      - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD}
+      - SPRING_DATA_REDIS_HOST=redis_cache
+      - SPRING_FLYWAY_ENABLED=false
+    depends_on:
+      config-server:
+        condition: service_healthy
+      eureka-server:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      access-management-service:
+        condition: service_healthy
+    networks:
+      - backend-net
+
+  # ---------------------------------------------------
   # API Gateway (Entry Point)
   # ---------------------------------------------------
   api-gateway:

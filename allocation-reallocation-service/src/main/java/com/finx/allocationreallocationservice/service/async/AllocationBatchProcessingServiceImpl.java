@@ -40,10 +40,6 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
 
-import com.finx.allocationreallocationservice.client.MasterDataClient;
-import com.finx.allocationreallocationservice.client.dto.ContactUpdateRequestDTO;
-import com.finx.allocationreallocationservice.client.dto.ContactUpdateResponseDTO;
-
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -54,7 +50,9 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
     private final BatchErrorRepository batchErrorRepository;
     private final CaseAllocationRepository caseAllocationRepository;
     private final AllocationHistoryRepository allocationHistoryRepository;
-    private final MasterDataClient masterDataClient;
+    private final com.finx.allocationreallocationservice.repository.UserRepository userRepository;
+    private final com.finx.allocationreallocationservice.repository.CaseReadRepository caseReadRepository;
+    private final com.finx.allocationreallocationservice.repository.CustomerRepository customerRepository;
 
     private static final Pattern EMAIL_PATTERN = Pattern.compile("^[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,6}$", Pattern.CASE_INSENSITIVE);
 
@@ -93,10 +91,13 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
 
                     allocations.add(CaseAllocation.builder()
                             .caseId(caseId)
+                            .externalCaseId(row.getExternalCaseId())
                             .primaryAgentId(primaryAgentId)
                             .secondaryAgentId(row.getSecondaryAgentId() != null && !row.getSecondaryAgentId().isEmpty() ? Long.parseLong(row.getSecondaryAgentId()) : null)
                             .allocatedToType("USER")
-                            .allocationType("PRIMARY")
+                            .allocationType(row.getAllocationType() != null && !row.getAllocationType().isEmpty() ? row.getAllocationType().toUpperCase() : "PRIMARY")
+                            .workloadPercentage(row.getAllocationPercentage() != null && !row.getAllocationPercentage().isEmpty() ? new java.math.BigDecimal(row.getAllocationPercentage()) : null)
+                            .geographyCode(row.getGeography() != null && !row.getGeography().isEmpty() ? row.getGeography().toUpperCase() : null)
                             .status(AllocationStatus.ALLOCATED)
                             .batchId(batchId)
                             .allocatedAt(LocalDateTime.now())
@@ -109,7 +110,7 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
                             .previousOwnerType("USER")
                             .allocatedAt(LocalDateTime.now())
                             .action(AllocationAction.ALLOCATED)
-                            .reason("Batch allocation: " + batchId)
+                            .reason(row.getRemarks() != null && !row.getRemarks().isEmpty() ? row.getRemarks() : "Batch allocation: " + batchId)
                             .batchId(batchId)
                             .build());
 
@@ -196,6 +197,8 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
         List<BatchError> errors = new ArrayList<>();
         List<CaseAllocation> allocationsToUpdate = new ArrayList<>();
         List<AllocationHistory> historyToSave = new ArrayList<>();
+        java.util.Map<Long, Integer> agentDecrements = new java.util.HashMap<>(); // Track cases removed from agents
+        java.util.Map<Long, Integer> agentIncrements = new java.util.HashMap<>(); // Track cases added to agents
 
         try (BufferedReader reader = Files.newBufferedReader(path)) {
             CsvToBean<ReallocationCsvRow> csvToBean = new CsvToBeanBuilder<ReallocationCsvRow>(reader)
@@ -213,17 +216,46 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
             for (ReallocationCsvRow row : rows) {
                 String validationError = getValidationError(row);
                 if (validationError == null) {
-                    Optional<CaseAllocation> allocationOpt = caseAllocationRepository.findFirstByCaseIdOrderByAllocatedAtDesc(Long.parseLong(row.getCaseId()));
+                    Long caseId = Long.parseLong(row.getCaseId());
+                    Long currentAgentId = Long.parseLong(row.getCurrentAgentId());
+                    Long newAgentId = Long.parseLong(row.getNewAgentId());
+
+                    Optional<CaseAllocation> allocationOpt = caseAllocationRepository.findFirstByCaseIdOrderByAllocatedAtDesc(caseId);
                     if (allocationOpt.isPresent()) {
                         CaseAllocation allocation = allocationOpt.get();
-                        if (allocation.getPrimaryAgentId().equals(Long.parseLong(row.getCurrentAgentId()))) {
-                            allocation.setPrimaryAgentId(Long.parseLong(row.getNewAgentId()));
+                        if (allocation.getPrimaryAgentId().equals(currentAgentId)) {
+                            // Fetch case entity to get geography code
+                            String geographyCode = allocation.getGeographyCode(); // Keep existing if available
+                            try {
+                                Optional<com.finx.allocationreallocationservice.domain.entity.Case> caseOpt =
+                                    caseReadRepository.findById(caseId);
+                                if (caseOpt.isPresent()) {
+                                    geographyCode = caseOpt.get().getGeographyCode();
+                                }
+                            } catch (Exception e) {
+                                log.warn("Failed to fetch case entity for caseId {}: {}", caseId, e.getMessage());
+                            }
+
+                            // Update allocation
+                            allocation.setPrimaryAgentId(newAgentId);
+                            // Maintain workload_percentage (default 100.00 if not set)
+                            if (allocation.getWorkloadPercentage() == null) {
+                                allocation.setWorkloadPercentage(new java.math.BigDecimal("100.00"));
+                            }
+                            // Update geography code
+                            if (geographyCode != null) {
+                                allocation.setGeographyCode(geographyCode);
+                            }
                             allocationsToUpdate.add(allocation);
+
+                            // Track agent statistics changes
+                            agentDecrements.put(currentAgentId, agentDecrements.getOrDefault(currentAgentId, 0) + 1);
+                            agentIncrements.put(newAgentId, agentIncrements.getOrDefault(newAgentId, 0) + 1);
 
                             historyToSave.add(AllocationHistory.builder()
                                     .caseId(allocation.getCaseId())
-                                    .allocatedToUserId(allocation.getPrimaryAgentId())
-                                    .allocatedFromUserId(Long.parseLong(row.getCurrentAgentId()))
+                                    .allocatedToUserId(newAgentId)
+                                    .allocatedFromUserId(currentAgentId)
                                     .newOwnerType("USER")
                                     .previousOwnerType("USER")
                                     .allocatedAt(LocalDateTime.now())
@@ -233,11 +265,11 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
                                     .build());
                             successfulAllocations.incrementAndGet();
                         } else {
-                            errors.add(buildError(batchId, rowNumber[0], "Case not allocated to fromAgentId", row.getCaseId()));
+                            errors.add(buildError(batchId, rowNumber[0], "Case not allocated to current_agent_id", row.getCaseId()));
                             failedAllocations.incrementAndGet();
                         }
                     } else {
-                        errors.add(buildError(batchId, rowNumber[0], "Case not found", row.getCaseId()));
+                        errors.add(buildError(batchId, rowNumber[0], "Case allocation not found", row.getCaseId()));
                         failedAllocations.incrementAndGet();
                     }
                 } else {
@@ -256,6 +288,9 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
             batchErrorRepository.saveAll(errors);
             caseAllocationRepository.saveAll(allocationsToUpdate);
             allocationHistoryRepository.saveAll(historyToSave);
+
+            // Update user statistics for both old and new agents
+            updateUserStatisticsForReallocation(agentDecrements, agentIncrements);
 
             log.info("Finished processing reallocation batch: {}. Total: {}, Success: {}, Failed: {}",
                     batchId, rows.size(), successfulAllocations.get(), failedAllocations.get());
@@ -329,30 +364,74 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
                 String validationError = getValidationError(row);
                 if (validationError == null) {
                     try {
-                        // Call Master Data Service to update borrower contact information
-                        ContactUpdateRequestDTO contactRequest = ContactUpdateRequestDTO.builder()
-                                .mobileNumber(row.getMobileNumber())
-                                .alternateMobile(row.getAlternateMobile())
-                                .email(row.getEmail())
-                                .alternateEmail(row.getAlternateEmail())
-                                .address(row.getAddress())
-                                .city(row.getCity())
-                                .state(row.getState())
-                                .pincode(row.getPincode())
-                                .updateType(row.getUpdateType())
-                                .build();
+                        Long caseId = Long.parseLong(row.getCaseId());
 
-                        ContactUpdateResponseDTO response = masterDataClient.updateBorrowerContactInfo(
-                                Long.parseLong(row.getCaseId()), contactRequest);
+                        // 1. Find the Case entity
+                        com.finx.allocationreallocationservice.domain.entity.Case caseEntity = caseReadRepository.findById(caseId)
+                                .orElseThrow(() -> new RuntimeException("Case not found for ID: " + caseId));
 
-                        if (response != null && response.getSuccess()) {
+                        // 2. Get the primary customer from the LoanDetails associated with the case
+                        // Assuming contact updates are always for the primary customer of the loan
+                        Long customerId = caseEntity.getLoan().getPrimaryCustomer().getId();
+                        com.finx.allocationreallocationservice.domain.entity.Customer customer = customerRepository.findById(customerId)
+                                .orElseThrow(() -> new RuntimeException("Customer not found for ID: " + customerId));
+
+                        // 3. Update customer contact information based on updateType
+                        String updateType = row.getUpdateType().toUpperCase();
+                        boolean updated = false;
+
+                        switch (updateType) {
+                            case "MOBILE_UPDATE":
+                                if (row.getMobileNumber() != null && !row.getMobileNumber().trim().isEmpty()) {
+                                    customer.setMobileNumber(row.getMobileNumber());
+                                    updated = true;
+                                }
+                                if (row.getAlternateMobile() != null && !row.getAlternateMobile().trim().isEmpty()) {
+                                    customer.setAlternateMobile(row.getAlternateMobile());
+                                    updated = true;
+                                }
+                                break;
+                            case "EMAIL_UPDATE":
+                                if (row.getEmail() != null && !row.getEmail().trim().isEmpty()) {
+                                    customer.setEmailAddress(row.getEmail());
+                                    updated = true;
+                                }
+                                if (row.getAlternateEmail() != null && !row.getAlternateEmail().trim().isEmpty()) {
+                                    customer.setAlternateEmail(row.getAlternateEmail());
+                                    updated = true;
+                                }
+                                break;
+                            case "ADDRESS_UPDATE":
+                                if (row.getAddress() != null && !row.getAddress().trim().isEmpty()) {
+                                    customer.setAddressLine1(row.getAddress());
+                                    updated = true;
+                                }
+                                if (row.getCity() != null && !row.getCity().trim().isEmpty()) {
+                                    customer.setCity(row.getCity());
+                                    updated = true;
+                                }
+                                if (row.getState() != null && !row.getState().trim().isEmpty()) {
+                                    customer.setState(row.getState());
+                                    updated = true;
+                                }
+                                if (row.getPincode() != null && !row.getPincode().trim().isEmpty()) {
+                                    customer.setPincode(row.getPincode());
+                                    updated = true;
+                                }
+                                break;
+                            default:
+                                throw new IllegalArgumentException("Invalid update_type: " + row.getUpdateType());
+                        }
+
+                        if (updated) {
+                            customerRepository.save(customer);
                             log.debug("Contact updated successfully for case {}: {}", row.getCaseId(), row.getUpdateType());
                             successfulUpdates.incrementAndGet();
                         } else {
-                            String errorMsg = response != null ? response.getMessage() : "Unknown error";
-                            errors.add(buildError(batchId, rowNumber[0], "Contact update failed: " + errorMsg, row.getCaseId()));
+                            errors.add(buildError(batchId, rowNumber[0], "No contact information provided for update type: " + row.getUpdateType(), row.getCaseId()));
                             failedUpdates.incrementAndGet();
                         }
+
                     } catch (Exception e) {
                         log.error("Failed to update contact for case {}: {}", row.getCaseId(), e.getMessage());
                         errors.add(buildError(batchId, rowNumber[0], "Service error: " + e.getMessage(), row.getCaseId()));
@@ -391,24 +470,164 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
     }
 
     private String getValidationError(ContactUpdateCsvRow row) {
+        // Validate case_id
         try {
             Long.parseLong(row.getCaseId());
         } catch (NumberFormatException e) {
             return "Invalid case_id: " + row.getCaseId();
         }
-        if ((row.getMobileNumber() == null || row.getMobileNumber().isEmpty()) &&
-                (row.getEmail() == null || row.getEmail().isEmpty()) &&
-                (row.getAlternateMobile() == null || row.getAlternateMobile().isEmpty()) &&
-                (row.getAlternateEmail() == null || row.getAlternateEmail().isEmpty())) {
-            return "At least one of mobile_number, alternate_mobile, email or alternate_email must be provided";
+
+        // Validate update_type
+        if (row.getUpdateType() == null || row.getUpdateType().trim().isEmpty()) {
+            return "update_type is required";
         }
-        if (row.getEmail() != null && !row.getEmail().isEmpty() && !EMAIL_PATTERN.matcher(row.getEmail()).matches()) {
-            return "Invalid email format: " + row.getEmail();
+
+        String updateType = row.getUpdateType().toUpperCase();
+
+        // Validate based on update_type
+        switch (updateType) {
+            case "MOBILE_UPDATE":
+                if ((row.getMobileNumber() == null || row.getMobileNumber().trim().isEmpty()) &&
+                    (row.getAlternateMobile() == null || row.getAlternateMobile().trim().isEmpty())) {
+                    return "Either mobile_number or alternate_mobile is required for MOBILE_UPDATE";
+                }
+                // Validate mobile number format (10 digits) if provided
+                if (row.getMobileNumber() != null && !row.getMobileNumber().trim().isEmpty()
+                        && !row.getMobileNumber().matches("^[0-9]{10}$")) {
+                    return "Invalid mobile_number format (must be 10 digits): " + row.getMobileNumber();
+                }
+                // Validate alternate mobile if provided
+                if (row.getAlternateMobile() != null && !row.getAlternateMobile().trim().isEmpty()
+                        && !row.getAlternateMobile().matches("^[0-9]{10}$")) {
+                    return "Invalid alternate_mobile format (must be 10 digits): " + row.getAlternateMobile();
+                }
+                break;
+
+            case "EMAIL_UPDATE":
+                if ((row.getEmail() == null || row.getEmail().trim().isEmpty()) &&
+                    (row.getAlternateEmail() == null || row.getAlternateEmail().trim().isEmpty())) {
+                    return "Either email or alternate_email is required for EMAIL_UPDATE";
+                }
+                // Validate email format if provided
+                if (row.getEmail() != null && !row.getEmail().trim().isEmpty()
+                        && !EMAIL_PATTERN.matcher(row.getEmail()).matches()) {
+                    return "Invalid email format: " + row.getEmail();
+                }
+                // Validate alternate email if provided
+                if (row.getAlternateEmail() != null && !row.getAlternateEmail().trim().isEmpty()
+                        && !EMAIL_PATTERN.matcher(row.getAlternateEmail()).matches()) {
+                    return "Invalid alternate_email format: " + row.getAlternateEmail();
+                }
+                break;
+
+            case "ADDRESS_UPDATE":
+                if ((row.getAddress() == null || row.getAddress().trim().isEmpty()) &&
+                    (row.getCity() == null || row.getCity().trim().isEmpty()) &&
+                    (row.getState() == null || row.getState().trim().isEmpty()) &&
+                    (row.getPincode() == null || row.getPincode().trim().isEmpty())) {
+                    return "At least one address field (address, city, state, pincode) is required for ADDRESS_UPDATE";
+                }
+                // Validate pincode format if provided
+                if (row.getPincode() != null && !row.getPincode().trim().isEmpty()
+                        && !row.getPincode().matches("^[0-9]{6}$")) {
+                    return "Invalid pincode format (must be 6 digits): " + row.getPincode();
+                }
+                break;
+
+            default:
+                return "Invalid update_type: " + row.getUpdateType() + ". Must be MOBILE_UPDATE, EMAIL_UPDATE, or ADDRESS_UPDATE";
         }
-        if (row.getAlternateEmail() != null && !row.getAlternateEmail().isEmpty() && !EMAIL_PATTERN.matcher(row.getAlternateEmail()).matches()) {
-            return "Invalid alternate_email format: " + row.getAlternateEmail();
-        }
+
         return null;
+    }
+
+    /**
+     * Update user statistics after reallocation
+     * Decreases current_case_count for old agents and increases for new agents
+     * Recalculates allocation_percentage for all affected agents
+     * @param agentDecrements Map of agentId to number of cases removed
+     * @param agentIncrements Map of agentId to number of cases added
+     */
+    private void updateUserStatisticsForReallocation(java.util.Map<Long, Integer> agentDecrements,
+                                                       java.util.Map<Long, Integer> agentIncrements) {
+        log.info("Updating user statistics for reallocation: {} agents decremented, {} agents incremented",
+                agentDecrements.size(), agentIncrements.size());
+
+        // Process decrements (cases removed from old agents)
+        for (java.util.Map.Entry<Long, Integer> entry : agentDecrements.entrySet()) {
+            Long agentId = entry.getKey();
+            Integer casesRemoved = entry.getValue();
+
+            try {
+                com.finx.allocationreallocationservice.domain.entity.User user = userRepository.findById(agentId).orElse(null);
+                if (user == null) {
+                    log.warn("User {} not found for statistics update (decrement)", agentId);
+                    continue;
+                }
+
+                // Decrease current_case_count
+                Integer currentCaseCount = user.getCurrentCaseCount() != null ? user.getCurrentCaseCount() : 0;
+                Integer newCaseCount = Math.max(0, currentCaseCount - casesRemoved); // Ensure non-negative
+                user.setCurrentCaseCount(newCaseCount);
+
+                // Recalculate allocation_percentage
+                Integer maxCapacity = user.getMaxCaseCapacity() != null ? user.getMaxCaseCapacity() : 100;
+                if (maxCapacity > 0) {
+                    double allocationPercentage = ((double) newCaseCount / maxCapacity) * 100.0;
+                    allocationPercentage = Math.round(allocationPercentage * 100.0) / 100.0;
+                    user.setAllocationPercentage(allocationPercentage);
+                } else {
+                    user.setAllocationPercentage(0.0);
+                }
+
+                user.setUpdatedAt(LocalDateTime.now());
+                userRepository.save(user);
+
+                log.info("Decremented user {} statistics: removed {} cases, currentCaseCount={}, allocationPercentage={}%",
+                        agentId, casesRemoved, newCaseCount, user.getAllocationPercentage());
+
+            } catch (Exception e) {
+                log.error("Failed to update statistics for user {} (decrement): {}", agentId, e.getMessage(), e);
+            }
+        }
+
+        // Process increments (cases added to new agents)
+        for (java.util.Map.Entry<Long, Integer> entry : agentIncrements.entrySet()) {
+            Long agentId = entry.getKey();
+            Integer casesAdded = entry.getValue();
+
+            try {
+                com.finx.allocationreallocationservice.domain.entity.User user = userRepository.findById(agentId).orElse(null);
+                if (user == null) {
+                    log.warn("User {} not found for statistics update (increment)", agentId);
+                    continue;
+                }
+
+                // Increase current_case_count
+                Integer currentCaseCount = user.getCurrentCaseCount() != null ? user.getCurrentCaseCount() : 0;
+                Integer newCaseCount = currentCaseCount + casesAdded;
+                user.setCurrentCaseCount(newCaseCount);
+
+                // Recalculate allocation_percentage
+                Integer maxCapacity = user.getMaxCaseCapacity() != null ? user.getMaxCaseCapacity() : 100;
+                if (maxCapacity > 0) {
+                    double allocationPercentage = ((double) newCaseCount / maxCapacity) * 100.0;
+                    allocationPercentage = Math.round(allocationPercentage * 100.0) / 100.0;
+                    user.setAllocationPercentage(allocationPercentage);
+                } else {
+                    user.setAllocationPercentage(0.0);
+                }
+
+                user.setUpdatedAt(LocalDateTime.now());
+                userRepository.save(user);
+
+                log.info("Incremented user {} statistics: added {} cases, currentCaseCount={}, allocationPercentage={}%",
+                        agentId, casesAdded, newCaseCount, user.getAllocationPercentage());
+
+            } catch (Exception e) {
+                log.error("Failed to update statistics for user {} (increment): {}", agentId, e.getMessage(), e);
+            }
+        }
     }
 
     private BatchError buildError(String batchId, int rowNumber, String message, String caseId) {

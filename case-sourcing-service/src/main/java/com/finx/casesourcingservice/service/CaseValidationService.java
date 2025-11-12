@@ -23,7 +23,7 @@ public class CaseValidationService {
     private final CaseRepository caseRepository;
 
     private static final Pattern MOBILE_PATTERN = Pattern.compile("^[6-9]\\d{9}$");
-    private static final Pattern EMAIL_PATTERN = Pattern.compile("^[A-Za-z0-9+_.-]+@(.+)$");
+    private static final Pattern EMAIL_PATTERN = Pattern.compile("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,6}$");
     private static final Pattern PINCODE_PATTERN = Pattern.compile("^\\d{6}$");
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("dd-MM-yyyy");
 
@@ -74,12 +74,16 @@ public class CaseValidationService {
             result.addError("mobileNumber", "Mobile Number is required");
         }
 
-        if (row.getTotalOutstanding() == null) {
+        if (isNullOrEmpty(row.getTotalOutstanding())) {
             result.addError("totalOutstanding", "Total Outstanding amount is required");
         }
 
-        if (row.getDpd() == null) {
+        if (isNullOrEmpty(row.getDpd())) {
             result.addError("dpd", "DPD (Days Past Due) is required");
+        }
+
+        if (isNullOrEmpty(row.getGeographyCode())) {
+            result.addError("geographyCode", "Geography Code is required");
         }
     }
 
@@ -87,6 +91,11 @@ public class CaseValidationService {
         // Mobile number validation
         if (!isNullOrEmpty(row.getMobileNumber()) && !MOBILE_PATTERN.matcher(row.getMobileNumber()).matches()) {
             result.addError("mobileNumber", "Invalid mobile number format (should be 10 digits starting with 6-9)");
+        }
+
+        // Alternative mobile number validation
+        if (!isNullOrEmpty(row.getAlternateMobile()) && !MOBILE_PATTERN.matcher(row.getAlternateMobile()).matches()) {
+            result.addError("alternateMobile", "Invalid alternative mobile number format (should be 10 digits starting with 6-9)");
         }
 
         // Email validation
@@ -119,18 +128,31 @@ public class CaseValidationService {
 
     private void validateBusinessRules(CaseCsvRowDTO row, CaseValidationResult result) {
         // Total outstanding should be positive
-        if (row.getTotalOutstanding() != null && row.getTotalOutstanding().signum() <= 0) {
-            result.addError("totalOutstanding", "Total Outstanding must be greater than zero");
+        if (!isNullOrEmpty(row.getTotalOutstanding())) {
+            try {
+                java.math.BigDecimal totalOutstanding = new java.math.BigDecimal(row.getTotalOutstanding());
+                if (totalOutstanding.signum() <= 0) {
+                    result.addError("totalOutstanding", "Total Outstanding must be greater than zero");
+                }
+            } catch (NumberFormatException e) {
+                result.addError("totalOutstanding", "Invalid totalOutstanding format: " + row.getTotalOutstanding());
+            }
         }
 
         // DPD should be non-negative
-        if (row.getDpd() != null && row.getDpd() < 0) {
-            result.addError("dpd", "DPD cannot be negative");
-        }
-
-        // Validate bucket based on DPD
-        if (row.getDpd() != null && !isNullOrEmpty(row.getBucket())) {
-            validateBucket(row.getDpd(), row.getBucket(), result);
+        if (!isNullOrEmpty(row.getDpd())) {
+            try {
+                Integer dpd = Integer.parseInt(row.getDpd());
+                if (dpd < 0) {
+                    result.addError("dpd", "DPD cannot be negative");
+                }
+                // Validate bucket based on DPD
+                if (!isNullOrEmpty(row.getBucket())) {
+                    validateBucket(dpd, row.getBucket(), result);
+                }
+            } catch (NumberFormatException e) {
+                result.addError("dpd", "Invalid DPD format: " + row.getDpd());
+            }
         }
     }
 
