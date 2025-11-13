@@ -58,8 +58,10 @@ public class CaseCsvRowDTO {
 
     // Loan Financial Details
     @CsvBindByName(column = "principalAmount")
+    private String principalAmount;
 
     @CsvBindByName(column = "totalOutstanding", required = true)
+    private String totalOutstanding;
 
     @CsvBindByName(column = "dpd", required = true)
     private String dpd; // String for CSV parsing, will convert to Integer

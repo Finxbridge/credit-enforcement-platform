@@ -1,5 +1,10 @@
--- SAMPLE DATA INSERTS FOR CONFIGURATION TABLES
--- =====================================================
+-- ===================================================
+-- CREDIT ENFORCEMENT PLATFORM - SEED DATA
+-- Initial Data for System Configuration
+-- ===================================================
+-- This file contains all INSERT statements for seed data
+-- Consolidated from: V2__seed_data.sql
+-- ===================================================
 
 -- ===============================================
 -- INSERT: user_groups
@@ -26,9 +31,9 @@ INSERT INTO roles (role_name, role_code, role_group_id, description, is_active) 
 -- ===============================================
 -- INSERT: users (Only 4 required users)
 -- ===============================================
-INSERT INTO users (username, password_hash, email, first_name, last_name, status, is_first_login) VALUES
-('superadmin', '$2a$10$KAqljhNBfn0kawY8/eVDI.y9.9sUMZsYdFy3jDPrjhjQNZ1TpqJTW', 'naveen@finxbridge.com', 'Super', 'Admin', 'ACTIVE', TRUE),
-('admin', '$2a$10$KAqljhNBfn0kawY8/eVDI.y9.9sUMZsYdFy3jDPrjhjQNZ1TpqJTW', 'shivani@finxbridge.com', 'Admin', 'User', 'ACTIVE', TRUE);
+INSERT INTO users (username, password_hash, email, first_name, last_name, status, is_first_login, assigned_geographies) VALUES
+('superadmin', '$2a$10$KAqljhNBfn0kawY8/eVDI.y9.9sUMZsYdFy3jDPrjhjQNZ1TpqJTW', 'naveen@finxbridge.com', 'Super', 'Admin', 'ACTIVE', TRUE, '["MUMBAI", "DELHI", "BANGALORE"]'::jsonb),
+('admin', '$2a$10$KAqljhNBfn0kawY8/eVDI.y9.9sUMZsYdFy3jDPrjhjQNZ1TpqJTW', 'shivani@finxbridge.com', 'Admin', 'User', 'ACTIVE', TRUE, '["MUMBAI", "DELHI", "BANGALORE"]'::jsonb);
 
 -- ===============================================
 -- INSERT: permissions (Retain only essential ones)
@@ -157,13 +162,13 @@ INSERT INTO third_party_integration_master (integration_name, integration_type, 
     'https://control.msg91.com/api/v5/email',
     'BNO7wXg7GHI5KWOuJxqUAWFyq7Dm/ec2KJqZ5BSF1Z5GIuUzm3BuJsdjMG8hdHY8',
     '{"daily_limit": 100000, "template_support": true, "analytics": true, "cost_per_email": 0.02, "region": "INDIA"}', TRUE),
-    
+
 -- OTP Providers
 ('MSG91_OTP',
     'OTP_PROVIDER',
     'https://control.msg91.com/api/v5/otp',
     'BNO7wXg7GHI5KWOuJxqUAWFyq7Dm/ec2KJqZ5BSF1Z5GIuUzm3BuJsdjMG8hdHY8',
-    '{"template_id": "68ee3e406f2cc106e130bf47", "sender_id": "FINXCO", "daily_limit": 100000, "cost_per_otp": 0.15}', TRUE);   
+    '{"template_id": "68ee3e406f2cc106e130bf47", "sender_id": "FINXCO", "daily_limit": 100000, "cost_per_otp": 0.15}', TRUE);
 
 -- ===============================================
 -- INSERT: cache_config
@@ -174,7 +179,6 @@ INSERT INTO third_party_integration_master (integration_name, integration_type, 
 INSERT INTO cache_config (username, password, is_active) VALUES
 ('admin', '$2a$10$7jKyJJ8qBIyYz9Azrj6EJ.2T/h5/apwWQhL4/4CRORtlvIIQtuZi.', TRUE);
 
---
 -- =====================================================
--- END OF NORMALIZED SCHEMA
+-- END OF SEED DATA
 -- =====================================================

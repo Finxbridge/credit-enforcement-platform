@@ -40,8 +40,7 @@ CREATE TABLE user_groups (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     created_by BIGINT,
-    updated_by BIGINT,
-    CONSTRAINT fk_user_groups_parent FOREIGN KEY (parent_group_id) REFERENCES user_groups(id) ON DELETE SET NULL
+    updated_by BIGINT
 );
 
 CREATE TABLE role_groups (
@@ -63,8 +62,7 @@ CREATE TABLE roles (
     description VARCHAR(255),
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT fk_roles_role_group FOREIGN KEY (role_group_id) REFERENCES role_groups(id) ON DELETE SET NULL
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE permissions (
@@ -83,8 +81,6 @@ CREATE TABLE user_roles (
     role_id BIGINT NOT NULL,
     assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     assigned_by BIGINT,
-    CONSTRAINT fk_user_roles_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    CONSTRAINT fk_user_roles_role FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE,
     CONSTRAINT unique_user_role UNIQUE (user_id, role_id)
 );
 
@@ -93,10 +89,29 @@ CREATE TABLE role_permissions (
     role_id BIGINT NOT NULL,
     permission_id BIGINT NOT NULL,
     granted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT fk_role_permissions_role FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE,
-    CONSTRAINT fk_role_permissions_permission FOREIGN KEY (permission_id) REFERENCES permissions(id) ON DELETE CASCADE,
     CONSTRAINT unique_role_permission UNIQUE (role_id, permission_id)
 );
+
+CREATE TABLE user_sessions (
+    id BIGSERIAL PRIMARY KEY,
+    session_id VARCHAR(255) UNIQUE NOT NULL,
+    user_id BIGINT NOT NULL,
+    access_token VARCHAR(500),
+    refresh_token VARCHAR(500),
+    ip_address VARCHAR(45),
+    user_agent TEXT,
+    device_type VARCHAR(50),
+    is_active BOOLEAN DEFAULT TRUE,
+    last_activity_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    terminated_at TIMESTAMP,
+    termination_reason VARCHAR(100)
+);
+
+-- ===================================================
+-- MASTER DATA DOMAIN
+-- ===================================================
 
 CREATE TABLE master_data (
     id BIGSERIAL PRIMARY KEY,
@@ -137,22 +152,18 @@ CREATE TABLE third_party_integration_master (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE user_sessions (
+CREATE TABLE cache_config (
     id BIGSERIAL PRIMARY KEY,
-    session_id VARCHAR(255) UNIQUE NOT NULL,
-    user_id BIGINT NOT NULL,
-    access_token VARCHAR(500),
-    refresh_token VARCHAR(500),
-    ip_address VARCHAR(45),
-    user_agent TEXT,
-    device_type VARCHAR(50),
+    username VARCHAR(50) UNIQUE NOT NULL,
+    password VARCHAR(255) NOT NULL,
     is_active BOOLEAN DEFAULT TRUE,
-    last_activity_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    expires_at TIMESTAMP NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    terminated_at TIMESTAMP,
-    termination_reason VARCHAR(100)
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- ===================================================
+-- COMMUNICATION DOMAIN
+-- ===================================================
 
 CREATE TABLE communication_providers (
     id BIGSERIAL PRIMARY KEY,
@@ -302,6 +313,10 @@ CREATE TABLE communication_webhooks (
     received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- ===================================================
+-- PAYMENT GATEWAY DOMAIN
+-- ===================================================
+
 CREATE TABLE payment_gateway_transactions (
     id BIGSERIAL PRIMARY KEY,
     transaction_id VARCHAR(100) UNIQUE NOT NULL,
@@ -330,6 +345,10 @@ CREATE TABLE payment_gateway_transactions (
     created_by BIGINT
 );
 
+-- ===================================================
+-- DIALER DOMAIN
+-- ===================================================
+
 CREATE TABLE dialer_call_logs (
     id BIGSERIAL PRIMARY KEY,
     call_id VARCHAR(100) UNIQUE NOT NULL,
@@ -353,18 +372,9 @@ CREATE TABLE dialer_call_logs (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE notice_alerts (
-    id BIGSERIAL PRIMARY KEY,
-    alert_id VARCHAR(100) UNIQUE NOT NULL,
-    notice_id BIGINT NOT NULL,
-    case_id BIGINT NOT NULL,
-    user_id BIGINT NOT NULL,
-    alert_type VARCHAR(50) NOT NULL,
-    alert_message TEXT NOT NULL,
-    is_read BOOLEAN DEFAULT FALSE,
-    read_at TIMESTAMP,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+-- ===================================================
+-- REPORTING DOMAIN
+-- ===================================================
 
 CREATE TABLE scheduled_reports (
     id BIGSERIAL PRIMARY KEY,
@@ -402,36 +412,171 @@ CREATE TABLE generated_reports (
     expires_at TIMESTAMP,
     error_message TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    created_by BIGINT,
-    CONSTRAINT fk_generated_report_schedule FOREIGN KEY (schedule_id) REFERENCES scheduled_reports(id) ON DELETE SET NULL
+    created_by BIGINT
 );
 
-CREATE TABLE case_notes (
+CREATE TABLE report_schedules (
     id BIGSERIAL PRIMARY KEY,
-    case_id BIGINT NOT NULL,
-    note_type VARCHAR(50) DEFAULT 'GENERAL',
-    note_text TEXT NOT NULL,
-    is_important BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    created_by BIGINT NOT NULL,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_by BIGINT
+    report_name VARCHAR(255) NOT NULL,
+    report_type VARCHAR(50) NOT NULL,
+    filter_json JSONB,
+    frequency VARCHAR(20) DEFAULT 'DAILY',
+    last_generated_at TIMESTAMP NULL,
+    next_run_at TIMESTAMP NULL,
+    report_status VARCHAR(20) DEFAULT 'ACTIVE',
+    generated_by BIGINT,
+    delivery_channel VARCHAR(50) DEFAULT 'EMAIL',
+    recipient_list TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE cycle_archival_rules (
+-- ===================================================
+-- NOTICE DOMAIN
+-- ===================================================
+
+CREATE TABLE notice_vendors (
     id BIGSERIAL PRIMARY KEY,
-    rule_name VARCHAR(200) NOT NULL,
-    rule_description TEXT,
-    frequency VARCHAR(20) NOT NULL,
-    filter_criteria JSONB NOT NULL,
+    vendor_code VARCHAR(50) UNIQUE NOT NULL,
+    vendor_name VARCHAR(255) NOT NULL,
+    vendor_type VARCHAR(20),
+    contact_person VARCHAR(100),
+    contact_email VARCHAR(100),
+    contact_mobile VARCHAR(15),
+    address TEXT,
+    api_endpoint VARCHAR(500),
+    api_key_encrypted VARCHAR(500),
+    integration_config JSONB,
+    default_delivery_sla_hours INTEGER DEFAULT 72,
+    priority_order INTEGER DEFAULT 0,
     is_active BOOLEAN DEFAULT TRUE,
-    last_run_at TIMESTAMP,
-    last_run_status VARCHAR(20),
-    cases_archived_count INTEGER DEFAULT 0,
-    next_run_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE notice_dispatch_details (
+    id BIGSERIAL PRIMARY KEY,
+    dispatch_method VARCHAR(20),
+    vendor_id BIGINT NULL,
+    vendor_job_id VARCHAR(100),
+    tracking_number VARCHAR(100),
+    dispatch_sla_hours INTEGER DEFAULT 24,
+    delivery_sla_hours INTEGER DEFAULT 72,
+    dispatched_at TIMESTAMP NULL,
+    expected_delivery_at TIMESTAMP NULL,
+    delivered_at TIMESTAMP NULL,
+    sla_status VARCHAR(20),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE notices (
+    id BIGSERIAL PRIMARY KEY,
+    notice_number VARCHAR(50) UNIQUE NOT NULL,
+    case_id BIGINT NOT NULL,
+    notice_type VARCHAR(50),
+    template_id BIGINT NOT NULL,
+    dispatch_id BIGINT NULL,
+    generated_content TEXT,
+    pdf_url VARCHAR(500),
+    pdf_hash VARCHAR(255),
+    language_code VARCHAR(10) DEFAULT 'en',
+    page_count INTEGER,
+    file_size_kb INTEGER,
+    notice_status VARCHAR(20) DEFAULT 'DRAFT',
+    generated_at TIMESTAMP NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_by BIGINT
+);
+
+CREATE TABLE notice_batches (
+    id BIGSERIAL PRIMARY KEY,
+    batch_number VARCHAR(50) UNIQUE NOT NULL,
+    total_notices INTEGER DEFAULT 0,
+    generated_notices INTEGER DEFAULT 0,
+    failed_notices INTEGER DEFAULT 0,
+    batch_status VARCHAR(20),
+    started_at TIMESTAMP NULL,
+    completed_at TIMESTAMP NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     created_by BIGINT
 );
+
+CREATE TABLE notice_batch_items (
+    id BIGSERIAL PRIMARY KEY,
+    batch_id BIGINT NOT NULL,
+    notice_id BIGINT NULL,
+    case_id BIGINT NOT NULL,
+    item_status VARCHAR(20),
+    error_message TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE vendor_performance (
+    id BIGSERIAL PRIMARY KEY,
+    vendor_id BIGINT NOT NULL,
+    period_start DATE NOT NULL,
+    period_end DATE NOT NULL,
+    total_dispatched INTEGER DEFAULT 0,
+    total_delivered INTEGER DEFAULT 0,
+    total_rto INTEGER DEFAULT 0,
+    total_pending INTEGER DEFAULT 0,
+    delivery_percentage DECIMAL(5,2),
+    rto_percentage DECIMAL(5,2),
+    avg_delivery_time_hours DECIMAL(10,2),
+    sla_compliance_percentage DECIMAL(5,2),
+    calculated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE notice_events (
+    id BIGSERIAL PRIMARY KEY,
+    notice_id BIGINT NOT NULL,
+    event_type VARCHAR(30),
+    event_description TEXT,
+    event_source VARCHAR(20),
+    event_location VARCHAR(255),
+    event_timestamp TIMESTAMP NULL,
+    vendor_response JSONB,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_by BIGINT
+);
+
+CREATE TABLE notice_proof_of_delivery (
+    id BIGSERIAL PRIMARY KEY,
+    notice_id BIGINT NOT NULL,
+    pod_type VARCHAR(20),
+    pod_file_url VARCHAR(500),
+    recipient_name VARCHAR(255),
+    recipient_relationship VARCHAR(50),
+    recipient_signature_url VARCHAR(500),
+    delivered_at TIMESTAMP NULL,
+    delivered_location VARCHAR(255),
+    gps_coordinates VARCHAR(100),
+    verification_status VARCHAR(20) DEFAULT 'PENDING',
+    verified_by BIGINT NULL,
+    verified_at TIMESTAMP NULL,
+    verification_comments TEXT,
+    uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    uploaded_by BIGINT
+);
+
+CREATE TABLE notice_alerts (
+    id BIGSERIAL PRIMARY KEY,
+    alert_id VARCHAR(100) UNIQUE NOT NULL,
+    notice_id BIGINT NOT NULL,
+    case_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    alert_type VARCHAR(50) NOT NULL,
+    alert_message TEXT NOT NULL,
+    is_read BOOLEAN DEFAULT FALSE,
+    read_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ===================================================
+-- CUSTOMER & LOAN DOMAIN
+-- ===================================================
 
 CREATE TABLE customers (
     id BIGSERIAL PRIMARY KEY,
@@ -479,11 +624,12 @@ CREATE TABLE loan_details (
     due_date DATE,
     source_system VARCHAR(50),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT fk_loan_primary_customer FOREIGN KEY (primary_customer_id) REFERENCES customers(id),
-    CONSTRAINT fk_loan_co_borrower FOREIGN KEY (co_borrower_customer_id) REFERENCES customers(id),
-    CONSTRAINT fk_loan_guarantor FOREIGN KEY (guarantor_customer_id) REFERENCES customers(id)
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- ===================================================
+-- CASE DOMAIN
+-- ===================================================
 
 CREATE TABLE cases (
     id BIGSERIAL PRIMARY KEY,
@@ -513,8 +659,7 @@ CREATE TABLE cases (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     created_by BIGINT,
-    updated_by BIGINT,
-    CONSTRAINT fk_cases_loan FOREIGN KEY (loan_id) REFERENCES loan_details(id)
+    updated_by BIGINT
 );
 
 CREATE TABLE IF NOT EXISTS case_batches (
@@ -543,8 +688,39 @@ CREATE TABLE IF NOT EXISTS batch_errors (
     error_type VARCHAR(50),
     error_message TEXT,
     field_name VARCHAR(100),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    error_id VARCHAR(100) UNIQUE,
+    case_id BIGINT,
+    module VARCHAR(50) DEFAULT 'ALLOCATION'
+);
+
+CREATE TABLE case_notes (
+    id BIGSERIAL PRIMARY KEY,
+    case_id BIGINT NOT NULL,
+    note_type VARCHAR(50) DEFAULT 'GENERAL',
+    note_text TEXT NOT NULL,
+    is_important BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_by BIGINT NOT NULL,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_by BIGINT
+);
+
+CREATE TABLE case_activities (
+    id BIGSERIAL PRIMARY KEY,
+    case_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    activity_type VARCHAR(50) NOT NULL,
+    activity_subtype VARCHAR(50),
+    details TEXT,
+    activity_metadata JSONB,
+    next_followup_date DATE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- ===================================================
+-- ALLOCATION & REALLOCATION DOMAIN
+-- ===================================================
 
 CREATE TABLE allocations (
     id BIGSERIAL PRIMARY KEY,
@@ -558,7 +734,12 @@ CREATE TABLE allocations (
     allocated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     deallocated_at TIMESTAMP NULL,
     allocated_by BIGINT,
-    CONSTRAINT fk_allocations_case FOREIGN KEY (case_id) REFERENCES cases(id)
+    external_case_id VARCHAR(100),
+    secondary_agent_id BIGINT,
+    allocation_rule_id BIGINT,
+    batch_id VARCHAR(100),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE allocation_history (
@@ -572,8 +753,77 @@ CREATE TABLE allocation_history (
     reason VARCHAR(500),
     changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     changed_by BIGINT,
-    CONSTRAINT fk_allocation_history_case FOREIGN KEY (case_id) REFERENCES cases(id)
+    external_case_id VARCHAR(100),
+    allocated_to_username VARCHAR(100),
+    batch_id VARCHAR(100),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS allocation_batches (
+    id BIGSERIAL PRIMARY KEY,
+    batch_id VARCHAR(100) UNIQUE NOT NULL,
+    total_cases INTEGER DEFAULT 0,
+    successful_allocations INTEGER DEFAULT 0,
+    failed_allocations INTEGER DEFAULT 0,
+    status VARCHAR(20) NOT NULL CHECK (status IN ('PROCESSING', 'COMPLETED', 'FAILED', 'PARTIALLY_COMPLETED')),
+    uploaded_by BIGINT,
+    uploaded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMP NULL,
+    file_name VARCHAR(500),
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS allocation_rules (
+    id BIGSERIAL PRIMARY KEY,
+    name VARCHAR(200) NOT NULL,
+    description TEXT,
+    criteria JSONB NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'INACTIVE', 'DRAFT', 'READY_FOR_APPLY')),
+    priority INTEGER DEFAULT 0,
+    created_by BIGINT,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS contact_update_batches (
+    id BIGSERIAL PRIMARY KEY,
+    batch_id VARCHAR(100) UNIQUE NOT NULL,
+    total_records INTEGER DEFAULT 0,
+    successful_updates INTEGER DEFAULT 0,
+    failed_updates INTEGER DEFAULT 0,
+    status VARCHAR(20) NOT NULL CHECK (status IN ('PROCESSING', 'COMPLETED', 'FAILED', 'PARTIALLY_COMPLETED')),
+    uploaded_by BIGINT,
+    uploaded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMP NULL,
+    file_name VARCHAR(500),
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS reallocation_jobs (
+    id BIGSERIAL PRIMARY KEY,
+    job_id VARCHAR(100) UNIQUE NOT NULL,
+    job_type VARCHAR(50) NOT NULL CHECK (job_type IN ('BY_AGENT', 'BY_FILTER', 'BULK_UPLOAD')),
+    from_user_id BIGINT,
+    to_user_id BIGINT,
+    filter_criteria JSONB,
+    reason VARCHAR(500),
+    status VARCHAR(20) NOT NULL DEFAULT 'PROCESSING' CHECK (status IN ('PROCESSING', 'COMPLETED', 'FAILED', 'CANCELLED')),
+    total_cases INTEGER DEFAULT 0,
+    processed_cases INTEGER DEFAULT 0,
+    successful_cases INTEGER DEFAULT 0,
+    failed_cases INTEGER DEFAULT 0,
+    started_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMP NULL,
+    created_by BIGINT,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ===================================================
+-- STRATEGY ENGINE DOMAIN
+-- ===================================================
 
 CREATE TABLE strategies (
     id BIGSERIAL PRIMARY KEY,
@@ -590,7 +840,14 @@ CREATE TABLE strategies (
     effective_to DATE,
     created_by BIGINT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    status VARCHAR(20) DEFAULT 'DRAFT',
+    last_run_at TIMESTAMP NULL,
+    success_count INTEGER DEFAULT 0,
+    failure_count INTEGER DEFAULT 0,
+    schedule_expression VARCHAR(100),
+    event_type VARCHAR(50),
+    updated_by BIGINT
 );
 
 CREATE TABLE strategy_rules (
@@ -603,7 +860,9 @@ CREATE TABLE strategy_rules (
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT fk_strategy_rules_strategy FOREIGN KEY (strategy_id) REFERENCES strategies(id) ON DELETE CASCADE
+    field_name VARCHAR(100),
+    operator VARCHAR(50),
+    field_value TEXT
 );
 
 CREATE TABLE strategy_actions (
@@ -615,7 +874,9 @@ CREATE TABLE strategy_actions (
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT fk_strategy_actions_strategy FOREIGN KEY (strategy_id) REFERENCES strategies(id) ON DELETE CASCADE
+    template_id BIGINT,
+    channel VARCHAR(50),
+    priority INTEGER DEFAULT 0
 );
 
 CREATE TABLE strategy_executions (
@@ -632,8 +893,30 @@ CREATE TABLE strategy_executions (
     started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     completed_at TIMESTAMP NULL,
     executed_by BIGINT,
-    CONSTRAINT fk_strategy_executions_strategy FOREIGN KEY (strategy_id) REFERENCES strategies(id) ON DELETE CASCADE
+    execution_id VARCHAR(100) UNIQUE,
+    strategy_name VARCHAR(255),
+    estimated_cases_affected INTEGER,
+    successful_actions INTEGER DEFAULT 0,
+    failed_actions INTEGER DEFAULT 0,
+    execution_metadata JSONB,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS strategy_execution_details (
+    id BIGSERIAL PRIMARY KEY,
+    execution_id VARCHAR(100) NOT NULL,
+    case_id BIGINT,
+    action_type VARCHAR(50),
+    action_status VARCHAR(20),
+    error_message TEXT,
+    action_metadata JSONB,
+    executed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ===================================================
+-- CAMPAIGN DOMAIN
+-- ===================================================
 
 CREATE TABLE campaign_templates (
     id BIGSERIAL PRIMARY KEY,
@@ -682,9 +965,12 @@ CREATE TABLE campaign_executions (
     sent_at TIMESTAMP NULL,
     delivered_at TIMESTAMP NULL,
     failed_at TIMESTAMP NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT fk_campaign_executions_campaign FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- ===================================================
+-- TELECALLING DOMAIN
+-- ===================================================
 
 CREATE TABLE telecalling_logs (
     id BIGSERIAL PRIMARY KEY,
@@ -714,6 +1000,10 @@ CREATE TABLE telecalling_history (
     archived_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- ===================================================
+-- AGENCY DOMAIN
+-- ===================================================
+
 CREATE TABLE agencies (
     id BIGSERIAL PRIMARY KEY,
     agency_code VARCHAR(50) UNIQUE NOT NULL,
@@ -741,9 +1031,12 @@ CREATE TABLE agency_users (
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     created_by BIGINT,
-    CONSTRAINT fk_agency_users_agency FOREIGN KEY (agency_id) REFERENCES agencies(id) ON DELETE CASCADE,
     CONSTRAINT unique_agency_user UNIQUE (agency_id, user_id)
 );
+
+-- ===================================================
+-- PAYMENT & RECEIPT DOMAIN
+-- ===================================================
 
 CREATE TABLE receipts (
     id BIGSERIAL PRIMARY KEY,
@@ -797,9 +1090,7 @@ CREATE TABLE repayments (
     receipt_id BIGINT NULL,
     notes TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT fk_repayments_transaction FOREIGN KEY (transaction_id) REFERENCES payment_transactions(id),
-    CONSTRAINT fk_repayments_receipt FOREIGN KEY (receipt_id) REFERENCES receipts(id)
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE ots_settlements (
@@ -817,6 +1108,10 @@ CREATE TABLE ots_settlements (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- ===================================================
+-- WORKFLOW & AUDIT DOMAIN
+-- ===================================================
 
 CREATE TABLE approval_workflows (
     id BIGSERIAL PRIMARY KEY,
@@ -847,6 +1142,25 @@ CREATE TABLE audit_logs (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- ===================================================
+-- CYCLE & ARCHIVAL DOMAIN
+-- ===================================================
+
+CREATE TABLE cycle_archival_rules (
+    id BIGSERIAL PRIMARY KEY,
+    rule_name VARCHAR(200) NOT NULL,
+    rule_description TEXT,
+    frequency VARCHAR(20) NOT NULL,
+    filter_criteria JSONB NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE,
+    last_run_at TIMESTAMP,
+    last_run_status VARCHAR(20),
+    cases_archived_count INTEGER DEFAULT 0,
+    next_run_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_by BIGINT
+);
+
 CREATE TABLE cycle_closures (
     id BIGSERIAL PRIMARY KEY,
     cycle_type VARCHAR(20) NOT NULL,
@@ -859,18 +1173,6 @@ CREATE TABLE cycle_closures (
     remarks TEXT
 );
 
-CREATE TABLE case_activities (
-    id BIGSERIAL PRIMARY KEY,
-    case_id BIGINT NOT NULL,
-    user_id BIGINT NOT NULL,
-    activity_type VARCHAR(50) NOT NULL,
-    activity_subtype VARCHAR(50),
-    details TEXT,
-    activity_metadata JSONB,
-    next_followup_date DATE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
 CREATE TABLE dashboard_metrics_cache (
     id BIGSERIAL PRIMARY KEY,
     metric_date DATE NOT NULL,
@@ -880,160 +1182,32 @@ CREATE TABLE dashboard_metrics_cache (
     CONSTRAINT unique_metrics_cache UNIQUE (metric_date, metric_type)
 );
 
-CREATE TABLE report_schedules (
-    id BIGSERIAL PRIMARY KEY,
-    report_name VARCHAR(255) NOT NULL,
-    report_type VARCHAR(50) NOT NULL,
-    filter_json JSONB,
-    frequency VARCHAR(20) DEFAULT 'DAILY',
-    last_generated_at TIMESTAMP NULL,
-    next_run_at TIMESTAMP NULL,
-    report_status VARCHAR(20) DEFAULT 'ACTIVE',
-    generated_by BIGINT,
-    delivery_channel VARCHAR(50) DEFAULT 'EMAIL',
-    recipient_list TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+-- ===================================================
+-- COMMENTS FOR DBA REFERENCE
+-- ===================================================
+COMMENT ON TABLE allocations IS 'Extended with allocation service columns from V3_0';
+COMMENT ON TABLE allocation_history IS 'Extended with allocation service columns from V3_0';
+COMMENT ON TABLE batch_errors IS 'Extended with allocation service columns from V3_0';
+COMMENT ON TABLE allocation_batches IS 'Tracks bulk allocation CSV upload batches';
+COMMENT ON TABLE allocation_rules IS 'Stores allocation rules and configurations for automatic case allocation';
+COMMENT ON TABLE contact_update_batches IS 'Tracks bulk contact information update batches';
+COMMENT ON TABLE reallocation_jobs IS 'Tracks reallocation jobs executed by agent or filter criteria';
+COMMENT ON TABLE strategies IS 'Extended with strategy engine service columns from V5_0';
+COMMENT ON TABLE strategy_rules IS 'Extended with strategy engine service columns from V5_0';
+COMMENT ON TABLE strategy_actions IS 'Extended with strategy engine service columns from V5_0';
+COMMENT ON TABLE strategy_executions IS 'Extended with strategy engine service columns from V5_0';
+COMMENT ON TABLE strategy_execution_details IS 'Detailed execution logs for individual cases and actions';
+COMMENT ON COLUMN strategies.status IS 'Strategy status: ACTIVE, INACTIVE, DRAFT';
+COMMENT ON COLUMN strategies.schedule_expression IS 'Cron expression for SCHEDULED trigger type (e.g., 0 0 9 * * ?)';
+COMMENT ON COLUMN strategies.event_type IS 'Event type for EVENT_BASED triggers (e.g., PTP_BROKEN)';
+COMMENT ON COLUMN strategy_actions.template_id IS 'Reference to communication template';
+COMMENT ON COLUMN strategy_actions.channel IS 'Communication channel: SMS, EMAIL, WHATSAPP, etc.';
+COMMENT ON COLUMN strategy_executions.execution_id IS 'Unique execution identifier for API tracking';
+COMMENT ON COLUMN strategy_executions.strategy_name IS 'Strategy name snapshot at execution time';
 
-CREATE TABLE notice_vendors (
-    id BIGSERIAL PRIMARY KEY,
-    vendor_code VARCHAR(50) UNIQUE NOT NULL,
-    vendor_name VARCHAR(255) NOT NULL,
-    vendor_type VARCHAR(20),
-    contact_person VARCHAR(100),
-    contact_email VARCHAR(100),
-    contact_mobile VARCHAR(15),
-    address TEXT,
-    api_endpoint VARCHAR(500),
-    api_key_encrypted VARCHAR(500),
-    integration_config JSONB,
-    default_delivery_sla_hours INTEGER DEFAULT 72,
-    priority_order INTEGER DEFAULT 0,
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE notice_dispatch_details (
-    id BIGSERIAL PRIMARY KEY,
-    dispatch_method VARCHAR(20),
-    vendor_id BIGINT NULL,
-    vendor_job_id VARCHAR(100),
-    tracking_number VARCHAR(100),
-    dispatch_sla_hours INTEGER DEFAULT 24,
-    delivery_sla_hours INTEGER DEFAULT 72,
-    dispatched_at TIMESTAMP NULL,
-    expected_delivery_at TIMESTAMP NULL,
-    delivered_at TIMESTAMP NULL,
-    sla_status VARCHAR(20),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT fk_notice_dispatch_vendor FOREIGN KEY (vendor_id) REFERENCES notice_vendors(id)
-);
-
-CREATE TABLE notices (
-    id BIGSERIAL PRIMARY KEY,
-    notice_number VARCHAR(50) UNIQUE NOT NULL,
-    case_id BIGINT NOT NULL,
-    notice_type VARCHAR(50),
-    template_id BIGINT NOT NULL,
-    dispatch_id BIGINT NULL,
-    generated_content TEXT,
-    pdf_url VARCHAR(500),
-    pdf_hash VARCHAR(255),
-    language_code VARCHAR(10) DEFAULT 'en',
-    page_count INTEGER,
-    file_size_kb INTEGER,
-    notice_status VARCHAR(20) DEFAULT 'DRAFT',
-    generated_at TIMESTAMP NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    created_by BIGINT,
-    CONSTRAINT fk_notices_dispatch FOREIGN KEY (dispatch_id) REFERENCES notice_dispatch_details(id)
-);
-
-CREATE TABLE notice_batches (
-    id BIGSERIAL PRIMARY KEY,
-    batch_number VARCHAR(50) UNIQUE NOT NULL,
-    total_notices INTEGER DEFAULT 0,
-    generated_notices INTEGER DEFAULT 0,
-    failed_notices INTEGER DEFAULT 0,
-    batch_status VARCHAR(20),
-    started_at TIMESTAMP NULL,
-    completed_at TIMESTAMP NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    created_by BIGINT
-);
-
-CREATE TABLE notice_batch_items (
-    id BIGSERIAL PRIMARY KEY,
-    batch_id BIGINT NOT NULL,
-    notice_id BIGINT NULL,
-    case_id BIGINT NOT NULL,
-    item_status VARCHAR(20),
-    error_message TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT fk_notice_batch_items_batch FOREIGN KEY (batch_id) REFERENCES notice_batches(id) ON DELETE CASCADE,
-    CONSTRAINT fk_notice_batch_items_notice FOREIGN KEY (notice_id) REFERENCES notices(id)
-);
-
-CREATE TABLE vendor_performance (
-    id BIGSERIAL PRIMARY KEY,
-    vendor_id BIGINT NOT NULL,
-    period_start DATE NOT NULL,
-    period_end DATE NOT NULL,
-    total_dispatched INTEGER DEFAULT 0,
-    total_delivered INTEGER DEFAULT 0,
-    total_rto INTEGER DEFAULT 0,
-    total_pending INTEGER DEFAULT 0,
-    delivery_percentage DECIMAL(5,2),
-    rto_percentage DECIMAL(5,2),
-    avg_delivery_time_hours DECIMAL(10,2),
-    sla_compliance_percentage DECIMAL(5,2),
-    calculated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT fk_vendor_performance_vendor FOREIGN KEY (vendor_id) REFERENCES notice_vendors(id) ON DELETE CASCADE
-);
-
-CREATE TABLE notice_events (
-    id BIGSERIAL PRIMARY KEY,
-    notice_id BIGINT NOT NULL,
-    event_type VARCHAR(30),
-    event_description TEXT,
-    event_source VARCHAR(20),
-    event_location VARCHAR(255),
-    event_timestamp TIMESTAMP NULL,
-    vendor_response JSONB,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    created_by BIGINT,
-    CONSTRAINT fk_notice_events_notice FOREIGN KEY (notice_id) REFERENCES notices(id) ON DELETE CASCADE
-);
-
-CREATE TABLE notice_proof_of_delivery (
-    id BIGSERIAL PRIMARY KEY,
-    notice_id BIGINT NOT NULL,
-    pod_type VARCHAR(20),
-    pod_file_url VARCHAR(500),
-    recipient_name VARCHAR(255),
-    recipient_relationship VARCHAR(50),
-    recipient_signature_url VARCHAR(500),
-    delivered_at TIMESTAMP NULL,
-    delivered_location VARCHAR(255),
-    gps_coordinates VARCHAR(100),
-    verification_status VARCHAR(20) DEFAULT 'PENDING',
-    verified_by BIGINT NULL,
-    verified_at TIMESTAMP NULL,
-    verification_comments TEXT,
-    uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    uploaded_by BIGINT,
-    CONSTRAINT fk_notice_pod_notice FOREIGN KEY (notice_id) REFERENCES notices(id) ON DELETE CASCADE
-);
-
-CREATE TABLE cache_config (
-    id BIGSERIAL PRIMARY KEY,
-    username VARCHAR(50) UNIQUE NOT NULL,
-    password VARCHAR(255) NOT NULL,
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+-- ===================================================
+-- NOTE: FOREIGN KEYS REMOVED
+-- As per V4_0__remove_all_foreign_keys.sql, all foreign key
+-- constraints have been removed to support microservices architecture.
+-- Referential integrity is maintained at the application layer.
+-- ===================================================
