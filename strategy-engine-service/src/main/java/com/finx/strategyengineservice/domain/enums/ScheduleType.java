@@ -6,5 +6,6 @@ package com.finx.strategyengineservice.domain.enums;
 public enum ScheduleType {
     DAILY,
     WEEKLY,
+    MONTHLY,
     EVENT_BASED
 }

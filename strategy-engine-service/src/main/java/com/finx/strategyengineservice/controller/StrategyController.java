@@ -54,7 +54,7 @@ public class StrategyController {
     public ResponseEntity<CommonResponse<StrategyResponse>> createStrategy(
             @Valid @RequestBody StrategyRequest request) {
 
-        log.info("POST /api/v1/strategies/v2 - Create unified strategy: {}", request.getRuleName());
+        log.info("POST /api/v1/strategies/v2 - Create unified strategy: {}", request.getStrategyName());
 
         StrategyResponse response = strategyService.createStrategy(request);
 

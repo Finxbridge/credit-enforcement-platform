@@ -14,6 +14,7 @@ import com.finx.management.mapper.RoleMapper;
 import com.finx.management.repository.ManagementPermissionRepository;
 import com.finx.management.repository.RoleGroupRepository;
 import com.finx.management.repository.ManagementRoleRepository;
+import com.finx.management.repository.UserRepository;
 import com.finx.management.service.RoleService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.cache.annotation.CacheEvict;
@@ -33,6 +34,7 @@ public class RoleServiceImpl implements RoleService {
     private final ManagementRoleRepository managementRoleRepository;
     private final RoleGroupRepository roleGroupRepository;
     private final ManagementPermissionRepository managementPermissionRepository;
+    private final UserRepository userRepository;
     private final RoleMapper roleMapper;
 
     @Override
@@ -141,6 +143,16 @@ public class RoleServiceImpl implements RoleService {
     public void deleteRole(Long id) {
         Role role = managementRoleRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Role", "id", id));
+
+        // Check if role is assigned to any active users
+        if (userRepository.existsByRoleIdAndActiveUsers(id)) {
+            long activeUserCount = userRepository.countActiveUsersByRoleId(id);
+            throw new BusinessException(
+                    String.format("Cannot delete role '%s'. It is currently assigned to %d active user(s). " +
+                            "Please remove this role from all active users before deleting.",
+                            role.getRoleName(), activeUserCount));
+        }
+
         managementRoleRepository.delete(role);
     }
 }

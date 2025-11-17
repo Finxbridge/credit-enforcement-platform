@@ -119,11 +119,11 @@ public class SMSService {
     }
 
     /**
-     * Get template details
+     * Get template details (versions)
      */
     @SuppressWarnings("null")
-    public Map<String, Object> getTemplateDetails(String templateId) {
-        log.info("Fetching template details for: {}", templateId);
+    public Map<String, Object> getTemplateDetails(SmsGetTemplateVersionsRequest request) {
+        log.info("Fetching template details for: {}", request.getTemplateId());
 
         // 1. Get configuration from cache
         ThirdPartyIntegrationMaster config = getIntegrationConfig();
@@ -131,18 +131,17 @@ public class SMSService {
         // 2. Build URL
         String url = config.getApiEndpoint() + "/api/v5/sms/getTemplateVersions";
 
-        // 3. Build request body
-        Map<String, Object> requestBody = Map.of("template_id", templateId);
-
-        // 4. Call Msg91 API
+        // 3. Call Msg91 API with JSON body
         String response = webClient.post()
                 .uri(url)
                 .header(AUTH_KEY, encryptionUtil.decrypt(config.getApiKeyEncrypted()))
                 .header(ACCEPT, ACCEPT_TYPE)
                 .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(requestBody)
+                .bodyValue(request)
                 .retrieve()
                 .bodyToMono(String.class)
+                .doOnError(error -> log.error("Get template details failed", error))
+                .onErrorResume(error -> Mono.error(new ApiCallException("Failed to get template details", error)))
                 .block();
 
         log.info("Template details response: {}", response);
@@ -179,6 +178,121 @@ public class SMSService {
                 .block();
 
         log.info("SMS logs response: {}", response);
+
+        try {
+            return objectMapper.readValue(response, new TypeReference<Map<String, Object>>() {
+            });
+        } catch (Exception e) {
+            return Map.of(RAW_RESPONSE, response);
+        }
+    }
+
+    /**
+     * Add a new version to an existing SMS template
+     */
+    @SuppressWarnings("null")
+    public Map<String, Object> addTemplateVersion(SmsAddTemplateVersionRequest request) {
+        log.info("Adding template version for template: {}", request.getTemplateId());
+
+        // 1. Get configuration from cache
+        ThirdPartyIntegrationMaster config = getIntegrationConfig();
+
+        // 2. Build URL
+        String url = config.getApiEndpoint() + "/api/v5/sms/addTemplateVersion";
+
+        // 3. Build multipart form data
+        MultipartBodyBuilder builder = new MultipartBodyBuilder();
+        builder.part("template_id", request.getTemplateId());
+        builder.part("sender_id", request.getSenderId());
+        builder.part("template", request.getTemplate());
+        builder.part("dlt_template_id", request.getDltTemplateId());
+
+        // 4. Call Msg91 API
+        String response = webClient.post()
+                .uri(url)
+                .header(AUTH_KEY, encryptionUtil.decrypt(config.getApiKeyEncrypted()))
+                .header(ACCEPT, ACCEPT_TYPE)
+                .contentType(MediaType.MULTIPART_FORM_DATA)
+                .body(BodyInserters.fromMultipartData(builder.build()))
+                .retrieve()
+                .bodyToMono(String.class)
+                .doOnError(error -> log.error("Add template version failed", error))
+                .onErrorResume(error -> Mono.error(new ApiCallException("Failed to add template version", error)))
+                .block();
+
+        log.info("Add template version response: {}", response);
+
+        try {
+            return objectMapper.readValue(response, new TypeReference<Map<String, Object>>() {
+            });
+        } catch (Exception e) {
+            return Map.of(RAW_RESPONSE, response);
+        }
+    }
+
+    /**
+     * Get SMS analytics by date range
+     */
+    @SuppressWarnings("null")
+    public Map<String, Object> getAnalytics(String startDate, String endDate) {
+        log.info("Fetching SMS analytics from {} to {}", startDate, endDate);
+
+        // 1. Get configuration from cache
+        ThirdPartyIntegrationMaster config = getIntegrationConfig();
+
+        // 2. Build URL with query parameters
+        String url = config.getApiEndpoint() + "/api/v5/report/analytics/p/sms" +
+                "?startDate=" + startDate +
+                "&endDate=" + endDate;
+
+        // 3. Call Msg91 API
+        String response = webClient.get()
+                .uri(url)
+                .header(AUTH_KEY, encryptionUtil.decrypt(config.getApiKeyEncrypted()))
+                .header(ACCEPT, ACCEPT_TYPE)
+                .retrieve()
+                .bodyToMono(String.class)
+                .doOnError(error -> log.error("Get analytics failed", error))
+                .onErrorResume(error -> Mono.error(new ApiCallException("Failed to get SMS analytics", error)))
+                .block();
+
+        log.info("SMS analytics response: {}", response);
+
+        try {
+            return objectMapper.readValue(response, new TypeReference<Map<String, Object>>() {
+            });
+        } catch (Exception e) {
+            return Map.of(RAW_RESPONSE, response);
+        }
+    }
+
+    /**
+     * Mark a template version as active
+     */
+    @SuppressWarnings("null")
+    public Map<String, Object> markTemplateActive(String id, String templateId) {
+        log.info("Marking template version {} as active for template {}", id, templateId);
+
+        // 1. Get configuration from cache
+        ThirdPartyIntegrationMaster config = getIntegrationConfig();
+
+        // 2. Build URL with query parameters
+        String url = config.getApiEndpoint() + "/api/v5/sms/markActive" +
+                "?id=" + id +
+                "&template_id=" + templateId;
+
+        // 3. Call Msg91 API
+        String response = webClient.get()
+                .uri(url)
+                .header(AUTH_KEY, encryptionUtil.decrypt(config.getApiKeyEncrypted()))
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .retrieve()
+                .bodyToMono(String.class)
+                .doOnError(error -> log.error("Mark template active failed", error))
+                .onErrorResume(error -> Mono.error(new ApiCallException("Failed to mark template as active", error)))
+                .block();
+
+        log.info("Mark template active response: {}", response);
 
         try {
             return objectMapper.readValue(response, new TypeReference<Map<String, Object>>() {

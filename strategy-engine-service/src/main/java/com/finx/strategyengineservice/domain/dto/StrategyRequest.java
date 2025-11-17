@@ -22,9 +22,9 @@ public class StrategyRequest {
     // 1. BASIC STRATEGY INFO
     // ===================================
 
-    @NotBlank(message = "Rule name is required")
-    @Size(min = 3, max = 255, message = "Rule name must be between 3 and 255 characters")
-    private String ruleName;  // Strategy name
+    @NotBlank(message = "Strategy name is required")
+    @Size(min = 3, max = 255, message = "Strategy name must be between 3 and 255 characters")
+    private String strategyName;
 
     @NotBlank(message = "Status is required")
     @Pattern(regexp = "DRAFT|ACTIVE|INACTIVE", message = "Status must be DRAFT, ACTIVE, or INACTIVE")
@@ -38,92 +38,89 @@ public class StrategyRequest {
     private String description;
 
     // ===================================
-    // 2. TEMPLATE SELECTION
+    // 2. CHANNEL CONFIGURATION
     // ===================================
 
-    @NotNull(message = "Template configuration is required")
+    @NotNull(message = "Channel configuration is required")
     @Valid
-    private TemplateConfig templateConfig;
+    private Channel channel;
 
     @Data
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
-    public static class TemplateConfig {
+    public static class Channel {
 
-        @NotBlank(message = "Template type is required")
-        @Pattern(regexp = "SMS|WHATSAPP|EMAIL|IVR|NOTICE", message = "Template type must be SMS, WHATSAPP, EMAIL, IVR, or NOTICE")
-        private String templateType;  // SMS, WHATSAPP, EMAIL, IVR, NOTICE
+        @NotBlank(message = "Channel type is required")
+        @Pattern(regexp = "SMS|WHATSAPP|EMAIL|IVR|NOTICE", message = "Channel type must be SMS, WHATSAPP, EMAIL, IVR, or NOTICE")
+        private String type;  // SMS, WHATSAPP, EMAIL, IVR, NOTICE
 
-        @NotNull(message = "Template ID is required")
-        private Long templateId;  // Selected from dropdown (campaign_templates.id)
+        @NotBlank(message = "Template name is required")
+        private String templateName;  // Template name/code to lookup template ID
 
-        private String templateName;  // Display name (for reference)
+        // Optional: Can be provided directly or looked up from templateName
+        private Long templateId;
     }
 
     // ===================================
     // 3. FILTERS
     // ===================================
 
-    @NotNull(message = "Filter configuration is required")
+    @NotNull(message = "Filters configuration is required")
     @Valid
-    private FilterConfig filterConfig;
+    private Filters filters;
 
     @Data
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
-    public static class FilterConfig {
-
-        // Numeric Filters
-        private NumericFilter outstandingPrincipal;
-        private NumericFilter paymentAmount;
+    public static class Filters {
 
         // Text Filters (multiple selections allowed)
-        private List<String> languages;  // ['EN', 'HI', 'MR']
-        private List<String> products;   // ['PERSONAL_LOAN', 'HOME_LOAN']
-        private List<String> pincodes;   // ['400001', '400002']
-        private List<String> states;     // ['MH', 'GJ', 'DL']
-        private List<String> buckets;    // ['X1', 'X2', 'X3']
+        private List<String> language;   // ['ENGLISH', 'TELUGU', 'HINDI']
+        private List<String> product;    // ['PERSONAL_LOAN', 'HOME_LOAN']
+        private List<String> pincode;    // ['500001', '500072']
+        private List<String> state;      // ['TELANGANA', 'ANDHRA PRADESH']
+        private List<String> bucket;     // ['B1', 'B2', 'B3']
 
-        // DPD Filter (special numeric filter)
-        @NotNull(message = "DPD filter is required")
+        // DPD Range Filter (required)
+        @NotNull(message = "DPD range is required")
         @Valid
-        private DpdFilter dpd;
+        private DpdRange dpdRange;
+
+        // Outstanding Amount Filter (optional, supports simple value or range)
+        private Double outstandingAmount;  // Simple filter: >= this amount
+        private OutstandingRange outstandingRange;  // Advanced: custom range
     }
 
     @Data
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
-    public static class NumericFilter {
+    public static class DpdRange {
 
-        @NotBlank(message = "Operator is required")
-        @Pattern(regexp = "EQUALS|GREATER_THAN|LESS_THAN|GREATER_THAN_OR_EQUAL|LESS_THAN_OR_EQUAL|BETWEEN",
-                message = "Invalid operator")
-        private String operator;  // EQUALS, GREATER_THAN, LESS_THAN, GREATER_THAN_OR_EQUAL, LESS_THAN_OR_EQUAL, BETWEEN
+        @NotNull(message = "DPD 'from' value is required")
+        @Min(value = 0, message = "DPD 'from' must be >= 0")
+        private Integer from;
 
-        private Double value;  // For single value operators
-
-        private Double minValue;  // For BETWEEN operator
-        private Double maxValue;  // For BETWEEN operator
+        @NotNull(message = "DPD 'to' value is required")
+        @Min(value = 0, message = "DPD 'to' must be >= 0")
+        private Integer to;
     }
 
     @Data
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
-    public static class DpdFilter {
+    public static class OutstandingRange {
 
-        @NotBlank(message = "DPD operator is required")
-        @Pattern(regexp = "EQUALS|GREATER_THAN|LESS_THAN|GREATER_THAN_OR_EQUAL|LESS_THAN_OR_EQUAL|BETWEEN",
-                message = "Invalid DPD operator")
-        private String operator;
+        @NotNull(message = "Outstanding 'from' value is required")
+        @Min(value = 0, message = "Outstanding 'from' must be >= 0")
+        private Double from;
 
-        private Integer value;  // DPD value for single operators
-
-        private Integer minDpd;  // For BETWEEN (e.g., 30-60 DPD)
-        private Integer maxDpd;
+        @NotNull(message = "Outstanding 'to' value is required")
+        @Min(value = 0, message = "Outstanding 'to' must be >= 0")
+        private Double to;
     }
 
     // ===================================
@@ -132,24 +129,31 @@ public class StrategyRequest {
 
     @NotNull(message = "Schedule configuration is required")
     @Valid
-    private ScheduleConfig scheduleConfig;
+    private Schedule schedule;
 
     @Data
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
-    public static class ScheduleConfig {
+    public static class Schedule {
 
         @NotBlank(message = "Frequency is required")
-        @Pattern(regexp = "DAILY|WEEKLY|EVENT_BASED", message = "Frequency must be DAILY, WEEKLY, or EVENT_BASED")
-        private String frequency;  // DAILY, WEEKLY, EVENT_BASED
+        @Pattern(regexp = "DAILY|WEEKLY|MONTHLY", message = "Frequency must be DAILY, WEEKLY, or MONTHLY")
+        private String frequency;  // DAILY, WEEKLY, MONTHLY
 
-        // For DAILY
-        private String dailyTime;  // HH:mm format (e.g., "09:00")
+        @NotBlank(message = "Time is required")
+        @Pattern(regexp = "^([01]\\d|2[0-3]):([0-5]\\d)$", message = "Time must be in HH:mm format (e.g., 10:30)")
+        private String time;  // HH:mm format (e.g., "10:30")
 
-        // For WEEKLY
-        private List<String> weeklyDays;  // ['MONDAY', 'WEDNESDAY', 'FRIDAY']
-        private String weeklyTime;  // HH:mm format
+        // Days of week for DAILY and WEEKLY frequency
+        // For DAILY: Use ["DAILY"] or list specific days like ["MONDAY", "TUESDAY"]
+        // For WEEKLY: List specific days like ["MONDAY", "WEDNESDAY", "FRIDAY"]
+        private List<String> days;
+
+        // Day of month for MONTHLY frequency (1-31)
+        @Min(value = 1, message = "Day of month must be between 1 and 31")
+        @Max(value = 31, message = "Day of month must be between 1 and 31")
+        private Integer dayOfMonth;
 
         // Timezone
         @Builder.Default

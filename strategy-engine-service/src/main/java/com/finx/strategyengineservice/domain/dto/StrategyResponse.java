@@ -19,19 +19,19 @@ public class StrategyResponse {
 
     private Long strategyId;
     private String strategyCode;
-    private String ruleName;
+    private String strategyName;
     private String status;
     private Integer priority;
     private String description;
 
-    // Template info
-    private TemplateInfo template;
+    // Channel info
+    private Channel channel;
 
     // Filter summary
-    private FilterSummary filters;
+    private Filters filters;
 
     // Schedule info
-    private ScheduleInfo schedule;
+    private Schedule schedule;
 
     // Metadata
     private LocalDateTime createdAt;
@@ -45,8 +45,8 @@ public class StrategyResponse {
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
-    public static class TemplateInfo {
-        private String templateType;
+    public static class Channel {
+        private String type;
         private Long templateId;
         private String templateName;
     }
@@ -55,20 +55,19 @@ public class StrategyResponse {
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
-    public static class FilterSummary {
-        // Numeric filters
-        private String outstandingPrincipal;  // "Greater than 50000"
-        private String paymentAmount;         // "Between 1000 and 5000"
+    public static class Filters {
+        // DPD Range (simplified response)
+        private String dpdRange;  // "15-30" or human-readable format
 
-        // Text filters
-        private List<String> languages;
-        private List<String> products;
-        private List<String> pincodes;
-        private List<String> states;
-        private List<String> buckets;
+        // Outstanding Amount (simplified response)
+        private String outstandingAmount;  // "≥ 1000" or "1000-5000"
 
-        // DPD
-        private String dpd;  // "Greater than 30" or "Between 30 and 60"
+        // Text filters (singular names to match request)
+        private List<String> language;
+        private List<String> product;
+        private List<String> pincode;
+        private List<String> state;
+        private List<String> bucket;
 
         // Total cases matching (for simulation)
         private Integer estimatedCasesMatched;
@@ -78,9 +77,12 @@ public class StrategyResponse {
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
-    public static class ScheduleInfo {
-        private String frequency;
-        private String schedule;  // Human readable: "Daily at 09:00" or "Weekly on Monday, Wednesday, Friday at 10:00"
+    public static class Schedule {
+        private String frequency;      // DAILY, WEEKLY, MONTHLY
+        private String time;            // HH:mm format
+        private List<String> days;      // For DAILY/WEEKLY
+        private Integer dayOfMonth;     // For MONTHLY
+        private String scheduleText;    // Human readable: "Daily at 09:00"
         private LocalDateTime nextRunAt;
         private Boolean isEnabled;
     }

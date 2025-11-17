@@ -48,22 +48,22 @@ public class StrategyServiceImpl implements StrategyService {
     @SuppressWarnings("null")
     @Override
     public StrategyResponse createStrategy(StrategyRequest request) {
-        log.info("Creating unified strategy: {}", request.getRuleName());
+        log.info("Creating unified strategy: {}", request.getStrategyName());
 
         // 1. Create Strategy entity
         Strategy strategy = createStrategyEntity(request);
         strategy = strategyRepository.save(strategy);
 
         // 2. Create Strategy Rules from filters
-        List<StrategyRule> rules = createRulesFromFilters(strategy.getId(), request.getFilterConfig());
+        List<StrategyRule> rules = createRulesFromFilters(strategy.getId(), request.getFilters());
         ruleRepository.saveAll(rules);
 
-        // 3. Create Strategy Action from template
-        StrategyAction action = createActionFromTemplate(strategy.getId(), request.getTemplateConfig());
+        // 3. Create Strategy Action from channel/template
+        StrategyAction action = createActionFromChannel(strategy.getId(), request.getChannel());
         actionRepository.save(action);
 
         // 4. Create Scheduled Job for automation
-        ScheduledJob scheduledJob = createScheduledJob(strategy, request.getScheduleConfig());
+        ScheduledJob scheduledJob = createScheduledJob(strategy, request.getSchedule());
         scheduledJobRepository.save(scheduledJob);
 
         log.info("Strategy created successfully: ID={}, Rules={}, Actions=1",
@@ -87,20 +87,20 @@ public class StrategyServiceImpl implements StrategyService {
 
         // Delete old rules and create new ones
         ruleRepository.deleteByStrategyId(strategyId);
-        List<StrategyRule> rules = createRulesFromFilters(strategyId, request.getFilterConfig());
+        List<StrategyRule> rules = createRulesFromFilters(strategyId, request.getFilters());
         ruleRepository.saveAll(rules);
 
         // Delete old actions and create new one
         actionRepository.deleteByStrategyId(strategyId);
-        StrategyAction action = createActionFromTemplate(strategyId, request.getTemplateConfig());
+        StrategyAction action = createActionFromChannel(strategyId, request.getChannel());
         actionRepository.save(action);
 
         // Update scheduled job
         ScheduledJob scheduledJob = scheduledJobRepository
                 .findByJobReferenceTypeAndJobReferenceId(REFERENCE_TYPE, strategyId)
-                .orElseGet(() -> createScheduledJob(savedStrategy, request.getScheduleConfig()));
+                .orElseGet(() -> createScheduledJob(savedStrategy, request.getSchedule()));
 
-        updateScheduledJob(scheduledJob, savedStrategy, request.getScheduleConfig());
+        updateScheduledJob(scheduledJob, savedStrategy, request.getSchedule());
         scheduledJobRepository.save(scheduledJob);
 
         log.info("Strategy updated successfully: ID={}", strategyId);
@@ -314,20 +314,20 @@ public class StrategyServiceImpl implements StrategyService {
     // ===================================
 
     private Strategy createStrategyEntity(StrategyRequest request) {
-        String strategyCode = generateStrategyCode(request.getRuleName());
+        String strategyCode = generateStrategyCode(request.getStrategyName());
         StrategyStatus statusEnum = StrategyStatus.valueOf(request.getStatus());
 
         return Strategy.builder()
                 .strategyCode(strategyCode)
-                .strategyName(request.getRuleName())
+                .strategyName(request.getStrategyName())
                 .strategyType("COLLECTION") // Default type
                 .description(request.getDescription())
                 .status(statusEnum)
                 .isActive(StrategyStatus.ACTIVE.equals(statusEnum))
                 .priority(request.getPriority())
-                .triggerFrequency(request.getScheduleConfig().getFrequency())
-                .triggerTime(parseTime(request.getScheduleConfig()))
-                .triggerDays(parseDays(request.getScheduleConfig()))
+                .triggerFrequency(request.getSchedule().getFrequency())
+                .triggerTime(parseTime(request.getSchedule()))
+                .triggerDays(parseDays(request.getSchedule()))
                 .successCount(0)
                 .failureCount(0)
                 .createdAt(LocalDateTime.now())
@@ -337,19 +337,19 @@ public class StrategyServiceImpl implements StrategyService {
 
     private void updateStrategyEntity(Strategy strategy, StrategyRequest request) {
         StrategyStatus statusEnum = StrategyStatus.valueOf(request.getStatus());
-        strategy.setStrategyName(request.getRuleName());
+        strategy.setStrategyName(request.getStrategyName());
         strategy.setDescription(request.getDescription());
         strategy.setStatus(statusEnum);
         strategy.setIsActive(StrategyStatus.ACTIVE.equals(statusEnum));
         strategy.setPriority(request.getPriority());
-        strategy.setTriggerFrequency(request.getScheduleConfig().getFrequency());
-        strategy.setTriggerTime(parseTime(request.getScheduleConfig()));
-        strategy.setTriggerDays(parseDays(request.getScheduleConfig()));
+        strategy.setTriggerFrequency(request.getSchedule().getFrequency());
+        strategy.setTriggerTime(parseTime(request.getSchedule()));
+        strategy.setTriggerDays(parseDays(request.getSchedule()));
         strategy.setUpdatedAt(LocalDateTime.now());
     }
 
     @SuppressWarnings("null")
-    private List<StrategyRule> createRulesFromFilters(Long strategyId, StrategyRequest.FilterConfig filters) {
+    private List<StrategyRule> createRulesFromFilters(Long strategyId, StrategyRequest.Filters filters) {
         List<StrategyRule> rules = new ArrayList<>();
         int ruleOrder = 0;
 
@@ -357,63 +357,53 @@ public class StrategyServiceImpl implements StrategyService {
         Strategy strategy = strategyRepository.findById(strategyId)
                 .orElseThrow(() -> new ResourceNotFoundException("Strategy not found: " + strategyId));
 
-        // DPD Filter (required)
-        rules.add(createDpdRule(strategy, filters.getDpd(), ruleOrder++));
+        // DPD Range Filter (required)
+        rules.add(createDpdRangeRule(strategy, filters.getDpdRange(), ruleOrder++));
 
-        // Outstanding Principal
-        if (filters.getOutstandingPrincipal() != null) {
-            rules.add(createNumericRule(strategy, "loan.total_outstanding",
-                    filters.getOutstandingPrincipal(), ruleOrder++));
+        // Outstanding Amount Filter (simplified)
+        if (filters.getOutstandingAmount() != null) {
+            // Simple filter: >= outstandingAmount
+            rules.add(createSimpleNumericRule(strategy, "loan.total_outstanding",
+                    filters.getOutstandingAmount(), "GREATER_THAN_OR_EQUAL", ruleOrder++));
+        } else if (filters.getOutstandingRange() != null) {
+            // Range filter: BETWEEN from and to
+            rules.add(createRangeNumericRule(strategy, "loan.total_outstanding",
+                    filters.getOutstandingRange().getFrom(), filters.getOutstandingRange().getTo(), ruleOrder++));
         }
 
-        // Payment Amount (if needed in loan_details table)
-        if (filters.getPaymentAmount() != null) {
-            rules.add(createNumericRule(strategy, "loan.emi_amount",
-                    filters.getPaymentAmount(), ruleOrder++));
+        // Text Filters (note: singular names now)
+        if (filters.getLanguage() != null && !filters.getLanguage().isEmpty()) {
+            rules.add(createTextRule(strategy, "case.language", filters.getLanguage(), ruleOrder++));
         }
 
-        // Text Filters
-        if (filters.getLanguages() != null && !filters.getLanguages().isEmpty()) {
-            rules.add(createTextRule(strategy, "case.language", filters.getLanguages(), ruleOrder++));
+        if (filters.getProduct() != null && !filters.getProduct().isEmpty()) {
+            rules.add(createTextRule(strategy, "loan.product_code", filters.getProduct(), ruleOrder++));
         }
 
-        if (filters.getProducts() != null && !filters.getProducts().isEmpty()) {
-            rules.add(createTextRule(strategy, "loan.product_code", filters.getProducts(), ruleOrder++));
+        if (filters.getPincode() != null && !filters.getPincode().isEmpty()) {
+            rules.add(createTextRule(strategy, "customer.pincode", filters.getPincode(), ruleOrder++));
         }
 
-        if (filters.getPincodes() != null && !filters.getPincodes().isEmpty()) {
-            rules.add(createTextRule(strategy, "customer.pincode", filters.getPincodes(), ruleOrder++));
+        if (filters.getState() != null && !filters.getState().isEmpty()) {
+            rules.add(createTextRule(strategy, "customer.state", filters.getState(), ruleOrder++));
         }
 
-        if (filters.getStates() != null && !filters.getStates().isEmpty()) {
-            rules.add(createTextRule(strategy, "customer.state", filters.getStates(), ruleOrder++));
-        }
-
-        if (filters.getBuckets() != null && !filters.getBuckets().isEmpty()) {
-            rules.add(createTextRule(strategy, "loan.bucket", filters.getBuckets(), ruleOrder++));
+        if (filters.getBucket() != null && !filters.getBucket().isEmpty()) {
+            rules.add(createTextRule(strategy, "loan.bucket", filters.getBucket(), ruleOrder++));
         }
 
         return rules;
     }
 
-    private StrategyRule createDpdRule(Strategy strategy, StrategyRequest.DpdFilter dpd, int order) {
-        String operator = dpd.getOperator();
-        String value;
-
-        if ("BETWEEN".equals(operator)) {
-            value = dpd.getMinDpd() + "," + dpd.getMaxDpd();
-        } else {
-            value = String.valueOf(dpd.getValue());
-        }
-
-        RuleOperator operatorEnum = RuleOperator.valueOf(operator);
+    private StrategyRule createDpdRangeRule(Strategy strategy, StrategyRequest.DpdRange dpdRange, int order) {
+        String value = dpdRange.getFrom() + "," + dpdRange.getTo();
 
         return StrategyRule.builder()
                 .strategy(strategy)
-                .ruleName("DPD Filter")
+                .ruleName("DPD Range Filter")
                 .ruleOrder(order)
                 .fieldName("loan.dpd")
-                .operator(operatorEnum)
+                .operator(RuleOperator.BETWEEN)
                 .fieldValue(value)
                 .logicalOperator("AND")
                 .isActive(true)
@@ -421,16 +411,9 @@ public class StrategyServiceImpl implements StrategyService {
                 .build();
     }
 
-    private StrategyRule createNumericRule(Strategy strategy, String fieldName,
-            StrategyRequest.NumericFilter filter, int order) {
-        String value;
-        if ("BETWEEN".equals(filter.getOperator())) {
-            value = filter.getMinValue() + "," + filter.getMaxValue();
-        } else {
-            value = String.valueOf(filter.getValue());
-        }
-
-        RuleOperator operatorEnum = RuleOperator.valueOf(filter.getOperator());
+    private StrategyRule createSimpleNumericRule(Strategy strategy, String fieldName,
+            Double value, String operator, int order) {
+        RuleOperator operatorEnum = RuleOperator.valueOf(operator);
 
         return StrategyRule.builder()
                 .strategy(strategy)
@@ -438,6 +421,23 @@ public class StrategyServiceImpl implements StrategyService {
                 .ruleOrder(order)
                 .fieldName(fieldName)
                 .operator(operatorEnum)
+                .fieldValue(String.valueOf(value))
+                .logicalOperator("AND")
+                .isActive(true)
+                .createdAt(LocalDateTime.now())
+                .build();
+    }
+
+    private StrategyRule createRangeNumericRule(Strategy strategy, String fieldName,
+            Double fromValue, Double toValue, int order) {
+        String value = fromValue + "," + toValue;
+
+        return StrategyRule.builder()
+                .strategy(strategy)
+                .ruleName(fieldName + " Range Filter")
+                .ruleOrder(order)
+                .fieldName(fieldName)
+                .operator(RuleOperator.BETWEEN)
                 .fieldValue(value)
                 .logicalOperator("AND")
                 .isActive(true)
@@ -462,36 +462,44 @@ public class StrategyServiceImpl implements StrategyService {
     }
 
     @SuppressWarnings("null")
-    private StrategyAction createActionFromTemplate(Long strategyId,
-            StrategyRequest.TemplateConfig template) {
+    private StrategyAction createActionFromChannel(Long strategyId, StrategyRequest.Channel channel) {
         Strategy strategy = strategyRepository.findById(strategyId)
                 .orElseThrow(() -> new ResourceNotFoundException("Strategy not found: " + strategyId));
-        ActionType actionType = mapTemplateTypeToActionType(template.getTemplateType());
+        ActionType actionType = mapChannelTypeToActionType(channel.getType());
+
+        // Determine templateId - use provided or lookup from templateName
+        Long templateId = channel.getTemplateId();
+        if (templateId == null) {
+            // TODO: Implement template lookup service to get templateId by templateName
+            log.warn("Template ID not provided, templateName lookup not yet implemented: {}",
+                     channel.getTemplateName());
+            templateId = 0L; // Placeholder
+        }
 
         return StrategyAction.builder()
                 .strategy(strategy)
                 .actionType(actionType)
                 .actionOrder(0)
-                .templateId(template.getTemplateId())
-                .channel(template.getTemplateType())
+                .templateId(templateId)
+                .channel(channel.getType())
                 .priority(0)
                 .isActive(true)
                 .createdAt(LocalDateTime.now())
                 .build();
     }
 
-    private ActionType mapTemplateTypeToActionType(String templateType) {
-        return switch (templateType) {
+    private ActionType mapChannelTypeToActionType(String channelType) {
+        return switch (channelType) {
             case "SMS" -> ActionType.SEND_SMS;
             case "WHATSAPP" -> ActionType.SEND_WHATSAPP;
             case "EMAIL" -> ActionType.SEND_EMAIL;
             case "IVR" -> ActionType.SCHEDULE_CALL;
             case "NOTICE" -> ActionType.CREATE_NOTICE;
-            default -> throw new BusinessException("Unsupported template type: " + templateType);
+            default -> throw new BusinessException("Unsupported channel type: " + channelType);
         };
     }
 
-    private ScheduledJob createScheduledJob(Strategy strategy, StrategyRequest.ScheduleConfig schedule) {
+    private ScheduledJob createScheduledJob(Strategy strategy, StrategyRequest.Schedule schedule) {
         ScheduledJob job = new ScheduledJob();
         job.setServiceName(SERVICE_NAME);
         job.setJobName(strategy.getStrategyName());
@@ -506,28 +514,41 @@ public class StrategyServiceImpl implements StrategyService {
     }
 
     private void updateScheduledJob(ScheduledJob job, Strategy strategy,
-            StrategyRequest.ScheduleConfig schedule) {
+            StrategyRequest.Schedule schedule) {
         job.setJobName(strategy.getStrategyName());
         updateScheduleConfig(job, schedule);
         job.setUpdatedAt(LocalDateTime.now());
     }
 
-    private void updateScheduleConfig(ScheduledJob job, StrategyRequest.ScheduleConfig schedule) {
+    private void updateScheduleConfig(ScheduledJob job, StrategyRequest.Schedule schedule) {
         ScheduleType scheduleType = switch (schedule.getFrequency()) {
             case "DAILY" -> ScheduleType.DAILY;
             case "WEEKLY" -> ScheduleType.WEEKLY;
-            case "EVENT_BASED" -> ScheduleType.EVENT_BASED;
+            case "MONTHLY" -> ScheduleType.MONTHLY;
             default -> ScheduleType.DAILY;
         };
 
         job.setScheduleType(scheduleType);
         job.setTimezone(schedule.getTimezone());
 
-        if ("DAILY".equals(schedule.getFrequency())) {
-            job.setScheduleTime(LocalTime.parse(schedule.getDailyTime()));
-        } else if ("WEEKLY".equals(schedule.getFrequency())) {
-            job.setScheduleTime(LocalTime.parse(schedule.getWeeklyTime()));
-            job.setScheduleDays(String.join(",", schedule.getWeeklyDays()));
+        // Unified time field for all frequencies
+        if (schedule.getTime() != null) {
+            job.setScheduleTime(LocalTime.parse(schedule.getTime()));
+        }
+
+        // Handle days based on frequency
+        if ("WEEKLY".equals(schedule.getFrequency()) && schedule.getDays() != null) {
+            job.setScheduleDays(String.join(",", schedule.getDays()));
+        } else if ("DAILY".equals(schedule.getFrequency()) && schedule.getDays() != null) {
+            // For DAILY with specific days (e.g., Mon-Fri only)
+            if (!schedule.getDays().contains("DAILY")) {
+                job.setScheduleDays(String.join(",", schedule.getDays()));
+            }
+        }
+
+        // Handle day of month for MONTHLY frequency
+        if ("MONTHLY".equals(schedule.getFrequency()) && schedule.getDayOfMonth() != null) {
+            job.setScheduleDays(String.valueOf(schedule.getDayOfMonth()));
         }
     }
 
@@ -547,18 +568,21 @@ public class StrategyServiceImpl implements StrategyService {
         return code + "_" + System.currentTimeMillis();
     }
 
-    private LocalTime parseTime(StrategyRequest.ScheduleConfig schedule) {
-        if ("DAILY".equals(schedule.getFrequency()) && schedule.getDailyTime() != null) {
-            return LocalTime.parse(schedule.getDailyTime());
-        } else if ("WEEKLY".equals(schedule.getFrequency()) && schedule.getWeeklyTime() != null) {
-            return LocalTime.parse(schedule.getWeeklyTime());
+    private LocalTime parseTime(StrategyRequest.Schedule schedule) {
+        if (schedule.getTime() != null) {
+            return LocalTime.parse(schedule.getTime());
         }
         return null;
     }
 
-    private String parseDays(StrategyRequest.ScheduleConfig schedule) {
-        if ("WEEKLY".equals(schedule.getFrequency()) && schedule.getWeeklyDays() != null) {
-            return String.join(",", schedule.getWeeklyDays());
+    private String parseDays(StrategyRequest.Schedule schedule) {
+        if ("WEEKLY".equals(schedule.getFrequency()) && schedule.getDays() != null) {
+            return String.join(",", schedule.getDays());
+        } else if ("DAILY".equals(schedule.getFrequency()) && schedule.getDays() != null
+                && !schedule.getDays().contains("DAILY")) {
+            return String.join(",", schedule.getDays());
+        } else if ("MONTHLY".equals(schedule.getFrequency()) && schedule.getDayOfMonth() != null) {
+            return String.valueOf(schedule.getDayOfMonth());
         }
         return null;
     }
@@ -569,12 +593,12 @@ public class StrategyServiceImpl implements StrategyService {
         return StrategyResponse.builder()
                 .strategyId(strategy.getId())
                 .strategyCode(strategy.getStrategyCode())
-                .ruleName(strategy.getStrategyName())
+                .strategyName(strategy.getStrategyName())
                 .status(strategy.getStatus() != null ? strategy.getStatus().name() : null)
                 .priority(strategy.getPriority())
                 .description(strategy.getDescription())
-                .template(buildTemplateInfo(action))
-                .filters(buildFilterSummary(rules, estimatedCases))
+                .channel(buildChannelInfo(action))
+                .filters(buildFiltersInfo(rules, estimatedCases))
                 .schedule(buildScheduleInfo(scheduledJob, strategy))
                 .createdAt(strategy.getCreatedAt())
                 .updatedAt(strategy.getUpdatedAt())
@@ -584,49 +608,92 @@ public class StrategyServiceImpl implements StrategyService {
                 .build();
     }
 
-    private StrategyResponse.TemplateInfo buildTemplateInfo(StrategyAction action) {
+    private StrategyResponse.Channel buildChannelInfo(StrategyAction action) {
         if (action == null)
             return null;
 
-        return StrategyResponse.TemplateInfo.builder()
-                .templateType(action.getChannel())
+        return StrategyResponse.Channel.builder()
+                .type(action.getChannel())
                 .templateId(action.getTemplateId())
                 .templateName(action.getActionType().name())
                 .build();
     }
 
-    private StrategyResponse.FilterSummary buildFilterSummary(List<StrategyRule> rules,
+    private StrategyResponse.Filters buildFiltersInfo(List<StrategyRule> rules,
             Integer estimatedCases) {
-        StrategyResponse.FilterSummary summary = new StrategyResponse.FilterSummary();
-        summary.setEstimatedCasesMatched(estimatedCases);
+        StrategyResponse.Filters filters = new StrategyResponse.Filters();
+        filters.setEstimatedCasesMatched(estimatedCases);
 
         for (StrategyRule rule : rules) {
-            String humanReadable = rule.getOperator() + " " + rule.getFieldValue();
+            String fieldName = rule.getFieldName();
+            String fieldValue = rule.getFieldValue();
+            RuleOperator operator = rule.getOperator();
 
-            if ("loan.dpd".equals(rule.getFieldName())) {
-                summary.setDpd(humanReadable);
-            } else if ("loan.total_outstanding".equals(rule.getFieldName())) {
-                summary.setOutstandingPrincipal(humanReadable);
-            } else if ("loan.emi_amount".equals(rule.getFieldName())) {
-                summary.setPaymentAmount(humanReadable);
-            } else if ("loan.bucket".equals(rule.getFieldName())) {
-                summary.setBuckets(Arrays.asList(rule.getFieldValue().split(",")));
+            // DPD Range
+            if ("loan.dpd".equals(fieldName)) {
+                if (RuleOperator.BETWEEN.equals(operator)) {
+                    String[] parts = fieldValue.split(",");
+                    filters.setDpdRange(parts[0] + "-" + parts[1]);
+                } else {
+                    filters.setDpdRange(operator + " " + fieldValue);
+                }
             }
-            // Add more mappings as needed
+            // Outstanding Amount
+            else if ("loan.total_outstanding".equals(fieldName)) {
+                if (RuleOperator.BETWEEN.equals(operator)) {
+                    String[] parts = fieldValue.split(",");
+                    filters.setOutstandingAmount(parts[0] + "-" + parts[1]);
+                } else if (RuleOperator.GREATER_THAN_OR_EQUAL.equals(operator)) {
+                    filters.setOutstandingAmount("≥ " + fieldValue);
+                } else {
+                    filters.setOutstandingAmount(operator + " " + fieldValue);
+                }
+            }
+            // Text filters (singular names)
+            else if ("case.language".equals(fieldName)) {
+                filters.setLanguage(Arrays.asList(fieldValue.split(",")));
+            } else if ("loan.product_code".equals(fieldName)) {
+                filters.setProduct(Arrays.asList(fieldValue.split(",")));
+            } else if ("customer.pincode".equals(fieldName)) {
+                filters.setPincode(Arrays.asList(fieldValue.split(",")));
+            } else if ("customer.state".equals(fieldName)) {
+                filters.setState(Arrays.asList(fieldValue.split(",")));
+            } else if ("loan.bucket".equals(fieldName)) {
+                filters.setBucket(Arrays.asList(fieldValue.split(",")));
+            }
         }
 
-        return summary;
+        return filters;
     }
 
-    private StrategyResponse.ScheduleInfo buildScheduleInfo(ScheduledJob job, Strategy strategy) {
+    private StrategyResponse.Schedule buildScheduleInfo(ScheduledJob job, Strategy strategy) {
         if (job == null)
             return null;
 
         String scheduleText = buildScheduleText(job);
 
-        return StrategyResponse.ScheduleInfo.builder()
+        // Parse days and day of month
+        List<String> days = null;
+        Integer dayOfMonth = null;
+
+        if (job.getScheduleDays() != null && !job.getScheduleDays().isEmpty()) {
+            if (ScheduleType.MONTHLY.equals(job.getScheduleType())) {
+                try {
+                    dayOfMonth = Integer.parseInt(job.getScheduleDays());
+                } catch (NumberFormatException e) {
+                    // Invalid format, ignore
+                }
+            } else {
+                days = Arrays.asList(job.getScheduleDays().split(","));
+            }
+        }
+
+        return StrategyResponse.Schedule.builder()
                 .frequency(strategy.getTriggerFrequency())
-                .schedule(scheduleText)
+                .time(job.getScheduleTime() != null ? job.getScheduleTime().toString() : null)
+                .days(days)
+                .dayOfMonth(dayOfMonth)
+                .scheduleText(scheduleText)
                 .nextRunAt(job.getNextRunAt())
                 .isEnabled(job.getIsEnabled())
                 .build();
@@ -637,6 +704,8 @@ public class StrategyServiceImpl implements StrategyService {
             return "Daily at " + job.getScheduleTime();
         } else if (job.getScheduleType() == ScheduleType.WEEKLY) {
             return "Weekly on " + job.getScheduleDays() + " at " + job.getScheduleTime();
+        } else if (job.getScheduleType() == ScheduleType.MONTHLY) {
+            return "Monthly on day " + job.getScheduleDays() + " at " + job.getScheduleTime();
         }
         return "Event Based";
     }
