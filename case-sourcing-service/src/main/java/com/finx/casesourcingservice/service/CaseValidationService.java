@@ -23,7 +23,8 @@ public class CaseValidationService {
     private final CaseRepository caseRepository;
 
     private static final Pattern MOBILE_PATTERN = Pattern.compile("^[6-9]\\d{9}$");
-    private static final Pattern EMAIL_PATTERN = Pattern.compile("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,6}$");
+    // RFC 5322 compliant email pattern (simplified)
+    private static final Pattern EMAIL_PATTERN = Pattern.compile("^[a-zA-Z0-9_+&*-]+(?:\\.[a-zA-Z0-9_+&*-]+)*@(?:[a-zA-Z0-9-]+\\.)+[a-zA-Z]{2,}$");
     private static final Pattern PINCODE_PATTERN = Pattern.compile("^\\d{6}$");
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("dd-MM-yyyy");
 

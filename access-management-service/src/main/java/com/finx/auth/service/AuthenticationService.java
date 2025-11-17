@@ -19,7 +19,6 @@ import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.annotation.Propagation;
 
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
@@ -53,6 +52,7 @@ public class AuthenticationService {
     private final OtpRequestRepository otpRequestRepository;
     private final PasswordPolicyService passwordPolicyService;
     private final SessionManagementService sessionManagementService;
+    private final OtpManagementService otpManagementService;
     private final JwtUtil jwtUtil;
     private final CommunicationServiceClient communicationServiceClient;
     private final ConfigCacheService configCacheService;
@@ -75,6 +75,7 @@ public class AuthenticationService {
      * FR-AM-2: Existing user login
      * FR-AM-6: Account lockout enforcement
      */
+    @SuppressWarnings("null")
     @Transactional
     public LoginResponse login(LoginRequest request) {
         log.info("Login attempt for user: {}", request.getUsername());
@@ -187,9 +188,23 @@ public class AuthenticationService {
                 DEFAULT_OTP_EXPIRY_MINUTES);
         int otpMaxAttempts = configCacheService.getIntConfig(CacheConstants.OTP_MAX_ATTEMPTS, DEFAULT_OTP_MAX_ATTEMPTS);
 
-        // Find user
-        User user = authUserRepository.findByEmail(request.getUsername())
-                .orElseThrow(() -> new BusinessException(USER_NOT_FOUND));
+        // Find user - Security: Always return success to prevent email enumeration
+        Optional<User> userOptional = authUserRepository.findByEmail(request.getUsername());
+
+        // If user not found, return generic success response without sending OTP
+        if (userOptional.isEmpty()) {
+            log.warn("OTP requested for non-existent email (security: not revealing this to client): {}",
+                    maskEmail(request.getUsername()));
+            return RequestOtpResponse.builder()
+                    .requestId("OTP-" + UUID.randomUUID().toString())
+                    .message("If this email is registered, an OTP has been sent to your email")
+                    .email(maskEmail(request.getUsername()))
+                    .expiresAt(LocalDateTime.now().plusMinutes(otpExpiryMinutes))
+                    .remainingAttempts(otpMaxAttempts)
+                    .build();
+        }
+
+        User user = userOptional.get();
 
         // Find existing active OTP request
         Optional<OtpRequest> existingOtpRequest = otpRequestRepository.findByUserIdAndPurposeAndStatus(user.getId(),
@@ -236,7 +251,7 @@ public class AuthenticationService {
 
         return RequestOtpResponse.builder()
                 .requestId(otpRequest.getRequestId())
-                .message("OTP sent successfully to your registered email")
+                .message("If this email is registered, an OTP has been sent to your email")
                 .email(maskEmail(user.getEmail()))
                 .expiresAt(otpRequest.getExpiresAt())
                 .remainingAttempts(otpRequest.getMaxAttempts() - otpRequest.getAttemptCount())
@@ -266,28 +281,24 @@ public class AuthenticationService {
 
         // Check if max attempts reached
         if (otpRequest.isMaxAttemptsReached()) {
-            // Lock account after max OTP verification failures
-            passwordPolicyService.lockAccount(user);
-            authUserRepository.save(user); // Ensure user lock status is persisted
+            // Lock account after max OTP verification failures (in separate transaction)
+            otpManagementService.lockAccountAfterOtpFailure(user);
             throw new BusinessException("Maximum OTP verification attempts exceeded. Account has been locked.");
         }
 
         // Verify OTP
         if (!passwordPolicyService.verifyPassword(request.getOtpCode(), otpRequest.getOtpHash())) {
             // Increment attempt count and save in a new transaction
-            otpRequest = incrementOtpAttemptAndSave(otpRequest);
+            otpRequest = otpManagementService.incrementOtpAttemptAndSave(otpRequest);
 
             // Check if max attempts reached AFTER incrementing
             if (otpRequest.isMaxAttemptsReached()) {
-                // Lock account after max OTP verification failures
-                passwordPolicyService.lockAccount(user);
-                authUserRepository.save(user); // Ensure user lock status is persisted
+                // Lock account after max OTP verification failures (in separate transaction)
+                otpManagementService.lockAccountAfterOtpFailure(user);
                 throw new BusinessException("Maximum OTP verification attempts exceeded. Account has been locked.");
             }
 
-            int otpMaxAttempts = configCacheService.getIntConfig(CacheConstants.OTP_MAX_ATTEMPTS,
-                    DEFAULT_OTP_MAX_ATTEMPTS);
-            int remainingAttempts = otpMaxAttempts - otpRequest.getAttemptCount();
+            int remainingAttempts = otpRequest.getMaxAttempts() - otpRequest.getAttemptCount();
             throw new BusinessException("Invalid OTP. " + remainingAttempts + " attempts remaining.");
         }
 
@@ -306,17 +317,6 @@ public class AuthenticationService {
                 .message("OTP verified successfully. You can now reset your password.")
                 .resetToken(resetToken)
                 .build();
-    }
-
-    /**
-     * Helper method to increment OTP attempt count and save in a new transaction.
-     * This ensures the attempt count is persisted even if the calling transaction
-     * rolls back.
-     */
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
-    protected OtpRequest incrementOtpAttemptAndSave(OtpRequest otpRequest) {
-        otpRequest.incrementAttempt();
-        return otpRequestRepository.save(otpRequest);
     }
 
     /**
@@ -349,6 +349,7 @@ public class AuthenticationService {
      * Reset Password
      * FR-AM-1: Password reset after OTP verification
      */
+    @SuppressWarnings("null")
     @Transactional
     public ResetPasswordResponse resetPassword(ResetPasswordRequest request) {
         log.info("Password reset request");
@@ -402,6 +403,7 @@ public class AuthenticationService {
     /**
      * Refresh access token using refresh token
      */
+    @SuppressWarnings("null")
     @Transactional
     public TokenResponse refreshToken(RefreshTokenRequest request) {
         try {
@@ -449,12 +451,18 @@ public class AuthenticationService {
     }
 
     /**
-     * Logout
+     * Logout - terminates all sessions for the user
      */
     @Transactional
     public void logout(String sessionId) {
-        sessionManagementService.terminateSession(sessionId, "LOGOUT");
-        log.info("User logged out: {}", sessionId);
+        // Get the session to find the userId
+        UserSession session = sessionManagementService.getSessionById(sessionId);
+        Long userId = session.getUserId();
+
+        // Terminate all active sessions for this user
+        sessionManagementService.terminateAllSessionsForUser(userId, "LOGOUT");
+
+        log.info("User logged out - all sessions terminated for user ID: {}", userId);
     }
 
     /**
@@ -518,6 +526,7 @@ public class AuthenticationService {
      * Cache Key: user:permissions:{userId}
      * Eviction: On user role/permission changes
      */
+    @SuppressWarnings("null")
     @Cacheable(value = "user_permissions", key = "'user:permissions:' + #userId")
     public UserPermissionsResponse getUserPermissions(Long userId) {
         User user = authUserRepository.findById(userId)
@@ -619,6 +628,7 @@ public class AuthenticationService {
     /**
      * Helper method to update OTP request status
      */
+    @SuppressWarnings("null")
     private void updateOtpStatus(Long otpRequestId, String status) {
         otpRequestRepository.findById(otpRequestId).ifPresent(req -> {
             req.setStatus(status);

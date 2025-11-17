@@ -4,7 +4,6 @@ import com.finx.strategyengineservice.domain.entity.ScheduledJob;
 import com.finx.strategyengineservice.domain.entity.Strategy;
 import com.finx.strategyengineservice.domain.enums.ScheduleStatus;
 import com.finx.strategyengineservice.domain.enums.ScheduleType;
-import com.finx.strategyengineservice.exception.BusinessException;
 import com.finx.strategyengineservice.exception.ResourceNotFoundException;
 import com.finx.strategyengineservice.repository.ScheduledJobRepository;
 import com.finx.strategyengineservice.repository.StrategyRepository;
@@ -17,7 +16,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.*;
-import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 /**
@@ -37,6 +35,7 @@ public class StrategySchedulerServiceImpl implements StrategySchedulerService {
     private static final String JOB_TYPE = "STRATEGY_EXECUTION";
     private static final String REFERENCE_TYPE = "STRATEGY";
 
+    @SuppressWarnings("null")
     @Override
     @Transactional
     public ScheduledJob enableScheduler(Long strategyId) {
@@ -71,7 +70,8 @@ public class StrategySchedulerServiceImpl implements StrategySchedulerService {
 
         ScheduledJob scheduledJob = scheduledJobRepository
                 .findByJobReferenceTypeAndJobReferenceId(REFERENCE_TYPE, strategyId)
-                .orElseThrow(() -> new ResourceNotFoundException("Scheduled job not found for strategy: " + strategyId));
+                .orElseThrow(
+                        () -> new ResourceNotFoundException("Scheduled job not found for strategy: " + strategyId));
 
         scheduledJob.setIsEnabled(false);
         scheduledJob.setUpdatedAt(LocalDateTime.now());
@@ -80,6 +80,7 @@ public class StrategySchedulerServiceImpl implements StrategySchedulerService {
         log.info("Scheduler disabled for strategy: {}", strategyId);
     }
 
+    @SuppressWarnings("null")
     @Override
     @Transactional
     public ScheduledJob updateSchedulerConfig(Long strategyId) {
@@ -90,7 +91,8 @@ public class StrategySchedulerServiceImpl implements StrategySchedulerService {
 
         ScheduledJob scheduledJob = scheduledJobRepository
                 .findByJobReferenceTypeAndJobReferenceId(REFERENCE_TYPE, strategyId)
-                .orElseThrow(() -> new ResourceNotFoundException("Scheduled job not found for strategy: " + strategyId));
+                .orElseThrow(
+                        () -> new ResourceNotFoundException("Scheduled job not found for strategy: " + strategyId));
 
         // Update schedule configuration from strategy
         updateScheduledJobFromStrategy(scheduledJob, strategy);
@@ -259,7 +261,6 @@ public class StrategySchedulerServiceImpl implements StrategySchedulerService {
 
         // Parse schedule days (e.g., "MONDAY,WEDNESDAY,FRIDAY")
         String[] days = scheduleDays.split(",");
-        DayOfWeek currentDay = now.getDayOfWeek();
 
         // Find next scheduled day
         for (int i = 0; i < 14; i++) { // Check up to 2 weeks

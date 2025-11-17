@@ -77,6 +77,7 @@ public class SMSService {
     /**
      * Create SMS template
      */
+    @SuppressWarnings("null")
     public Map<String, Object> createTemplate(SmsCreateTemplateRequest request) {
         log.info("Creating SMS template: {}", request.getTemplateName());
 
@@ -120,6 +121,7 @@ public class SMSService {
     /**
      * Get template details
      */
+    @SuppressWarnings("null")
     public Map<String, Object> getTemplateDetails(String templateId) {
         log.info("Fetching template details for: {}", templateId);
 
@@ -232,6 +234,7 @@ public class SMSService {
         return body;
     }
 
+    @SuppressWarnings("null")
     private String callMsg91Api(String url, Map<String, Object> body, ThirdPartyIntegrationMaster config) {
         try {
             return webClient.post()
@@ -250,6 +253,7 @@ public class SMSService {
         }
     }
 
+    @SuppressWarnings("null")
     private List<String> saveSmsMessages(SmsSendRequest request, String response) {
         List<String> messageIds = new ArrayList<>();
 

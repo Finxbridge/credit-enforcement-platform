@@ -45,6 +45,7 @@ public class StrategyServiceImpl implements StrategyService {
     private static final String JOB_TYPE = "STRATEGY_EXECUTION";
     private static final String REFERENCE_TYPE = "STRATEGY";
 
+    @SuppressWarnings("null")
     @Override
     public StrategyResponse createStrategy(StrategyRequest request) {
         log.info("Creating unified strategy: {}", request.getRuleName());
@@ -72,6 +73,7 @@ public class StrategyServiceImpl implements StrategyService {
         return buildResponse(strategy, rules, action, scheduledJob, null);
     }
 
+    @SuppressWarnings("null")
     @Override
     public StrategyResponse updateStrategy(Long strategyId, StrategyRequest request) {
         log.info("Updating unified strategy: ID={}", strategyId);
@@ -106,6 +108,7 @@ public class StrategyServiceImpl implements StrategyService {
         return buildResponse(savedStrategy, rules, action, scheduledJob, null);
     }
 
+    @SuppressWarnings("null")
     @Override
     @Transactional(readOnly = true)
     public StrategyResponse getStrategy(Long strategyId) {
@@ -150,6 +153,7 @@ public class StrategyServiceImpl implements StrategyService {
                 .collect(Collectors.toList());
     }
 
+    @SuppressWarnings("null")
     @Override
     public void deleteStrategy(Long strategyId) {
         log.info("Deleting unified strategy: ID={}", strategyId);
@@ -174,6 +178,7 @@ public class StrategyServiceImpl implements StrategyService {
         log.info("Strategy deleted successfully: ID={}", strategyId);
     }
 
+    @SuppressWarnings("null")
     @Override
     public StrategyResponse updateStrategyStatus(Long strategyId, String status) {
         log.info("Updating strategy status: ID={}, Status={}", strategyId, status);
@@ -190,6 +195,7 @@ public class StrategyServiceImpl implements StrategyService {
         return getStrategy(strategyId);
     }
 
+    @SuppressWarnings("null")
     @Override
     @Transactional(readOnly = true)
     public StrategyResponse simulateStrategy(Long strategyId) {
@@ -201,8 +207,8 @@ public class StrategyServiceImpl implements StrategyService {
         List<StrategyRule> rules = ruleRepository.findByStrategyIdOrderByRuleOrderAsc(strategyId);
 
         // Filter cases to get count
-        List<Case> matchedCases = rules.isEmpty() ?
-                Collections.emptyList() : caseFilterService.filterCasesByRules(rules);
+        List<Case> matchedCases = rules.isEmpty() ? Collections.emptyList()
+                : caseFilterService.filterCasesByRules(rules);
 
         int estimatedCount = matchedCases.size();
         log.info("Strategy simulation complete: {} cases matched", estimatedCount);
@@ -216,11 +222,12 @@ public class StrategyServiceImpl implements StrategyService {
         return buildResponse(strategy, rules, action, scheduledJob, estimatedCount);
     }
 
+    @SuppressWarnings("null")
     @Override
     public StrategyResponse toggleScheduler(Long strategyId, Boolean enabled) {
         log.info("Toggling scheduler for strategy: ID={}, Enabled={}", strategyId, enabled);
 
-        Strategy strategy = strategyRepository.findById(strategyId)
+        strategyRepository.findById(strategyId)
                 .orElseThrow(() -> new ResourceNotFoundException("Strategy not found: " + strategyId));
 
         ScheduledJob scheduledJob = scheduledJobRepository
@@ -253,9 +260,12 @@ public class StrategyServiceImpl implements StrategyService {
 
         // Calculate summary statistics
         int totalStrategies = allStrategies.size();
-        int activeStrategies = (int) allStrategies.stream().filter(s -> StrategyStatus.ACTIVE.equals(s.getStatus())).count();
-        int inactiveStrategies = (int) allStrategies.stream().filter(s -> StrategyStatus.INACTIVE.equals(s.getStatus())).count();
-        int draftStrategies = (int) allStrategies.stream().filter(s -> StrategyStatus.DRAFT.equals(s.getStatus())).count();
+        int activeStrategies = (int) allStrategies.stream().filter(s -> StrategyStatus.ACTIVE.equals(s.getStatus()))
+                .count();
+        int inactiveStrategies = (int) allStrategies.stream().filter(s -> StrategyStatus.INACTIVE.equals(s.getStatus()))
+                .count();
+        int draftStrategies = (int) allStrategies.stream().filter(s -> StrategyStatus.DRAFT.equals(s.getStatus()))
+                .count();
 
         // Calculate total executions and overall success rate
         long totalExecutions = allStrategies.stream()
@@ -310,7 +320,7 @@ public class StrategyServiceImpl implements StrategyService {
         return Strategy.builder()
                 .strategyCode(strategyCode)
                 .strategyName(request.getRuleName())
-                .strategyType("COLLECTION")  // Default type
+                .strategyType("COLLECTION") // Default type
                 .description(request.getDescription())
                 .status(statusEnum)
                 .isActive(StrategyStatus.ACTIVE.equals(statusEnum))
@@ -338,6 +348,7 @@ public class StrategyServiceImpl implements StrategyService {
         strategy.setUpdatedAt(LocalDateTime.now());
     }
 
+    @SuppressWarnings("null")
     private List<StrategyRule> createRulesFromFilters(Long strategyId, StrategyRequest.FilterConfig filters) {
         List<StrategyRule> rules = new ArrayList<>();
         int ruleOrder = 0;
@@ -411,7 +422,7 @@ public class StrategyServiceImpl implements StrategyService {
     }
 
     private StrategyRule createNumericRule(Strategy strategy, String fieldName,
-                                          StrategyRequest.NumericFilter filter, int order) {
+            StrategyRequest.NumericFilter filter, int order) {
         String value;
         if ("BETWEEN".equals(filter.getOperator())) {
             value = filter.getMinValue() + "," + filter.getMaxValue();
@@ -450,8 +461,9 @@ public class StrategyServiceImpl implements StrategyService {
                 .build();
     }
 
+    @SuppressWarnings("null")
     private StrategyAction createActionFromTemplate(Long strategyId,
-                                                    StrategyRequest.TemplateConfig template) {
+            StrategyRequest.TemplateConfig template) {
         Strategy strategy = strategyRepository.findById(strategyId)
                 .orElseThrow(() -> new ResourceNotFoundException("Strategy not found: " + strategyId));
         ActionType actionType = mapTemplateTypeToActionType(template.getTemplateType());
@@ -486,7 +498,7 @@ public class StrategyServiceImpl implements StrategyService {
         job.setJobType(JOB_TYPE);
         job.setJobReferenceId(strategy.getId());
         job.setJobReferenceType(REFERENCE_TYPE);
-        job.setIsEnabled(false);  // Disabled by default
+        job.setIsEnabled(false); // Disabled by default
 
         updateScheduleConfig(job, schedule);
 
@@ -494,7 +506,7 @@ public class StrategyServiceImpl implements StrategyService {
     }
 
     private void updateScheduledJob(ScheduledJob job, Strategy strategy,
-                                   StrategyRequest.ScheduleConfig schedule) {
+            StrategyRequest.ScheduleConfig schedule) {
         job.setJobName(strategy.getStrategyName());
         updateScheduleConfig(job, schedule);
         job.setUpdatedAt(LocalDateTime.now());
@@ -552,8 +564,8 @@ public class StrategyServiceImpl implements StrategyService {
     }
 
     private StrategyResponse buildResponse(Strategy strategy, List<StrategyRule> rules,
-                                                  StrategyAction action, ScheduledJob scheduledJob,
-                                                  Integer estimatedCases) {
+            StrategyAction action, ScheduledJob scheduledJob,
+            Integer estimatedCases) {
         return StrategyResponse.builder()
                 .strategyId(strategy.getId())
                 .strategyCode(strategy.getStrategyCode())
@@ -573,7 +585,8 @@ public class StrategyServiceImpl implements StrategyService {
     }
 
     private StrategyResponse.TemplateInfo buildTemplateInfo(StrategyAction action) {
-        if (action == null) return null;
+        if (action == null)
+            return null;
 
         return StrategyResponse.TemplateInfo.builder()
                 .templateType(action.getChannel())
@@ -583,7 +596,7 @@ public class StrategyServiceImpl implements StrategyService {
     }
 
     private StrategyResponse.FilterSummary buildFilterSummary(List<StrategyRule> rules,
-                                                                     Integer estimatedCases) {
+            Integer estimatedCases) {
         StrategyResponse.FilterSummary summary = new StrategyResponse.FilterSummary();
         summary.setEstimatedCasesMatched(estimatedCases);
 
@@ -606,7 +619,8 @@ public class StrategyServiceImpl implements StrategyService {
     }
 
     private StrategyResponse.ScheduleInfo buildScheduleInfo(ScheduledJob job, Strategy strategy) {
-        if (job == null) return null;
+        if (job == null)
+            return null;
 
         String scheduleText = buildScheduleText(job);
 

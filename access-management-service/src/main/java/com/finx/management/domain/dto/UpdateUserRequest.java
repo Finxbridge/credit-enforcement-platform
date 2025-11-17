@@ -35,6 +35,5 @@ public class UpdateUserRequest {
     private Double allocationPercentage;
     private String allocationBucket;
     private Long teamId;
-    private Boolean isFirstLogin;
     private Set<Long> roleIds;
 }

@@ -38,12 +38,14 @@ public interface UserMapper {
     @Mapping(target = "sessionExpiresAt", ignore = true)
     @Mapping(target = "sessionId", ignore = true)
     @Mapping(target = "passwordHash", source = "password")
+    @Mapping(target = "isFirstLogin", ignore = true)
     User toEntity(CreateUserRequest createUserRequest);
 
     @Mapping(target = "id", ignore = true)
     @Mapping(target = "username", ignore = true)
     @Mapping(target = "email", ignore = true)
     @Mapping(target = "passwordHash", ignore = true)
+    @Mapping(target = "isFirstLogin", ignore = true)
     @Mapping(target = "createdAt", ignore = true)
     @Mapping(target = "updatedAt", ignore = true)
     @Mapping(target = "createdBy", ignore = true)

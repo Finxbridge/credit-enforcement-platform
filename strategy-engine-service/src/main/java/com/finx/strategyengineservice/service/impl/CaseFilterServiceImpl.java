@@ -1,7 +1,6 @@
 package com.finx.strategyengineservice.service.impl;
 
 import com.finx.strategyengineservice.domain.entity.Case;
-import com.finx.strategyengineservice.domain.entity.LoanDetails;
 import com.finx.strategyengineservice.domain.entity.StrategyRule;
 import com.finx.strategyengineservice.domain.enums.RuleOperator;
 import com.finx.strategyengineservice.exception.BusinessException;
@@ -17,7 +16,6 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -76,8 +74,9 @@ public class CaseFilterServiceImpl implements CaseFilterService {
             finalPredicate = predicates.get(0);
         } else {
             // Check if rule has logical operator (default is AND)
-            String logicalOp = rules.get(0).getLogicalOperator() != null ?
-                    rules.get(0).getLogicalOperator().toUpperCase() : "AND";
+            String logicalOp = rules.get(0).getLogicalOperator() != null
+                    ? rules.get(0).getLogicalOperator().toUpperCase()
+                    : "AND";
 
             if ("OR".equals(logicalOp)) {
                 finalPredicate = cb.or(predicates.toArray(new Predicate[0]));
@@ -130,8 +129,9 @@ public class CaseFilterServiceImpl implements CaseFilterService {
         if (predicates.size() == 1) {
             finalPredicate = predicates.get(0);
         } else {
-            String logicalOp = rules.get(0).getLogicalOperator() != null ?
-                    rules.get(0).getLogicalOperator().toUpperCase() : "AND";
+            String logicalOp = rules.get(0).getLogicalOperator() != null
+                    ? rules.get(0).getLogicalOperator().toUpperCase()
+                    : "AND";
 
             if ("OR".equals(logicalOp)) {
                 finalPredicate = cb.or(predicates.toArray(new Predicate[0]));
@@ -152,7 +152,8 @@ public class CaseFilterServiceImpl implements CaseFilterService {
 
     /**
      * Build a predicate for a single rule
-     * Handles nested fields like "loan.dpd", "loan.bucket", "loan.outstandingAmount"
+     * Handles nested fields like "loan.dpd", "loan.bucket",
+     * "loan.outstandingAmount"
      */
     private Predicate buildPredicate(CriteriaBuilder cb, Root<Case> root, StrategyRule rule) {
         String fieldName = rule.getFieldName();
@@ -174,8 +175,8 @@ public class CaseFilterServiceImpl implements CaseFilterService {
     /**
      * Get field path, handling nested fields
      * Examples: "caseStatus" -> root.get("caseStatus")
-     *           "loan.dpd" -> root.get("loan").get("dpd")
-     *           "loan.bucket" -> root.get("loan").get("bucket")
+     * "loan.dpd" -> root.get("loan").get("dpd")
+     * "loan.bucket" -> root.get("loan").get("bucket")
      */
     private Path<?> getFieldPath(Root<Case> root, String fieldName) {
         if (fieldName.contains(".")) {
@@ -195,10 +196,10 @@ public class CaseFilterServiceImpl implements CaseFilterService {
     /**
      * Build predicate based on operator type
      */
-    @SuppressWarnings({"unchecked", "rawtypes"})
+    @SuppressWarnings({ "unchecked", "rawtypes" })
     private Predicate buildPredicateByOperator(CriteriaBuilder cb, Path<?> fieldPath,
-                                                RuleOperator operator, String fieldValue,
-                                                String fieldName) {
+            RuleOperator operator, String fieldValue,
+            String fieldName) {
         switch (operator) {
             case EQUALS:
                 return cb.equal(fieldPath, convertValue(fieldPath, fieldValue));

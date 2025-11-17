@@ -26,7 +26,6 @@ public class PermissionServiceImpl implements PermissionService {
     private final ManagementPermissionRepository managementPermissionRepository;
     private final PermissionMapper permissionMapper;
 
-
     @Override
     public List<PermissionDTO> getAllPermissions() {
         return managementPermissionRepository.findAll().stream()
@@ -34,6 +33,7 @@ public class PermissionServiceImpl implements PermissionService {
                 .collect(Collectors.toList());
     }
 
+    @SuppressWarnings("null")
     @Override
     @Cacheable(value = CacheConstants.PERMISSIONS, key = "#id", unless = "#result == null")
     public PermissionDTO getPermissionById(Long id) {
@@ -43,9 +43,10 @@ public class PermissionServiceImpl implements PermissionService {
                 .orElseThrow(() -> new ResourceNotFoundException("Permission", "id", id));
     }
 
+    @SuppressWarnings("null")
     @Override
     @Transactional
-    @CacheEvict(value = {CacheConstants.PERMISSIONS, "user_permissions"}, allEntries = true)
+    @CacheEvict(value = { CacheConstants.PERMISSIONS, "user_permissions" }, allEntries = true)
     public PermissionDTO createPermission(PermissionDTO permissionDTO) {
         log.info("Creating new permission with code: {}", permissionDTO.getCode());
 
@@ -63,13 +64,16 @@ public class PermissionServiceImpl implements PermissionService {
         Permission permission = permissionMapper.toEntity(permissionDTO);
         Permission savedPermission = managementPermissionRepository.save(permission);
 
-        log.info("Permission created successfully with ID: {} - Cache evicted for both permissions and user_permissions", savedPermission.getId());
+        log.info(
+                "Permission created successfully with ID: {} - Cache evicted for both permissions and user_permissions",
+                savedPermission.getId());
         return permissionMapper.toDto(savedPermission);
     }
 
+    @SuppressWarnings("null")
     @Override
     @Transactional
-    @CacheEvict(value = {CacheConstants.PERMISSIONS, "user_permissions"}, allEntries = true)
+    @CacheEvict(value = { CacheConstants.PERMISSIONS, "user_permissions" }, allEntries = true)
     public PermissionDTO updatePermission(Long id, PermissionDTO permissionDTO) {
         log.info("Updating permission with ID: {}", id);
 
@@ -93,13 +97,16 @@ public class PermissionServiceImpl implements PermissionService {
         permissionMapper.updateEntityFromDto(permissionDTO, existingPermission);
         Permission updatedPermission = managementPermissionRepository.save(existingPermission);
 
-        log.info("Permission updated successfully with ID: {} - Cache evicted for both permissions and user_permissions", id);
+        log.info(
+                "Permission updated successfully with ID: {} - Cache evicted for both permissions and user_permissions",
+                id);
         return permissionMapper.toDto(updatedPermission);
     }
 
+    @SuppressWarnings("null")
     @Override
     @Transactional
-    @CacheEvict(value = {CacheConstants.PERMISSIONS, "user_permissions"}, allEntries = true)
+    @CacheEvict(value = { CacheConstants.PERMISSIONS, "user_permissions" }, allEntries = true)
     public void deletePermission(Long id) {
         log.info("Deleting permission with ID: {}", id);
 
@@ -109,6 +116,8 @@ public class PermissionServiceImpl implements PermissionService {
         }
 
         managementPermissionRepository.deleteById(id);
-        log.info("Permission deleted successfully with ID: {} - Cache evicted for both permissions and user_permissions", id);
+        log.info(
+                "Permission deleted successfully with ID: {} - Cache evicted for both permissions and user_permissions",
+                id);
     }
 }

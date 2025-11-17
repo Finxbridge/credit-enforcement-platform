@@ -64,11 +64,11 @@ public class AuthController {
      * FR-AM-1: Generate and send OTP via email
      */
     @PostMapping("/request-otp")
-    @Operation(summary = "Request OTP", description = "Request OTP for password reset. OTP will be sent to registered email.")
+    @Operation(summary = "Request OTP", description = "Request OTP for password reset. OTP will be sent if email is registered.")
     public ResponseEntity<CommonResponse<RequestOtpResponse>> requestOtp(
             @Valid @RequestBody RequestOtpRequest request) {
         RequestOtpResponse response = authenticationService.requestOtp(request);
-        return ResponseWrapper.ok("OTP sent successfully", response);
+        return ResponseWrapper.ok("OTP request processed", response);
     }
 
     /**
@@ -121,11 +121,11 @@ public class AuthController {
 
     /**
      * POST /api/v1/auth/logout
-     * User logout
-     * FR-AM-4: Terminate session
+     * User logout - terminates all active sessions for the user
+     * FR-AM-4: Terminate all sessions
      */
     @PostMapping("/logout")
-    @Operation(summary = "Logout", description = "Logout user and terminate session.")
+    @Operation(summary = "Logout", description = "Logout user and terminate all active sessions across all devices.")
     public ResponseEntity<CommonResponse<Void>> logout(@RequestParam String sessionId) {
         authenticationService.logout(sessionId);
         return ResponseWrapper.okMessage("Logout successful");

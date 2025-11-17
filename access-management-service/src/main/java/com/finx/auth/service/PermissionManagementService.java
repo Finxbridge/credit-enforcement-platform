@@ -53,6 +53,7 @@ public class PermissionManagementService {
      * @param roleId       Role ID
      * @param permissionId Permission ID
      */
+    @SuppressWarnings("null")
     @Transactional
     @CacheEvict(value = "user_permissions", allEntries = true)
     public void assignPermissionToRole(Long roleId, Long permissionId) {
@@ -88,6 +89,7 @@ public class PermissionManagementService {
      * @param roleId       Role ID
      * @param permissionId Permission ID
      */
+    @SuppressWarnings("null")
     @Transactional
     @CacheEvict(value = "user_permissions", allEntries = true)
     public void revokePermissionFromRole(Long roleId, Long permissionId) {
@@ -119,6 +121,7 @@ public class PermissionManagementService {
      * @param roleId        Role ID
      * @param permissionIds List of permission IDs
      */
+    @SuppressWarnings("null")
     @Transactional
     @CacheEvict(value = "user_permissions", allEntries = true)
     public void assignPermissionsToRole(Long roleId, List<Long> permissionIds) {
@@ -166,6 +169,7 @@ public class PermissionManagementService {
      * @param roleId        Role ID
      * @param permissionIds List of new permission IDs
      */
+    @SuppressWarnings("null")
     @Transactional
     @CacheEvict(value = "user_permissions", allEntries = true)
     public void replaceRolePermissions(Long roleId, List<Long> permissionIds) {

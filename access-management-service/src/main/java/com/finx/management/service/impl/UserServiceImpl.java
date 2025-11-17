@@ -41,6 +41,7 @@ public class UserServiceImpl implements UserService {
     private final UserMapper userMapper;
     private final PasswordEncoder passwordEncoder;
 
+    @SuppressWarnings("null")
     @Override
     public Page<UserDTO> getAllUsers(Pageable pageable, String search, String status) {
         Specification<User> spec = Specification.where(null);
@@ -65,6 +66,7 @@ public class UserServiceImpl implements UserService {
         return userRepository.findAll(spec, pageable).map(userMapper::toDto);
     }
 
+    @SuppressWarnings("null")
     @Override
     @Cacheable(value = CacheConstants.USERS, key = "#id")
     public UserDTO getUserById(Long id) {
@@ -73,6 +75,7 @@ public class UserServiceImpl implements UserService {
         return userMapper.toDto(user);
     }
 
+    @SuppressWarnings("null")
     @Override
     @Transactional
     public UserDTO createUser(CreateUserRequest request) {
@@ -110,9 +113,10 @@ public class UserServiceImpl implements UserService {
         return userMapper.toDto(savedUser);
     }
 
+    @SuppressWarnings("null")
     @Override
     @Transactional
-    @CacheEvict(value = {CacheConstants.USERS, CacheConstants.USER_PERMISSIONS}, key = "#id")
+    @CacheEvict(value = { CacheConstants.USERS, CacheConstants.USER_PERMISSIONS }, key = "#id")
     public UserDTO updateUser(Long id, UpdateUserRequest request) {
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("User", "id", id));
@@ -156,14 +160,16 @@ public class UserServiceImpl implements UserService {
         return userMapper.toDto(updatedUser);
     }
 
+    @SuppressWarnings("null")
     @Override
-    @CacheEvict(value = {CacheConstants.USERS, CacheConstants.USER_PERMISSIONS}, key = "#id")
+    @CacheEvict(value = { CacheConstants.USERS, CacheConstants.USER_PERMISSIONS }, key = "#id")
     public void deleteUser(Long id) {
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("User", "id", id));
         userRepository.delete(user);
     }
 
+    @SuppressWarnings("null")
     @Override
     @Cacheable(value = CacheConstants.USER_PERMISSIONS, key = "#userId")
     public List<UserPermissionDTO> getUserPermissions(Long userId) {

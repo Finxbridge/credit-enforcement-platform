@@ -54,6 +54,7 @@ public class RoleServiceImpl implements RoleService {
         }
     }
 
+    @SuppressWarnings("null")
     @Override
     @Cacheable(value = CacheConstants.ROLES, key = "#id")
     public RoleDTO getRoleById(Long id) {
@@ -62,6 +63,7 @@ public class RoleServiceImpl implements RoleService {
         return roleMapper.toDto(role);
     }
 
+    @SuppressWarnings("null")
     @Override
     @Transactional
     @CacheEvict(value = CacheConstants.ROLES, allEntries = true)
@@ -80,7 +82,8 @@ public class RoleServiceImpl implements RoleService {
         }
 
         if (request.getPermissionIds() != null && !request.getPermissionIds().isEmpty()) {
-            Set<Permission> permissions = new HashSet<>(managementPermissionRepository.findAllById(request.getPermissionIds()));
+            Set<Permission> permissions = new HashSet<>(
+                    managementPermissionRepository.findAllById(request.getPermissionIds()));
             if (permissions.size() != request.getPermissionIds().size()) {
                 throw new BusinessException("One or more permission IDs are invalid");
             }
@@ -91,6 +94,7 @@ public class RoleServiceImpl implements RoleService {
         return roleMapper.toDto(savedRole);
     }
 
+    @SuppressWarnings("null")
     @Override
     @Transactional
     @CacheEvict(value = CacheConstants.ROLES, allEntries = true)
@@ -117,7 +121,8 @@ public class RoleServiceImpl implements RoleService {
         }
 
         if (request.getPermissionIds() != null) {
-            Set<Permission> permissions = new HashSet<>(managementPermissionRepository.findAllById(request.getPermissionIds()));
+            Set<Permission> permissions = new HashSet<>(
+                    managementPermissionRepository.findAllById(request.getPermissionIds()));
             if (permissions.size() != request.getPermissionIds().size()) {
                 throw new BusinessException("One or more permission IDs are invalid");
             }
@@ -130,6 +135,7 @@ public class RoleServiceImpl implements RoleService {
         return roleMapper.toDto(updatedRole);
     }
 
+    @SuppressWarnings("null")
     @Override
     @CacheEvict(value = CacheConstants.ROLES, allEntries = true)
     public void deleteRole(Long id) {

@@ -43,8 +43,7 @@ public class DialerService {
         Map<String, Object> requestBody = Map.of(
                 "customer_mobile", request.getCustomerMobile(),
                 "agent_number", request.getAgentNumber() != null ? request.getAgentNumber() : "",
-                "call_type", request.getCallType() != null ? request.getCallType() : "CLICK_TO_CALL"
-        );
+                "call_type", request.getCallType() != null ? request.getCallType() : "CLICK_TO_CALL");
 
         // 3. Call Dialer API
         String url = config.getApiEndpoint() + "/api/click-to-call";
@@ -85,6 +84,7 @@ public class DialerService {
                 .orElseThrow(() -> new ConfigurationNotFoundException(INTEGRATION_NAME));
     }
 
+    @SuppressWarnings("null")
     private String callDialerApi(String url, Map<String, Object> body, ThirdPartyIntegrationMaster config) {
         try {
             return webClient.post()
@@ -102,6 +102,7 @@ public class DialerService {
         }
     }
 
+    @SuppressWarnings("null")
     private String saveDialerCallLog(DialerCallRequest request, String response) {
         String callId = UUID.randomUUID().toString();
 
@@ -120,9 +121,9 @@ public class DialerService {
 
         try {
             Map<String, Object> responseMap = objectMapper.readValue(
-                response,
-                new TypeReference<Map<String, Object>>() {}
-            );
+                    response,
+                    new TypeReference<Map<String, Object>>() {
+                    });
             callLog.setDialerResponse(responseMap);
         } catch (Exception e) {
             log.warn("Failed to parse dialer response", e);

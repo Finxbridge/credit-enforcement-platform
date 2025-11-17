@@ -40,7 +40,6 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -59,6 +58,7 @@ public class ReallocationServiceImpl implements ReallocationService {
     private final com.finx.allocationreallocationservice.repository.UserRepository userRepository;
     private final com.finx.allocationreallocationservice.repository.CaseReadRepository caseReadRepository;
 
+    @SuppressWarnings("null")
     @Override
     @Transactional
     public AllocationBatchUploadResponseDTO uploadReallocationBatch(MultipartFile file) {
@@ -102,6 +102,7 @@ public class ReallocationServiceImpl implements ReallocationService {
                 .build();
     }
 
+    @SuppressWarnings("null")
     @Override
     @Transactional
     public ReallocationResponseDTO reallocateByAgent(ReallocationByAgentRequestDTO request) {
@@ -120,7 +121,8 @@ public class ReallocationServiceImpl implements ReallocationService {
                     .build();
         }
 
-        List<CaseAllocation> oldAllocations = allocations.stream().map(alloc -> alloc.toBuilder().build()).collect(Collectors.toList());
+        List<CaseAllocation> oldAllocations = allocations.stream().map(alloc -> alloc.toBuilder().build())
+                .collect(Collectors.toList());
 
         int casesReallocated = allocations.size();
 
@@ -135,8 +137,8 @@ public class ReallocationServiceImpl implements ReallocationService {
 
             // Update geography code from case entity if possible
             try {
-                java.util.Optional<com.finx.allocationreallocationservice.domain.entity.Case> caseOpt =
-                    caseReadRepository.findById(alloc.getCaseId());
+                java.util.Optional<com.finx.allocationreallocationservice.domain.entity.Case> caseOpt = caseReadRepository
+                        .findById(alloc.getCaseId());
                 if (caseOpt.isPresent() && caseOpt.get().getGeographyCode() != null) {
                     alloc.setGeographyCode(caseOpt.get().getGeographyCode());
                 }
@@ -162,7 +164,8 @@ public class ReallocationServiceImpl implements ReallocationService {
         allocationHistoryRepository.saveAll(history);
 
         for (int i = 0; i < allocations.size(); i++) {
-            saveAuditLog("CASE_ALLOCATION", allocations.get(i).getId(), "REALLOCATE_BY_AGENT", oldAllocations.get(i), allocations.get(i));
+            saveAuditLog("CASE_ALLOCATION", allocations.get(i).getId(), "REALLOCATE_BY_AGENT", oldAllocations.get(i),
+                    allocations.get(i));
         }
 
         // Update user statistics
@@ -179,6 +182,7 @@ public class ReallocationServiceImpl implements ReallocationService {
                 .build();
     }
 
+    @SuppressWarnings("null")
     @Override
     @Transactional
     public ReallocationResponseDTO reallocateByFilter(ReallocationByFilterRequestDTO request) {
@@ -189,12 +193,15 @@ public class ReallocationServiceImpl implements ReallocationService {
         Specification<CaseAllocation> spec = (root, query, criteriaBuilder) -> {
             List<Predicate> predicates = new ArrayList<>();
             if (request.getFilterCriteria() != null) {
-                // This is a simplified example. A real implementation would need to handle different fields and operators.
+                // This is a simplified example. A real implementation would need to handle
+                // different fields and operators.
                 if (request.getFilterCriteria().get("bucket") != null) {
-                    predicates.add(criteriaBuilder.equal(root.get("bucket"), request.getFilterCriteria().get("bucket")));
+                    predicates
+                            .add(criteriaBuilder.equal(root.get("bucket"), request.getFilterCriteria().get("bucket")));
                 }
                 if (request.getFilterCriteria().get("status") != null) {
-                    predicates.add(criteriaBuilder.equal(root.get("status"), request.getFilterCriteria().get("status")));
+                    predicates
+                            .add(criteriaBuilder.equal(root.get("status"), request.getFilterCriteria().get("status")));
                 }
             }
             return criteriaBuilder.and(predicates.toArray(new Predicate[0]));
@@ -210,7 +217,8 @@ public class ReallocationServiceImpl implements ReallocationService {
                     .build();
         }
 
-        List<CaseAllocation> oldAllocations = allocations.stream().map(alloc -> alloc.toBuilder().build()).collect(Collectors.toList());
+        List<CaseAllocation> oldAllocations = allocations.stream().map(alloc -> alloc.toBuilder().build())
+                .collect(Collectors.toList());
 
         // Track agent changes for statistics update
         java.util.Map<Long, Integer> decrements = new java.util.HashMap<>();
@@ -229,8 +237,8 @@ public class ReallocationServiceImpl implements ReallocationService {
 
             // Update geography code from case entity if possible
             try {
-                java.util.Optional<com.finx.allocationreallocationservice.domain.entity.Case> caseOpt =
-                    caseReadRepository.findById(alloc.getCaseId());
+                java.util.Optional<com.finx.allocationreallocationservice.domain.entity.Case> caseOpt = caseReadRepository
+                        .findById(alloc.getCaseId());
                 if (caseOpt.isPresent() && caseOpt.get().getGeographyCode() != null) {
                     alloc.setGeographyCode(caseOpt.get().getGeographyCode());
                 }
@@ -260,7 +268,8 @@ public class ReallocationServiceImpl implements ReallocationService {
         allocationHistoryRepository.saveAll(history);
 
         for (int i = 0; i < allocations.size(); i++) {
-            saveAuditLog("CASE_ALLOCATION", allocations.get(i).getId(), "REALLOCATE_BY_FILTER", oldAllocations.get(i), allocations.get(i));
+            saveAuditLog("CASE_ALLOCATION", allocations.get(i).getId(), "REALLOCATE_BY_FILTER", oldAllocations.get(i),
+                    allocations.get(i));
         }
 
         // Update user statistics
@@ -310,11 +319,13 @@ public class ReallocationServiceImpl implements ReallocationService {
      * Update user statistics after reallocation
      * Decreases current_case_count for old agents and increases for new agents
      * Recalculates allocation_percentage for all affected agents
+     * 
      * @param agentDecrements Map of agentId to number of cases removed
      * @param agentIncrements Map of agentId to number of cases added
      */
+    @SuppressWarnings("null")
     private void updateUserStatisticsForReallocation(Map<Long, Integer> agentDecrements,
-                                                       Map<Long, Integer> agentIncrements) {
+            Map<Long, Integer> agentIncrements) {
         log.info("Updating user statistics for reallocation: {} agents decremented, {} agents incremented",
                 agentDecrements.size(), agentIncrements.size());
 
@@ -324,7 +335,8 @@ public class ReallocationServiceImpl implements ReallocationService {
             Integer casesRemoved = entry.getValue();
 
             try {
-                com.finx.allocationreallocationservice.domain.entity.User user = userRepository.findById(agentId).orElse(null);
+                com.finx.allocationreallocationservice.domain.entity.User user = userRepository.findById(agentId)
+                        .orElse(null);
                 if (user == null) {
                     log.warn("User {} not found for statistics update (decrement)", agentId);
                     continue;
@@ -348,7 +360,8 @@ public class ReallocationServiceImpl implements ReallocationService {
                 user.setUpdatedAt(LocalDateTime.now());
                 userRepository.save(user);
 
-                log.info("Decremented user {} statistics: removed {} cases, currentCaseCount={}, allocationPercentage={}%",
+                log.info(
+                        "Decremented user {} statistics: removed {} cases, currentCaseCount={}, allocationPercentage={}%",
                         agentId, casesRemoved, newCaseCount, user.getAllocationPercentage());
 
             } catch (Exception e) {
@@ -362,7 +375,8 @@ public class ReallocationServiceImpl implements ReallocationService {
             Integer casesAdded = entry.getValue();
 
             try {
-                com.finx.allocationreallocationservice.domain.entity.User user = userRepository.findById(agentId).orElse(null);
+                com.finx.allocationreallocationservice.domain.entity.User user = userRepository.findById(agentId)
+                        .orElse(null);
                 if (user == null) {
                     log.warn("User {} not found for statistics update (increment)", agentId);
                     continue;
@@ -386,7 +400,8 @@ public class ReallocationServiceImpl implements ReallocationService {
                 user.setUpdatedAt(LocalDateTime.now());
                 userRepository.save(user);
 
-                log.info("Incremented user {} statistics: added {} cases, currentCaseCount={}, allocationPercentage={}%",
+                log.info(
+                        "Incremented user {} statistics: added {} cases, currentCaseCount={}, allocationPercentage={}%",
                         agentId, casesAdded, newCaseCount, user.getAllocationPercentage());
 
             } catch (Exception e) {
@@ -395,6 +410,7 @@ public class ReallocationServiceImpl implements ReallocationService {
         }
     }
 
+    @SuppressWarnings("null")
     private void saveAuditLog(String entityType, Long entityId, String action, Object before, Object after) {
         try {
             Map<String, Object> changesMap = new java.util.HashMap<>();

@@ -70,6 +70,7 @@ public class WhatsAppService {
     /**
      * Create WhatsApp template
      */
+    @SuppressWarnings("null")
     public Map<String, Object> createTemplate(Map<String, Object> templateRequest) {
         log.info("Creating WhatsApp template");
 
@@ -92,7 +93,8 @@ public class WhatsAppService {
         log.info("Template creation response: {}", response);
 
         try {
-            return objectMapper.readValue(response, new TypeReference<Map<String, Object>>() {});
+            return objectMapper.readValue(response, new TypeReference<Map<String, Object>>() {
+            });
         } catch (Exception e) {
             return Map.of("raw_response", response);
         }
@@ -151,6 +153,7 @@ public class WhatsAppService {
         return body;
     }
 
+    @SuppressWarnings("null")
     private String callMsg91Api(String url, Map<String, Object> body, ThirdPartyIntegrationMaster config) {
         try {
             return webClient.post()
@@ -169,6 +172,7 @@ public class WhatsAppService {
         }
     }
 
+    @SuppressWarnings("null")
     private List<String> saveWhatsAppMessages(WhatsAppSendRequest request, String response) {
         List<String> messageIds = new ArrayList<>();
 

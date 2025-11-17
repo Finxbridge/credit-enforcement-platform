@@ -100,7 +100,7 @@ public class SendGridEmailService {
                 .status(status)
                 .message(message)
                 .providerResponse(String.format("StatusCode: %d, Body: %s",
-                    response.getStatusCode(), response.getBody()))
+                        response.getStatusCode(), response.getBody()))
                 .build();
     }
 
@@ -109,16 +109,16 @@ public class SendGridEmailService {
                 .orElseThrow(() -> new ConfigurationNotFoundException(INTEGRATION_NAME));
     }
 
-    private Response sendEmailViaSendGrid(EmailSendRequest request, String finalBody, ThirdPartyIntegrationMaster config) {
+    private Response sendEmailViaSendGrid(EmailSendRequest request, String finalBody,
+            ThirdPartyIntegrationMaster config) {
         try {
             // Get API key from cache config (not encrypted for now)
             String apiKey = config.getApiKeyEncrypted();
 
             // Build email components - all dynamic from request
             Email from = new Email(
-                request.getFromEmail() != null ? request.getFromEmail() : DEFAULT_FROM_EMAIL,
-                request.getFromName() != null ? request.getFromName() : DEFAULT_FROM_NAME
-            );
+                    request.getFromEmail() != null ? request.getFromEmail() : DEFAULT_FROM_EMAIL,
+                    request.getFromName() != null ? request.getFromName() : DEFAULT_FROM_NAME);
 
             String subject = request.getSubject();
             Email to = new Email(request.getTo());
@@ -129,7 +129,8 @@ public class SendGridEmailService {
             // Build mail object
             Mail mail = new Mail(from, subject, to, content);
 
-            // Add HTML content if available (optimized - skip variable replacement if empty)
+            // Add HTML content if available (optimized - skip variable replacement if
+            // empty)
             if (request.getBodyHtml() != null) {
                 String htmlBody = request.getBodyHtml();
                 if (request.getVariables() != null && !request.getVariables().isEmpty()) {
@@ -156,7 +157,7 @@ public class SendGridEmailService {
             Response response = sg.api(sgRequest);
 
             log.info("SendGrid API Response - StatusCode: {}, Body: {}",
-                response.getStatusCode(), response.getBody());
+                    response.getStatusCode(), response.getBody());
 
             return response;
 
@@ -174,6 +175,7 @@ public class SendGridEmailService {
      * Uses @Async to not block the API response
      * Executes in background thread pool configured in AsyncConfig
      */
+    @SuppressWarnings("null")
     @Async("taskExecutor")
     private void saveEmailMessageAsync(EmailSendRequest request, Response response, String messageId) {
         try {
@@ -184,7 +186,7 @@ public class SendGridEmailService {
             String fromName = request.getFromName() != null ? request.getFromName() : DEFAULT_FROM_NAME;
 
             String providerResponse = String.format("StatusCode: %d, Body: %s, Headers: %s",
-                response.getStatusCode(), response.getBody(), response.getHeaders());
+                    response.getStatusCode(), response.getBody(), response.getHeaders());
 
             EmailMessage emailMessage = EmailMessage.builder()
                     .messageId(messageId)
@@ -248,4 +250,3 @@ public class SendGridEmailService {
         }
     }
 }
-

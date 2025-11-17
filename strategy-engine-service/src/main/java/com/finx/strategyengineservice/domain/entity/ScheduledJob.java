@@ -17,7 +17,8 @@ import java.util.Map;
 /**
  * Common Scheduled Job entity
  * Platform-wide scheduler table used across all microservices
- * Manages scheduled jobs for Strategy Execution, Batch Imports, Auto-Allocation, etc.
+ * Manages scheduled jobs for Strategy Execution, Batch Imports,
+ * Auto-Allocation, etc.
  */
 @Entity
 @Table(name = "scheduled_jobs")
@@ -46,6 +47,7 @@ public class ScheduledJob {
     @Column(name = "job_reference_type", length = 50)
     private String jobReferenceType;
 
+    @Builder.Default
     @Column(name = "is_enabled")
     private Boolean isEnabled = false;
 
@@ -62,6 +64,7 @@ public class ScheduledJob {
     @Column(name = "cron_expression", length = 100)
     private String cronExpression;
 
+    @Builder.Default
     @Column(name = "timezone", length = 50)
     private String timezone = "Asia/Kolkata";
 
@@ -78,9 +81,11 @@ public class ScheduledJob {
     @Column(name = "last_run_message", columnDefinition = "TEXT")
     private String lastRunMessage;
 
+    @Builder.Default
     @Column(name = "run_count")
     private Integer runCount = 0;
 
+    @Builder.Default
     @Column(name = "failure_count")
     private Integer failureCount = 0;
 

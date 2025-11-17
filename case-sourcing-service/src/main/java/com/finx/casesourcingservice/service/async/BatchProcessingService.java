@@ -239,6 +239,7 @@ public class BatchProcessingService {
     /**
      * Log batch error in a new transaction
      */
+    @SuppressWarnings("null")
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void logBatchErrorInNewTransaction(String batchId, CaseCsvRowDTO row, String errorMessage) {
         ErrorType errorType = determineErrorType(errorMessage);

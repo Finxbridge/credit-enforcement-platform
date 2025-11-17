@@ -37,6 +37,7 @@ public class CaseAllocation {
     private Long primaryAgentId;
 
     // Maps to existing allocated_to_type column
+    @Builder.Default
     @Column(name = "allocated_to_type", nullable = false)
     private String allocatedToType = "USER";
 
@@ -45,6 +46,7 @@ public class CaseAllocation {
     private Long secondaryAgentId;
 
     // Maps to existing allocation_type column
+    @Builder.Default
     @Column(name = "allocation_type")
     private String allocationType = "PRIMARY";
 

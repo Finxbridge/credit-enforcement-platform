@@ -38,8 +38,9 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
     private final com.finx.strategyengineservice.client.CommunicationServiceClient communicationClient;
     private final com.finx.strategyengineservice.repository.CaseRepository caseRepository;
 
+    @SuppressWarnings("null")
     @Override
-    @CacheEvict(value = {"strategyExecutions", "executionDetails"}, allEntries = true)
+    @CacheEvict(value = { "strategyExecutions", "executionDetails" }, allEntries = true)
     public ExecutionInitiatedDTO executeStrategy(Long strategyId) {
         log.info("Initiating execution for strategy ID: {}", strategyId);
 
@@ -69,9 +70,9 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
                 .build();
     }
 
+    @SuppressWarnings("null")
     @Async("strategyExecutionExecutor")
     protected void processStrategyAsync(Long executionId, Long strategyId) {
-        LocalDateTime startTime = LocalDateTime.now();
 
         try {
             log.info("Processing strategy execution async: {} for strategy: {}", executionId, strategyId);
@@ -85,12 +86,12 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
                     .orElseThrow(() -> new BusinessException("Strategy not found"));
 
             // Fetch strategy rules (filters)
-            List<com.finx.strategyengineservice.domain.entity.StrategyRule> rules =
-                strategyRuleRepository.findByStrategyIdOrderByRuleOrderAsc(strategyId);
+            List<com.finx.strategyengineservice.domain.entity.StrategyRule> rules = strategyRuleRepository
+                    .findByStrategyIdOrderByRuleOrderAsc(strategyId);
 
             // Fetch strategy actions
-            List<com.finx.strategyengineservice.domain.entity.StrategyAction> actions =
-                strategyActionRepository.findByStrategyIdOrderByActionOrderAsc(strategyId);
+            List<com.finx.strategyengineservice.domain.entity.StrategyAction> actions = strategyActionRepository
+                    .findByStrategyIdOrderByActionOrderAsc(strategyId);
 
             if (actions.isEmpty()) {
                 throw new BusinessException("No actions defined for strategy: " + strategyId);
@@ -149,7 +150,7 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
                         executionLog.add(errorLog);
 
                         log.error("Failed to execute action {} for case {}: {}",
-                            action.getActionType(), caseEntity.getId(), e.getMessage());
+                                action.getActionType(), caseEntity.getId(), e.getMessage());
                     }
                 }
             }
@@ -173,7 +174,7 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
             updateStrategyStats(strategy, successCount, failureCount);
 
             log.info("Strategy execution completed: {}. Processed: {}, Success: {}, Failed: {}",
-                execution.getExecutionId(), matchedCases.size(), successCount, failureCount);
+                    execution.getExecutionId(), matchedCases.size(), successCount, failureCount);
 
         } catch (Exception e) {
             log.error("Fatal error processing strategy execution: {}", executionId, e);
@@ -192,7 +193,7 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
      * Execute a single action on a case
      */
     private void executeAction(com.finx.strategyengineservice.domain.entity.Case caseEntity,
-                                com.finx.strategyengineservice.domain.entity.StrategyAction action) {
+            com.finx.strategyengineservice.domain.entity.StrategyAction action) {
 
         log.debug("Executing action {} for case {}", action.getActionType(), caseEntity.getId());
 
@@ -226,15 +227,15 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
      * Send SMS via communication service
      */
     private void sendSMS(com.finx.strategyengineservice.domain.entity.Case caseEntity,
-                         com.finx.strategyengineservice.domain.entity.StrategyAction action) {
+            com.finx.strategyengineservice.domain.entity.StrategyAction action) {
 
         String mobile = caseEntity.getLoan().getPrimaryCustomer().getMobileNumber();
         if (mobile == null || mobile.isEmpty()) {
             throw new BusinessException("Mobile number not available for case: " + caseEntity.getId());
         }
 
-        com.finx.strategyengineservice.client.dto.SMSRequest request =
-            com.finx.strategyengineservice.client.dto.SMSRequest.builder()
+        com.finx.strategyengineservice.client.dto.SMSRequest request = com.finx.strategyengineservice.client.dto.SMSRequest
+                .builder()
                 .mobile(mobile)
                 .message("Payment reminder for loan: " + caseEntity.getLoan().getLoanAccountNumber())
                 .templateId(action.getTemplateId() != null ? action.getTemplateId().toString() : null)
@@ -250,15 +251,15 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
      * Send Email via communication service
      */
     private void sendEmail(com.finx.strategyengineservice.domain.entity.Case caseEntity,
-                           com.finx.strategyengineservice.domain.entity.StrategyAction action) {
+            com.finx.strategyengineservice.domain.entity.StrategyAction action) {
 
         String email = caseEntity.getLoan().getPrimaryCustomer().getEmailAddress();
         if (email == null || email.isEmpty()) {
             throw new BusinessException("Email not available for case: " + caseEntity.getId());
         }
 
-        com.finx.strategyengineservice.client.dto.EmailRequest request =
-            com.finx.strategyengineservice.client.dto.EmailRequest.builder()
+        com.finx.strategyengineservice.client.dto.EmailRequest request = com.finx.strategyengineservice.client.dto.EmailRequest
+                .builder()
                 .email(email)
                 .subject("Payment Reminder")
                 .body("Payment reminder for loan: " + caseEntity.getLoan().getLoanAccountNumber())
@@ -275,15 +276,15 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
      * Send WhatsApp via communication service
      */
     private void sendWhatsApp(com.finx.strategyengineservice.domain.entity.Case caseEntity,
-                              com.finx.strategyengineservice.domain.entity.StrategyAction action) {
+            com.finx.strategyengineservice.domain.entity.StrategyAction action) {
 
         String mobile = caseEntity.getLoan().getPrimaryCustomer().getMobileNumber();
         if (mobile == null || mobile.isEmpty()) {
             throw new BusinessException("Mobile number not available for case: " + caseEntity.getId());
         }
 
-        com.finx.strategyengineservice.client.dto.WhatsAppRequest request =
-            com.finx.strategyengineservice.client.dto.WhatsAppRequest.builder()
+        com.finx.strategyengineservice.client.dto.WhatsAppRequest request = com.finx.strategyengineservice.client.dto.WhatsAppRequest
+                .builder()
                 .mobile(mobile)
                 .message("Payment reminder for loan: " + caseEntity.getLoan().getLoanAccountNumber())
                 .templateId(action.getTemplateId() != null ? action.getTemplateId().toString() : null)
@@ -299,7 +300,7 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
      * Create notice (placeholder - implement based on requirements)
      */
     private void createNotice(com.finx.strategyengineservice.domain.entity.Case caseEntity,
-                              com.finx.strategyengineservice.domain.entity.StrategyAction action) {
+            com.finx.strategyengineservice.domain.entity.StrategyAction action) {
         log.info("Creating notice for case: {} (Not yet implemented)", caseEntity.getId());
         // TODO: Implement notice creation logic
     }
@@ -308,7 +309,7 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
      * Schedule call (placeholder - implement based on requirements)
      */
     private void scheduleCall(com.finx.strategyengineservice.domain.entity.Case caseEntity,
-                              com.finx.strategyengineservice.domain.entity.StrategyAction action) {
+            com.finx.strategyengineservice.domain.entity.StrategyAction action) {
         log.info("Scheduling call for case: {} (Not yet implemented)", caseEntity.getId());
         // TODO: Implement call scheduling logic (IVR integration)
     }
