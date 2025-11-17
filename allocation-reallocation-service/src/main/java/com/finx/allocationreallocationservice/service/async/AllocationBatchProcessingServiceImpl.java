@@ -53,6 +53,7 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
     private final com.finx.allocationreallocationservice.repository.UserRepository userRepository;
     private final com.finx.allocationreallocationservice.repository.CaseReadRepository caseReadRepository;
     private final com.finx.allocationreallocationservice.repository.CustomerRepository customerRepository;
+    private final org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
 
     private static final Pattern EMAIL_PATTERN = Pattern.compile("^[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,6}$", Pattern.CASE_INSENSITIVE);
 
@@ -69,6 +70,7 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
         List<BatchError> errors = new ArrayList<>();
         List<CaseAllocation> allocations = new ArrayList<>();
         List<AllocationHistory> historyEntries = new ArrayList<>();
+        java.util.Map<Long, Integer> agentCaseCount = new java.util.HashMap<>(); // Track cases allocated to each agent
 
         try (BufferedReader reader = Files.newBufferedReader(path)) {
             CsvToBean<AllocationCsvRow> csvToBean = new CsvToBeanBuilder<AllocationCsvRow>(reader)
@@ -114,6 +116,9 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
                             .batchId(batchId)
                             .build());
 
+                    // Track agent case count for statistics update
+                    agentCaseCount.put(primaryAgentId, agentCaseCount.getOrDefault(primaryAgentId, 0) + 1);
+
                     successfulAllocations.incrementAndGet();
                 } else {
                     log.error("Validation failed for row {}: {}", rowNumber[0], validationError);
@@ -138,6 +143,12 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
             batchErrorRepository.saveAll(errors);
             caseAllocationRepository.saveAll(allocations);
             allocationHistoryRepository.saveAll(historyEntries);
+
+            // CRITICAL: Update cases table to reflect allocation
+            updateCasesTableForAllocation(allocations);
+
+            // Update user statistics for allocated agents
+            updateUserStatisticsForAllocation(agentCaseCount);
 
             log.info("Finished processing allocation batch: {}. Total: {}, Success: {}, Failed: {}",
                     batchId, rows.size(), successfulAllocations.get(), failedAllocations.get());
@@ -288,6 +299,9 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
             batchErrorRepository.saveAll(errors);
             caseAllocationRepository.saveAll(allocationsToUpdate);
             allocationHistoryRepository.saveAll(historyToSave);
+
+            // CRITICAL: Update cases table to reflect reallocation
+            updateCasesTableForReallocation(allocationsToUpdate);
 
             // Update user statistics for both old and new agents
             updateUserStatisticsForReallocation(agentDecrements, agentIncrements);
@@ -542,6 +556,53 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
     }
 
     /**
+     * Update user statistics after allocation
+     * Increases current_case_count for agents and recalculates allocation_percentage
+     * @param agentCaseCount Map of agentId to number of cases allocated
+     */
+    private void updateUserStatisticsForAllocation(java.util.Map<Long, Integer> agentCaseCount) {
+        log.info("Updating user statistics for allocation: {} agents affected", agentCaseCount.size());
+
+        for (java.util.Map.Entry<Long, Integer> entry : agentCaseCount.entrySet()) {
+            Long agentId = entry.getKey();
+            Integer casesAllocated = entry.getValue();
+
+            try {
+                com.finx.allocationreallocationservice.domain.entity.User user = userRepository.findById(agentId).orElse(null);
+                if (user == null) {
+                    log.warn("User {} not found for statistics update", agentId);
+                    continue;
+                }
+
+                // Increase current_case_count
+                Integer currentCaseCount = user.getCurrentCaseCount() != null ? user.getCurrentCaseCount() : 0;
+                Integer newCaseCount = currentCaseCount + casesAllocated;
+                user.setCurrentCaseCount(newCaseCount);
+
+                // Recalculate allocation_percentage: (current_case_count / max_case_capacity) * 100
+                Integer maxCapacity = user.getMaxCaseCapacity() != null ? user.getMaxCaseCapacity() : 100;
+                if (maxCapacity > 0) {
+                    double allocationPercentage = ((double) newCaseCount / maxCapacity) * 100.0;
+                    // Round to 2 decimal places
+                    allocationPercentage = Math.round(allocationPercentage * 100.0) / 100.0;
+                    user.setAllocationPercentage(allocationPercentage);
+                } else {
+                    user.setAllocationPercentage(0.0);
+                }
+
+                user.setUpdatedAt(LocalDateTime.now());
+                userRepository.save(user);
+
+                log.info("Updated user {} statistics: allocated {} cases, currentCaseCount={}, allocationPercentage={}%",
+                        agentId, casesAllocated, newCaseCount, user.getAllocationPercentage());
+
+            } catch (Exception e) {
+                log.error("Failed to update statistics for user {}: {}", agentId, e.getMessage(), e);
+            }
+        }
+    }
+
+    /**
      * Update user statistics after reallocation
      * Decreases current_case_count for old agents and increases for new agents
      * Recalculates allocation_percentage for all affected agents
@@ -628,6 +689,86 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
                 log.error("Failed to update statistics for user {} (increment): {}", agentId, e.getMessage(), e);
             }
         }
+    }
+
+    /**
+     * CRITICAL FIX: Update cases table after allocation
+     * Updates allocated_to_user_id, allocated_at, and case_status in cases table
+     * This ensures cases are marked as ALLOCATED in the database
+     *
+     * @param allocations List of case allocations to apply to cases table
+     */
+    private void updateCasesTableForAllocation(List<CaseAllocation> allocations) {
+        if (allocations.isEmpty()) {
+            return;
+        }
+
+        log.info("Updating cases table for {} allocations", allocations.size());
+
+        String updateSql = "UPDATE cases SET allocated_to_user_id = ?, allocated_at = ?, " +
+                          "case_status = 'ALLOCATED', updated_at = NOW() WHERE id = ?";
+
+        int updatedCount = 0;
+        for (CaseAllocation allocation : allocations) {
+            try {
+                int rowsAffected = jdbcTemplate.update(
+                    updateSql,
+                    allocation.getPrimaryAgentId(),
+                    allocation.getAllocatedAt(),
+                    allocation.getCaseId()
+                );
+
+                if (rowsAffected > 0) {
+                    updatedCount++;
+                } else {
+                    log.warn("Case {} not found in cases table for allocation update", allocation.getCaseId());
+                }
+            } catch (Exception e) {
+                log.error("Failed to update cases table for case {}: {}", allocation.getCaseId(), e.getMessage());
+            }
+        }
+
+        log.info("Successfully updated {} out of {} cases in cases table", updatedCount, allocations.size());
+    }
+
+    /**
+     * CRITICAL FIX: Update cases table after reallocation
+     * Updates allocated_to_user_id and allocated_at in cases table
+     * Status remains ALLOCATED during reallocation
+     *
+     * @param allocations List of updated case allocations to apply to cases table
+     */
+    private void updateCasesTableForReallocation(List<CaseAllocation> allocations) {
+        if (allocations.isEmpty()) {
+            return;
+        }
+
+        log.info("Updating cases table for {} reallocations", allocations.size());
+
+        String updateSql = "UPDATE cases SET allocated_to_user_id = ?, allocated_at = ?, " +
+                          "updated_at = NOW() WHERE id = ?";
+
+        int updatedCount = 0;
+        for (CaseAllocation allocation : allocations) {
+            try {
+                int rowsAffected = jdbcTemplate.update(
+                    updateSql,
+                    allocation.getPrimaryAgentId(),
+                    allocation.getAllocatedAt(),
+                    allocation.getCaseId()
+                );
+
+                if (rowsAffected > 0) {
+                    updatedCount++;
+                } else {
+                    log.warn("Case {} not found in cases table for reallocation update", allocation.getCaseId());
+                }
+            } catch (Exception e) {
+                log.error("Failed to update cases table for case {}: {}", allocation.getCaseId(), e.getMessage());
+            }
+        }
+
+        log.info("Successfully updated {} out of {} cases in cases table", updatedCount, allocations.size());
     }
 
     private BatchError buildError(String batchId, int rowNumber, String message, String caseId) {

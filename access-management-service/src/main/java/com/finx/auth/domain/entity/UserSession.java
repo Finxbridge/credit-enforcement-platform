@@ -36,10 +36,10 @@ public class UserSession {
     @Column(name = "user_id", nullable = false)
     private Long userId;
 
-    @Column(name = "access_token", length = 500)
+    @Column(name = "access_token", columnDefinition = "TEXT")
     private String accessToken;
 
-    @Column(name = "refresh_token", length = 500)
+    @Column(name = "refresh_token", columnDefinition = "TEXT")
     private String refreshToken;
 
     @Column(name = "ip_address", length = 45)

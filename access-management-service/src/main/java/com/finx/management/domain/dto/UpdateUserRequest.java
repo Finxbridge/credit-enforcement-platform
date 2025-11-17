@@ -6,6 +6,7 @@ import lombok.Data;
 
 import jakarta.validation.constraints.Pattern;
 
+import java.util.List;
 import java.util.Set;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
@@ -29,7 +30,7 @@ public class UpdateUserRequest {
 
     private String status;
     private Long userGroupId;
-    private String assignedGeographies;
+    private List<String> assignedGeographies;
     private Integer maxCaseCapacity;
     private Double allocationPercentage;
     private String allocationBucket;

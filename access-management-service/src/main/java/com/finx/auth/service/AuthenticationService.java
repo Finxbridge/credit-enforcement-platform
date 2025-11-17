@@ -310,7 +310,8 @@ public class AuthenticationService {
 
     /**
      * Helper method to increment OTP attempt count and save in a new transaction.
-     * This ensures the attempt count is persisted even if the calling transaction rolls back.
+     * This ensures the attempt count is persisted even if the calling transaction
+     * rolls back.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     protected OtpRequest incrementOtpAttemptAndSave(OtpRequest otpRequest) {

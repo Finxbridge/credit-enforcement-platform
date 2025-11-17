@@ -1,21 +1,21 @@
 package com.finx.strategyengineservice.domain.dto;
 
-import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.List;
+
+/**
+ * Complete dashboard response with summary and strategy list
+ */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@JsonInclude(JsonInclude.Include.NON_NULL)
-public class TemplateInfoResponse {
+public class DashboardResponse {
 
-    private Long strategyId;
-
-    private Long templateId;
-
-    private String channel;
+    private DashboardSummary summary;
+    private List<StrategyDashboardItem> strategies;
 }

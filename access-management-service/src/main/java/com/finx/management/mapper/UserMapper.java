@@ -20,7 +20,6 @@ public interface UserMapper {
     @Mapping(source = "userGroup.groupName", target = "userGroupName")
     @Mapping(target = "roles", source = "roles") // Explicitly map roles
     @Mapping(target = "permissions", expression = "java(mapRolesToPermissions(user.getRoles()))")
-    @Mapping(source = "isFirstLogin", target = "isFirstLogin")
     UserDTO toDto(User user);
 
     @Mapping(target = "id", ignore = true)
@@ -39,7 +38,6 @@ public interface UserMapper {
     @Mapping(target = "sessionExpiresAt", ignore = true)
     @Mapping(target = "sessionId", ignore = true)
     @Mapping(target = "passwordHash", source = "password")
-    @Mapping(target = "isFirstLogin", source = "isFirstLogin")
     User toEntity(CreateUserRequest createUserRequest);
 
     @Mapping(target = "id", ignore = true)
@@ -60,7 +58,6 @@ public interface UserMapper {
     @Mapping(target = "otpSecret", ignore = true)
     @Mapping(target = "sessionExpiresAt", ignore = true)
     @Mapping(target = "sessionId", ignore = true)
-    @Mapping(target = "isFirstLogin", source = "isFirstLogin")
     void updateEntityFromDto(UpdateUserRequest updateUserRequest, @MappingTarget User user);
 
     default Set<String> mapRolesToPermissions(Set<com.finx.management.domain.entity.Role> roles) {

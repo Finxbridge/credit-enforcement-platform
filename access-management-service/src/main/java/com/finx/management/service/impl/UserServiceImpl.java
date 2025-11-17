@@ -84,6 +84,7 @@ public class UserServiceImpl implements UserService {
         }
 
         User user = userMapper.toEntity(request);
+        user.setIsFirstLogin(true);
         user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
         try {
             user.setStatus(User.UserStatus.valueOf(request.getStatus().toUpperCase()));

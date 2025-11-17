@@ -1,7 +1,9 @@
 package com.finx.strategyengineservice.controller;
 
-import com.finx.strategyengineservice.domain.dto.*;
-import com.finx.strategyengineservice.service.StrategyExecutionService;
+import com.finx.strategyengineservice.domain.dto.CommonResponse;
+import com.finx.strategyengineservice.domain.dto.DashboardResponse;
+import com.finx.strategyengineservice.domain.dto.StrategyRequest;
+import com.finx.strategyengineservice.domain.dto.StrategyResponse;
 import com.finx.strategyengineservice.service.StrategyService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -14,162 +16,195 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
+/**
+ * Strategy Controller
+ * Single endpoint to create/update complete strategy with all configurations
+ *
+ * Replaces the need for multiple API calls to:
+ * - StrategyController (basic info)
+ * - StrategyFilterController (filters)
+ * - StrategyTemplateController (template)
+ * - StrategyTriggerController (schedule)
+ */
 @RestController
-@RequestMapping("/api/v1/strategies")
+@RequestMapping("/strategies/v2")
 @RequiredArgsConstructor
 @Slf4j
-@Tag(name = "Strategy Management", description = "APIs for managing strategies")
+@Tag(name = "Unified Strategy Management", description = "Single API for complete strategy configuration")
 public class StrategyController {
 
     private final StrategyService strategyService;
-    private final StrategyExecutionService executionService;
 
-    @GetMapping
-    @Operation(summary = "List all strategies", description = "Get list of all strategies with status and statistics")
-    public ResponseEntity<CommonResponse<List<StrategyDTO>>> getAllStrategies() {
-        log.info("GET /api/v1/strategies - List all strategies");
-        List<StrategyDTO> strategies = strategyService.getAllStrategies();
-        return ResponseEntity.ok(CommonResponse.success("Strategies retrieved successfully.", strategies));
-    }
-
-    @PostMapping("/{strategyId}/simulate")
-    @Operation(summary = "Simulate a strategy", description = "Run simulation to see potential impact before execution")
-    public ResponseEntity<CommonResponse<SimulationResultDTO>> simulateStrategy(
-            @PathVariable Long strategyId) {
-        log.info("POST /api/v1/strategies/{}/simulate - Simulate strategy", strategyId);
-        SimulationResultDTO result = strategyService.simulateStrategy(strategyId);
-        return ResponseEntity.ok(CommonResponse.success("Strategy simulation completed successfully.", result));
-    }
-
+    /**
+     * Create complete strategy with all configurations in a single API call
+     *
+     * Request includes:
+     * 1. Rule Name (strategy name)
+     * 2. Template Selection (type + template ID)
+     * 3. Filters (numeric: outstanding/payment, text: language/product/pincode/state/bucket, DPD)
+     * 4. Priority
+     * 5. Schedule (daily/weekly)
+     * 6. Status (DRAFT/ACTIVE/INACTIVE)
+     */
     @PostMapping
-    @Operation(summary = "Create a new strategy", description = "Create a new strategy with rules and actions")
-    public ResponseEntity<CommonResponse<StrategyDTO>> createStrategy(
-            @Valid @RequestBody CreateStrategyRequest request) {
-        log.info("POST /api/v1/strategies - Create strategy: {}", request.getName());
-        StrategyDTO strategy = strategyService.createStrategy(request);
+    @Operation(
+        summary = "Create complete strategy",
+        description = "Create a new strategy with all configurations (filters, template, schedule) in a single API call"
+    )
+    public ResponseEntity<CommonResponse<StrategyResponse>> createStrategy(
+            @Valid @RequestBody StrategyRequest request) {
+
+        log.info("POST /api/v1/strategies/v2 - Create unified strategy: {}", request.getRuleName());
+
+        StrategyResponse response = strategyService.createStrategy(request);
+
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(CommonResponse.success("Strategy created successfully.", strategy));
+                .body(CommonResponse.success("Strategy created successfully with all configurations.", response));
     }
 
-    @GetMapping("/{strategyId}")
-    @Operation(summary = "Get strategy details", description = "Get detailed information about a specific strategy")
-    public ResponseEntity<CommonResponse<StrategyDetailDTO>> getStrategyDetails(
-            @PathVariable Long strategyId) {
-        log.info("GET /api/v1/strategies/{} - Get strategy details", strategyId);
-        StrategyDetailDTO strategy = strategyService.getStrategyById(strategyId);
-        return ResponseEntity.ok(CommonResponse.success("Strategy details retrieved successfully.", strategy));
-    }
-
-    @PostMapping("/{strategyId}/filters")
-    @Operation(summary = "Define or update filters", description = "Define or update filtering rules for a strategy")
-    public ResponseEntity<CommonResponse<FiltersResponse>> updateFilters(
-            @PathVariable Long strategyId,
-            @Valid @RequestBody FiltersRequest request) {
-        log.info("POST /api/v1/strategies/{}/filters - Update filters", strategyId);
-        FiltersResponse response = strategyService.updateFilters(strategyId, request);
-        return ResponseEntity.ok(CommonResponse.success("Strategy filters updated successfully.", response));
-    }
-
-    @GetMapping("/{strategyId}/filters")
-    @Operation(summary = "Get applied filters", description = "Get current filtering rules for a strategy")
-    public ResponseEntity<CommonResponse<FiltersResponse>> getFilters(
-            @PathVariable Long strategyId) {
-        log.info("GET /api/v1/strategies/{}/filters - Get filters", strategyId);
-        FiltersResponse response = strategyService.getFilters(strategyId);
-        return ResponseEntity.ok(CommonResponse.success("Strategy filters retrieved successfully.", response));
-    }
-
-    @PostMapping("/{strategyId}/template")
-    @Operation(summary = "Add or update template", description = "Add or update template information for a strategy")
-    public ResponseEntity<CommonResponse<TemplateInfoResponse>> updateTemplate(
-            @PathVariable Long strategyId,
-            @Valid @RequestBody TemplateInfoRequest request) {
-        log.info("POST /api/v1/strategies/{}/template - Update template", strategyId);
-        TemplateInfoResponse response = strategyService.updateTemplate(strategyId, request);
-        return ResponseEntity.ok(CommonResponse.success("Strategy template updated successfully.", response));
-    }
-
-    @GetMapping("/{strategyId}/template")
-    @Operation(summary = "Get template info", description = "Fetch existing template information for a strategy")
-    public ResponseEntity<CommonResponse<TemplateInfoResponse>> getTemplate(
-            @PathVariable Long strategyId) {
-        log.info("GET /api/v1/strategies/{}/template - Get template", strategyId);
-        TemplateInfoResponse response = strategyService.getTemplate(strategyId);
-        return ResponseEntity.ok(CommonResponse.success("Strategy template retrieved successfully.", response));
-    }
-
-    @PostMapping("/{strategyId}/trigger")
-    @Operation(summary = "Configure trigger", description = "Configure trigger frequency for a strategy")
-    public ResponseEntity<CommonResponse<TriggerConfigResponse>> configureTrigger(
-            @PathVariable Long strategyId,
-            @Valid @RequestBody TriggerConfigRequest request) {
-        log.info("POST /api/v1/strategies/{}/trigger - Configure trigger", strategyId);
-        TriggerConfigResponse response = strategyService.configureTrigger(strategyId, request);
-        return ResponseEntity.ok(CommonResponse.success("Strategy trigger configured successfully.", response));
-    }
-
-    @PutMapping("/{strategyId}/trigger")
-    @Operation(summary = "Update trigger config", description = "Update trigger configuration for a strategy")
-    public ResponseEntity<CommonResponse<TriggerConfigResponse>> updateTrigger(
-            @PathVariable Long strategyId,
-            @Valid @RequestBody TriggerConfigRequest request) {
-        log.info("PUT /api/v1/strategies/{}/trigger - Update trigger", strategyId);
-        TriggerConfigResponse response = strategyService.updateTrigger(strategyId, request);
-        return ResponseEntity.ok(CommonResponse.success("Strategy trigger updated successfully.", response));
-    }
-
+    /**
+     * Update complete strategy configuration
+     */
     @PutMapping("/{strategyId}")
-    @Operation(summary = "Edit strategy", description = "Edit rule details, filters, or triggers of an existing strategy")
-    public ResponseEntity<CommonResponse<StrategyDTO>> updateStrategy(
+    @Operation(
+        summary = "Update complete strategy",
+        description = "Update entire strategy configuration in a single API call"
+    )
+    public ResponseEntity<CommonResponse<StrategyResponse>> updateStrategy(
             @PathVariable Long strategyId,
-            @Valid @RequestBody UpdateStrategyRequest request) {
-        log.info("PUT /api/v1/strategies/{} - Update strategy", strategyId);
-        StrategyDTO strategy = strategyService.updateStrategy(strategyId, request);
-        return ResponseEntity.ok(CommonResponse.success("Strategy updated successfully.", strategy));
+            @Valid @RequestBody StrategyRequest request) {
+
+        log.info("PUT /api/v1/strategies/v2/{} - Update unified strategy", strategyId);
+
+        StrategyResponse response = strategyService.updateStrategy(strategyId, request);
+
+        return ResponseEntity.ok(CommonResponse.success("Strategy updated successfully.", response));
     }
 
-    @DeleteMapping("/{strategyId}")
-    @Operation(summary = "Delete strategy", description = "Delete a strategy permanently")
-    public ResponseEntity<CommonResponse<Void>> deleteStrategy(
+    /**
+     * Get complete strategy details
+     */
+    @GetMapping("/{strategyId}")
+    @Operation(
+        summary = "Get complete strategy details",
+        description = "Get all strategy configurations including filters, template, and schedule"
+    )
+    public ResponseEntity<CommonResponse<StrategyResponse>> getStrategy(
             @PathVariable Long strategyId) {
-        log.info("DELETE /api/v1/strategies/{} - Delete strategy", strategyId);
+
+        log.info("GET /api/v1/strategies/v2/{} - Get unified strategy", strategyId);
+
+        StrategyResponse response = strategyService.getStrategy(strategyId);
+
+        return ResponseEntity.ok(CommonResponse.success("Strategy retrieved successfully.", response));
+    }
+
+    /**
+     * List all strategies with summary
+     */
+    @GetMapping
+    @Operation(
+        summary = "List all strategies",
+        description = "Get list of all strategies with summary information"
+    )
+    public ResponseEntity<CommonResponse<List<StrategyResponse>>> getAllStrategies(
+            @RequestParam(required = false) String status) {
+
+        log.info("GET /api/v1/strategies/v2 - List all strategies (status: {})", status);
+
+        List<StrategyResponse> responses = strategyService.getAllStrategies(status);
+
+        return ResponseEntity.ok(CommonResponse.success("Strategies retrieved successfully.", responses));
+    }
+
+    /**
+     * Delete strategy
+     */
+    @DeleteMapping("/{strategyId}")
+    @Operation(
+        summary = "Delete strategy",
+        description = "Delete strategy and all related configurations"
+    )
+    public ResponseEntity<CommonResponse<Void>> deleteStrategy(@PathVariable Long strategyId) {
+
+        log.info("DELETE /api/v1/strategies/v2/{} - Delete strategy", strategyId);
+
         strategyService.deleteStrategy(strategyId);
+
         return ResponseEntity.ok(CommonResponse.successMessage("Strategy deleted successfully."));
     }
 
-    @PostMapping("/{strategyId}/execute")
-    @Operation(summary = "Manually trigger strategy", description = "Manually trigger a strategy execution immediately")
-    public ResponseEntity<CommonResponse<ExecutionInitiatedDTO>> executeStrategy(
+    /**
+     * Activate/Deactivate strategy
+     */
+    @PatchMapping("/{strategyId}/status")
+    @Operation(
+        summary = "Change strategy status",
+        description = "Activate, deactivate, or set strategy to draft"
+    )
+    public ResponseEntity<CommonResponse<StrategyResponse>> updateStatus(
+            @PathVariable Long strategyId,
+            @RequestParam String status) {
+
+        log.info("PATCH /api/v1/strategies/v2/{}/status - Update status to: {}", strategyId, status);
+
+        StrategyResponse response = strategyService.updateStrategyStatus(strategyId, status);
+
+        return ResponseEntity.ok(CommonResponse.success("Strategy status updated successfully.", response));
+    }
+
+    /**
+     * Simulate strategy to see how many cases will be affected
+     */
+    @PostMapping("/{strategyId}/simulate")
+    @Operation(
+        summary = "Simulate strategy execution",
+        description = "See how many cases match the filter criteria without actually executing"
+    )
+    public ResponseEntity<CommonResponse<StrategyResponse>> simulateStrategy(
             @PathVariable Long strategyId) {
-        log.info("POST /api/v1/strategies/{}/execute - Execute strategy", strategyId);
-        ExecutionInitiatedDTO execution = executionService.executeStrategy(strategyId);
-        return ResponseEntity.status(HttpStatus.ACCEPTED)
-                .body(CommonResponse.success("Strategy execution initiated.", execution));
+
+        log.info("POST /api/v1/strategies/v2/{}/simulate - Simulate strategy", strategyId);
+
+        StrategyResponse response = strategyService.simulateStrategy(strategyId);
+
+        return ResponseEntity.ok(CommonResponse.success("Strategy simulation completed.", response));
     }
 
-    @GetMapping("/executions")
-    @Operation(summary = "List all execution runs", description = "Get list of all strategy execution runs with summary")
-    public ResponseEntity<CommonResponse<List<ExecutionDTO>>> getAllExecutions() {
-        log.info("GET /api/v1/strategies/executions - List all executions");
-        List<ExecutionDTO> executions = executionService.getAllExecutions();
-        return ResponseEntity.ok(CommonResponse.success("Strategy executions retrieved successfully.", executions));
+    /**
+     * Enable/Disable scheduler for strategy
+     */
+    @PatchMapping("/{strategyId}/scheduler")
+    @Operation(
+        summary = "Enable/Disable strategy scheduler",
+        description = "Turn automated execution on or off"
+    )
+    public ResponseEntity<CommonResponse<StrategyResponse>> toggleScheduler(
+            @PathVariable Long strategyId,
+            @RequestParam Boolean enabled) {
+
+        log.info("PATCH /api/v1/strategies/v2/{}/scheduler - Set enabled: {}", strategyId, enabled);
+
+        StrategyResponse response = strategyService.toggleScheduler(strategyId, enabled);
+
+        return ResponseEntity.ok(CommonResponse.success(
+                enabled ? "Strategy scheduler enabled." : "Strategy scheduler disabled.", response));
     }
 
-    @GetMapping("/executions/{executionId}")
-    @Operation(summary = "Get execution details", description = "Get details of a single strategy execution")
-    public ResponseEntity<CommonResponse<ExecutionDetailDTO>> getExecutionDetails(
-            @PathVariable String executionId) {
-        log.info("GET /api/v1/strategies/executions/{} - Get execution details", executionId);
-        ExecutionDetailDTO execution = executionService.getExecutionDetails(executionId);
-        return ResponseEntity.ok(CommonResponse.success("Strategy execution status retrieved successfully.", execution));
-    }
+    /**
+     * Get dashboard metrics with summary and all strategies
+     */
+    @GetMapping("/dashboard")
+    @Operation(
+        summary = "Get dashboard metrics",
+        description = "Get strategy dashboard with all metrics and summary statistics including strategy name, last run, next run, channel, success rate, and active rules count"
+    )
+    public ResponseEntity<CommonResponse<DashboardResponse>> getDashboard() {
 
-    @GetMapping("/executions/{executionId}/details")
-    @Operation(summary = "Get detailed run info", description = "Get detailed run information including error logs")
-    public ResponseEntity<CommonResponse<ExecutionRunDetailsDTO>> getExecutionRunDetails(
-            @PathVariable String executionId) {
-        log.info("GET /api/v1/strategies/executions/{}/details - Get execution run details", executionId);
-        ExecutionRunDetailsDTO execution = executionService.getExecutionRunDetails(executionId);
-        return ResponseEntity.ok(CommonResponse.success("Strategy execution details retrieved successfully.", execution));
+        log.info("GET /api/v1/strategies/v2/dashboard - Get dashboard");
+
+        DashboardResponse response = strategyService.getDashboardMetrics();
+
+        return ResponseEntity.ok(CommonResponse.success("Dashboard data retrieved successfully.", response));
     }
 }
