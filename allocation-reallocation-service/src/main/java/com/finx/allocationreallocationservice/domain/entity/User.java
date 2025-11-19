@@ -5,6 +5,8 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.LocalDateTime;
 
@@ -39,9 +41,10 @@ public class User {
     @Column(name = "mobile_number", length = 15)
     private String mobileNumber;
 
-    @Column(nullable = false, length = 20)
+    @Column(name = "status", nullable = false, length = 20)
     private String status;
 
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "assigned_geographies", columnDefinition = "jsonb")
     private String assignedGeographies;
 

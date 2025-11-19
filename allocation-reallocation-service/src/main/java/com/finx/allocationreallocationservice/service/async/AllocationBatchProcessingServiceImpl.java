@@ -178,23 +178,42 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
     }
 
     private String getValidationError(AllocationCsvRow row) {
+        // Validate case_id format
         try {
             Long.parseLong(row.getCaseId());
         } catch (NumberFormatException e) {
             return "Invalid case_id: " + row.getCaseId();
         }
+
+        // Validate primary_agent_id format
+        Long primaryAgentId;
         try {
-            Long.parseLong(row.getPrimaryAgentId());
+            primaryAgentId = Long.parseLong(row.getPrimaryAgentId());
         } catch (NumberFormatException e) {
             return "Invalid primary_agent_id: " + row.getPrimaryAgentId();
         }
+
+        // Validate primary_agent_id exists in users table
+        if (!userRepository.existsById(primaryAgentId)) {
+            return "User not found for primary_agent_id: " + row.getPrimaryAgentId();
+        }
+
+        // Validate secondary_agent_id format and existence (if provided)
         if (row.getSecondaryAgentId() != null && !row.getSecondaryAgentId().isEmpty()) {
+            Long secondaryAgentId;
             try {
-                Long.parseLong(row.getSecondaryAgentId());
+                secondaryAgentId = Long.parseLong(row.getSecondaryAgentId());
             } catch (NumberFormatException e) {
                 return "Invalid secondary_agent_id: " + row.getSecondaryAgentId();
             }
+
+            // Validate secondary_agent_id exists in users table
+            if (!userRepository.existsById(secondaryAgentId)) {
+                return "User not found for secondary_agent_id: " + row.getSecondaryAgentId();
+            }
         }
+
+        // Validate allocation_percentage format (if provided)
         if (row.getAllocationPercentage() != null && !row.getAllocationPercentage().isEmpty()) {
             try {
                 Double.parseDouble(row.getAllocationPercentage());
@@ -202,6 +221,7 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
                 return "Invalid allocation_percentage: " + row.getAllocationPercentage();
             }
         }
+
         return null;
     }
 
@@ -336,21 +356,40 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
     }
 
     private String getValidationError(ReallocationCsvRow row) {
+        // Validate case_id format
         try {
             Long.parseLong(row.getCaseId());
         } catch (NumberFormatException e) {
             return "Invalid case_id: " + row.getCaseId();
         }
+
+        // Validate current_agent_id format
+        Long currentAgentId;
         try {
-            Long.parseLong(row.getCurrentAgentId());
+            currentAgentId = Long.parseLong(row.getCurrentAgentId());
         } catch (NumberFormatException e) {
             return "Invalid current_agent_id: " + row.getCurrentAgentId();
         }
+
+        // Validate current_agent_id exists in users table
+        if (!userRepository.existsById(currentAgentId)) {
+            return "User not found for current_agent_id: " + row.getCurrentAgentId();
+        }
+
+        // Validate new_agent_id format
+        Long newAgentId;
         try {
-            Long.parseLong(row.getNewAgentId());
+            newAgentId = Long.parseLong(row.getNewAgentId());
         } catch (NumberFormatException e) {
             return "Invalid new_agent_id: " + row.getNewAgentId();
         }
+
+        // Validate new_agent_id exists in users table
+        if (!userRepository.existsById(newAgentId)) {
+            return "User not found for new_agent_id: " + row.getNewAgentId();
+        }
+
+        // Validate effective_date format (if provided)
         if (row.getEffectiveDate() != null && !row.getEffectiveDate().isEmpty()) {
             try {
                 LocalDate.parse(row.getEffectiveDate());
@@ -358,6 +397,7 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
                 return "Invalid effective_date format: " + row.getEffectiveDate();
             }
         }
+
         return null;
     }
 
