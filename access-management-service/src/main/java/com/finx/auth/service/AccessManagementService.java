@@ -55,6 +55,7 @@ public class AccessManagementService {
      * @param userId User ID
      * @param roleId Role ID
      */
+    @SuppressWarnings("null")
     @Transactional
     @CacheEvict(value = "user_permissions", key = "'user:permissions:' + #userId")
     public void assignRoleToUser(Long userId, Long roleId) {
@@ -91,6 +92,7 @@ public class AccessManagementService {
      * @param userId User ID
      * @param roleId Role ID
      */
+    @SuppressWarnings("null")
     @Transactional
     @CacheEvict(value = "user_permissions", key = "'user:permissions:' + #userId")
     public void revokeRoleFromUser(Long userId, Long roleId) {
@@ -115,6 +117,7 @@ public class AccessManagementService {
                         () -> log.warn("Role {} was not assigned to user {}", roleId, userId));
     }
 
+    @SuppressWarnings("null")
     @Transactional
     @CacheEvict(value = "user_permissions", key = "'user:permissions:' + #userId")
     public void assignRolesToUser(Long userId, List<Long> roleIds) {
@@ -161,6 +164,7 @@ public class AccessManagementService {
      * @param userId  User ID
      * @param roleIds List of new role IDs
      */
+    @SuppressWarnings("null")
     @Transactional
     @CacheEvict(value = "user_permissions", key = "'user:permissions:' + #userId")
     public void replaceUserRoles(Long userId, List<Long> roleIds) {

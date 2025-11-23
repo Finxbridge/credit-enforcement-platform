@@ -3,6 +3,8 @@ package com.finx.management.repository;
 import com.finx.management.domain.entity.User;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.Optional;
@@ -16,4 +18,16 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
     boolean existsByUsername(String username);
 
     boolean existsByEmail(String email);
+
+    /**
+     * Check if a role is assigned to any active users
+     */
+    @Query("SELECT COUNT(u) > 0 FROM ManagementUser u JOIN u.roles r WHERE r.id = :roleId AND u.status = 'ACTIVE'")
+    boolean existsByRoleIdAndActiveUsers(@Param("roleId") Long roleId);
+
+    /**
+     * Count active users assigned to a specific role
+     */
+    @Query("SELECT COUNT(u) FROM ManagementUser u JOIN u.roles r WHERE r.id = :roleId AND u.status = 'ACTIVE'")
+    long countActiveUsersByRoleId(@Param("roleId") Long roleId);
 }

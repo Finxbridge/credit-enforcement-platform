@@ -9,12 +9,12 @@ WORKDIR /workspace
 # Copy Maven descriptors first (for dependency caching)
 COPY pom.xml ./
 COPY api-gateway/pom.xml ./api-gateway/
-COPY config-server/pom.xml ./config-server/
 COPY eureka-server/pom.xml ./eureka-server/
 COPY access-management-service/pom.xml ./access-management-service/
 COPY communication-service/pom.xml ./communication-service/
 COPY master-data-service/pom.xml ./master-data-service/
 COPY case-sourcing-service/pom.xml ./case-sourcing-service/
+COPY allocation-reallocation-service/pom.xml ./allocation-reallocation-service/
 
 # Download dependencies (cached layer)
 RUN --mount=type=cache,target=/root/.m2 mvn dependency:go-offline -B

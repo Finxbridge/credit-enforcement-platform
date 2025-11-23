@@ -61,25 +61,29 @@ public class WebClientConfig {
     }
 
     /**
-     * Creates or returns a singleton {@link WebClient} instance with custom timeouts,
+     * Creates or returns a singleton {@link WebClient} instance with custom
+     * timeouts,
      * connection pooling, and keep-alive configuration for optimal performance.
      * Configuration loaded from system_config table (cached).
      *
      * @return configured WebClient bean
      */
+    @SuppressWarnings("null")
     @Bean
     public WebClient webClient(ObjectMapper objectMapper) {
         log.info("Initializing WebClient with database-driven configuration");
 
         // Load timeout configuration from database (cached)
-        int connectionTimeout = configCacheService.getIntConfig("WEBCLIENT_CONNECTION_TIMEOUT", DEFAULT_CONNECTION_TIMEOUT);
+        int connectionTimeout = configCacheService.getIntConfig("WEBCLIENT_CONNECTION_TIMEOUT",
+                DEFAULT_CONNECTION_TIMEOUT);
         int readTimeout = configCacheService.getIntConfig("WEBCLIENT_READ_TIMEOUT", DEFAULT_READ_TIMEOUT);
         int writeTimeout = configCacheService.getIntConfig("WEBCLIENT_WRITE_TIMEOUT", DEFAULT_WRITE_TIMEOUT);
         int responseTimeout = configCacheService.getIntConfig("WEBCLIENT_RESPONSE_TIMEOUT", DEFAULT_RESPONSE_TIMEOUT);
 
         // Load connection pool configuration from database (cached)
         int maxConnections = configCacheService.getIntConfig("WEBCLIENT_MAX_CONNECTIONS", DEFAULT_MAX_CONNECTIONS);
-        int pendingAcquireTimeout = configCacheService.getIntConfig("WEBCLIENT_PENDING_ACQUIRE_TIMEOUT", DEFAULT_PENDING_ACQUIRE_TIMEOUT);
+        int pendingAcquireTimeout = configCacheService.getIntConfig("WEBCLIENT_PENDING_ACQUIRE_TIMEOUT",
+                DEFAULT_PENDING_ACQUIRE_TIMEOUT);
         int maxIdleTime = configCacheService.getIntConfig("WEBCLIENT_MAX_IDLE_TIME", DEFAULT_MAX_IDLE_TIME);
         int maxLifeTime = configCacheService.getIntConfig("WEBCLIENT_MAX_LIFE_TIME", DEFAULT_MAX_LIFE_TIME);
 
@@ -131,8 +135,8 @@ public class WebClientConfig {
         return ExchangeFilterFunction.ofRequestProcessor(clientRequest -> {
             if (log.isDebugEnabled()) {
                 log.debug("Request: {} {}", clientRequest.method(), clientRequest.url());
-                clientRequest.headers().forEach((name, values) ->
-                    values.forEach(value -> log.debug("{}: {}", name, value)));
+                clientRequest.headers()
+                        .forEach((name, values) -> values.forEach(value -> log.debug("{}: {}", name, value)));
             }
             return Mono.just(clientRequest);
         });

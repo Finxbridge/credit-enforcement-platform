@@ -41,13 +41,13 @@ public class WhatsAppService {
      * Send WhatsApp message with dynamic components
      */
     public WhatsAppResponse sendWhatsApp(WhatsAppSendRequest request) {
-        log.info("Sending WhatsApp to {} recipient groups", request.getRecipients().size());
+        log.info("Sending WhatsApp to {} recipients", request.getTo().size());
 
         // 1. Get configuration from cache
         ThirdPartyIntegrationMaster config = getIntegrationConfig();
 
-        // 2. Build request body with dynamic components
-        Map<String, Object> requestBody = buildWhatsAppRequestBody(request);
+        // 2. Build request body with dynamic components (transforms to Msg91 format)
+        Map<String, Object> requestBody = buildWhatsAppRequestBody(request, config);
 
         // 3. Build URL
         String url = config.getApiEndpoint() + "/api/v5/whatsapp/whatsapp-outbound-message/bulk/";
@@ -70,6 +70,7 @@ public class WhatsAppService {
     /**
      * Create WhatsApp template
      */
+    @SuppressWarnings("null")
     public Map<String, Object> createTemplate(Map<String, Object> templateRequest) {
         log.info("Creating WhatsApp template");
 
@@ -92,7 +93,8 @@ public class WhatsAppService {
         log.info("Template creation response: {}", response);
 
         try {
-            return objectMapper.readValue(response, new TypeReference<Map<String, Object>>() {});
+            return objectMapper.readValue(response, new TypeReference<Map<String, Object>>() {
+            });
         } catch (Exception e) {
             return Map.of("raw_response", response);
         }
@@ -106,12 +108,21 @@ public class WhatsAppService {
     }
 
     /**
-     * Build WhatsApp request body with dynamic components for each recipient
+     * Build WhatsApp request body - transforms user input to Msg91 API format
+     * Loads namespace and integrated_number from database config
      */
-    private Map<String, Object> buildWhatsAppRequestBody(WhatsAppSendRequest request) {
-        Map<String, Object> body = new HashMap<>();
+    private Map<String, Object> buildWhatsAppRequestBody(WhatsAppSendRequest request, ThirdPartyIntegrationMaster config) {
+        // Extract configuration from config_json
+        String namespace = config.getConfigValueAsString("namespace");
+        String integratedNumber = config.getConfigValueAsString("integrated_number");
 
-        body.put("integrated_number", request.getIntegratedNumber());
+        if (namespace == null || integratedNumber == null) {
+            throw new ConfigurationNotFoundException(
+                    "WhatsApp namespace and integrated_number must be configured in database config_json");
+        }
+
+        Map<String, Object> body = new HashMap<>();
+        body.put("integrated_number", integratedNumber);
         body.put("content_type", "template");
 
         // Build payload
@@ -119,38 +130,46 @@ public class WhatsAppService {
         payload.put("messaging_product", "whatsapp");
         payload.put("type", "template");
 
-        // Build template
-        Map<String, Object> template = new HashMap<>();
-        template.put("name", request.getTemplateName());
+        // Build template (order matches Msg91 API curl exactly)
+        Map<String, Object> template = new LinkedHashMap<>();
+        template.put("name", request.getTemplateId());
 
         // Language
-        Map<String, String> language = new HashMap<>();
-        language.put("code", request.getLanguageCode() != null ? request.getLanguageCode() : "en");
-        language.put("policy", "deterministic");
+        Map<String, String> language = new LinkedHashMap<>();
+        if (request.getLanguage() != null) {
+            language.put("code", request.getLanguage().getCode());
+            language.put("policy", request.getLanguage().getPolicy());
+        } else {
+            // Default language
+            language.put("code", "en");
+            language.put("policy", "deterministic");
+        }
         template.put("language", language);
 
-        // Build to_and_components array
+        // Namespace (after language to match curl order)
+        template.put("namespace", namespace);
+
+        // Build to_and_components array (single element from simplified input)
         List<Map<String, Object>> toAndComponents = new ArrayList<>();
-        for (WhatsAppRecipient recipient : request.getRecipients()) {
-            Map<String, Object> recipientData = new HashMap<>();
-            recipientData.put("to", recipient.getTo());
+        Map<String, Object> recipientData = new HashMap<>();
+        recipientData.put("to", request.getTo());
 
-            // Add dynamic components
-            if (recipient.getComponents() != null) {
-                recipientData.put("components", recipient.getComponents());
-            }
-
-            toAndComponents.add(recipientData);
+        // Add dynamic components if present
+        if (request.getComponents() != null && !request.getComponents().isEmpty()) {
+            recipientData.put("components", request.getComponents());
         }
+
+        toAndComponents.add(recipientData);
 
         template.put("to_and_components", toAndComponents);
         payload.put("template", template);
-
         body.put("payload", payload);
 
+        log.debug("Built Msg91 request body: {}", body);
         return body;
     }
 
+    @SuppressWarnings("null")
     private String callMsg91Api(String url, Map<String, Object> body, ThirdPartyIntegrationMaster config) {
         try {
             return webClient.post()
@@ -169,30 +188,34 @@ public class WhatsAppService {
         }
     }
 
+    @SuppressWarnings("null")
     private List<String> saveWhatsAppMessages(WhatsAppSendRequest request, String response) {
         List<String> messageIds = new ArrayList<>();
 
-        for (WhatsAppRecipient recipient : request.getRecipients()) {
-            for (String mobile : recipient.getTo()) {
-                String messageId = UUID.randomUUID().toString();
-                messageIds.add(messageId);
+        // Save a message record for each recipient
+        for (String mobile : request.getTo()) {
+            String messageId = UUID.randomUUID().toString();
+            messageIds.add(messageId);
 
-                WhatsAppMessage whatsAppMessage = WhatsAppMessage.builder()
-                        .messageId(messageId)
-                        .mobile(mobile)
-                        .templateName(request.getTemplateName())
-                        .language(request.getLanguageCode() != null ? request.getLanguageCode() : "en")
-                        .provider("MSG91")
-                        .status("SENT")
-                        .campaignId(request.getCampaignId())
-                        .caseId(request.getCaseId())
-                        .userId(request.getUserId())
-                        .providerResponse(response)
-                        .sentAt(LocalDateTime.now())
-                        .build();
+            String languageCode = request.getLanguage() != null
+                    ? request.getLanguage().getCode()
+                    : "en";
 
-                whatsAppMessageRepository.save(whatsAppMessage);
-            }
+            WhatsAppMessage whatsAppMessage = WhatsAppMessage.builder()
+                    .messageId(messageId)
+                    .mobile(mobile)
+                    .templateName(request.getTemplateId())
+                    .language(languageCode)
+                    .provider("MSG91")
+                    .status("SENT")
+                    .campaignId(request.getCampaignId())
+                    .caseId(request.getCaseId())
+                    .userId(request.getUserId())
+                    .providerResponse(response)
+                    .sentAt(LocalDateTime.now())
+                    .build();
+
+            whatsAppMessageRepository.save(whatsAppMessage);
         }
 
         return messageIds;

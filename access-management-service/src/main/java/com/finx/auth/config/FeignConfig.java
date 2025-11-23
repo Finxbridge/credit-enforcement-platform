@@ -14,6 +14,7 @@ import org.springframework.http.converter.json.MappingJackson2HttpMessageConvert
 @Configuration
 public class FeignConfig {
 
+    @SuppressWarnings("null")
     @Bean
     public Decoder feignDecoder(ObjectMapper objectMapper) {
         MappingJackson2HttpMessageConverter jacksonConverter = new MappingJackson2HttpMessageConverter(objectMapper);
@@ -21,6 +22,7 @@ public class FeignConfig {
         return new SpringDecoder(objectFactory);
     }
 
+    @SuppressWarnings("null")
     @Bean
     public Encoder feignEncoder(ObjectMapper objectMapper) {
         MappingJackson2HttpMessageConverter jacksonConverter = new MappingJackson2HttpMessageConverter(objectMapper);

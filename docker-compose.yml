@@ -1,12 +1,8 @@
 services:
-  # --- INFRASTRUCTURE SERVICES ---
-
   redis:
     image: redis:7.2-alpine
     container_name: redis_cache
     restart: unless-stopped
-    ports:
-      - "6379:6379"
     volumes:
       - redis_data:/data
     networks:
@@ -22,9 +18,6 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # ---------------------------------------------------
-  # Eureka Service Registry
-  # ---------------------------------------------------
   eureka-server:
     build:
       context: .
@@ -32,52 +25,23 @@ services:
       args:
         SERVICE_NAME: eureka-server
     container_name: eureka-server
-    ports:
-      - "8761:8761"
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:8761/actuator/health" ]
       interval: 30s
       timeout: 10s
       retries: 5
       start_period: 60s
-    environment:
-      - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE}
-      - CONFIG_REPO_URL=${CONFIG_REPO_URL}
-    networks:
-      - backend-net
-
-  # ---------------------------------------------------
-  # Centralized Config Server
-  # ---------------------------------------------------
-  config-server:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        SERVICE_NAME: config-server
-    container_name: config-server
     ports:
-      - "8888:8888"
-    healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8888/actuator/health" ]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 60s
+      - "8761:8761"
     environment:
-      - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE}
-      - CONFIG_REPO_URL=${CONFIG_REPO_URL}
-      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=${EUREKA_CLIENT_SERVICEURL_DEFAULTZONE}
-      - SPRING_CLOUD_CONFIG_SERVER_GIT_DEFAULT_LABEL=main
-    depends_on:
-      eureka-server:
-        condition: service_healthy
+      - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-dev}
+      - SERVER_PORT=${SERVER_PORT_EUREKA:-8761}
+      - LOGGING_LEVEL_ROOT=${LOGGING_LEVEL_ROOT:-INFO}
+      - LOGGING_LEVEL_EUREKA=${LOGGING_LEVEL_EUREKA:-DEBUG}
+      - LOGGING_LEVEL_DISCOVERY=${LOGGING_LEVEL_DISCOVERY:-DEBUG}
     networks:
       - backend-net
 
-  # ---------------------------------------------------
-  # Access Management Service
-  # ---------------------------------------------------
   access-management-service:
     build:
       context: .
@@ -85,33 +49,41 @@ services:
       args:
         SERVICE_NAME: access-management-service
     container_name: access-management-service
-    ports:
-      - "8081:8081"
-    command: >
-      java -jar /app/app.jar --spring.flyway.validate-on-migrate=false --spring.flyway.out-of-order=true
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:8081/actuator/health" ]
       interval: 30s
       timeout: 10s
       retries: 5
       start_period: 60s
+    ports:
+      - "8081:8081"
     environment:
-      - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE}
-      - SPRING_CLOUD_CONFIG_URI=http://config-server:8888
-      - SPRING_CLOUD_CONFIG_LABEL=main
-      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka-server:8761/eureka/
-      - eureka.client.service-url.defaultZone=http://eureka-server:8761/eureka/
-      - SPRING_CONFIG_IMPORT=${SPRING_CONFIG_IMPORT}
+      - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-dev}
+      - SERVER_PORT=${SERVER_PORT_ACCESS_MGMT:-8081}
+      - EUREKA_SERVER_URL=http://eureka-server:8761/eureka/
+      - EUREKA_INSTANCE_HOSTNAME=access-management-service
+      - EUREKA_INSTANCE_PREFER_IP_ADDRESS=${EUREKA_INSTANCE_PREFER_IP_ADDRESS:-false}
       - JWT_SECRET=${JWT_SECRET}
-      - JWT_EXPIRATION=${JWT_EXPIRATION}
+      - JWT_EXPIRATION=${JWT_EXPIRATION:-3600000}
+      - JWT_ISSUER=${JWT_ISSUER:-finxbridge}
+      - JWT_REFRESH_TOKEN_EXPIRY=${JWT_REFRESH_TOKEN_EXPIRY:-604800000}
       - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS}
-      - SPRING_DATASOURCE_URL=jdbc:postgresql://host.docker.internal:5432/${POSTGRES_DB}
-      - SPRING_DATASOURCE_USERNAME=${POSTGRES_USER}
-      - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD}
-      - SPRING_DATA_REDIS_HOST=redis_cache
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://${POSTGRES_HOST:-host.docker.internal}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-staging_db}
+      - SPRING_DATASOURCE_USERNAME=${POSTGRES_USER:-admin}
+      - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD:-password}
+      - REDIS_HOST=redis_cache
+      - REDIS_PORT=${REDIS_PORT:-6379}
+      - FLYWAY_ENABLED=${FLYWAY_ENABLED:-true}
+      - FLYWAY_BASELINE_ON_MIGRATE=${FLYWAY_BASELINE_ON_MIGRATE:-true}
+      - FLYWAY_OUT_OF_ORDER=${FLYWAY_OUT_OF_ORDER:-false}
+      - FLYWAY_VALIDATE_ON_MIGRATE=${FLYWAY_VALIDATE_ON_MIGRATE:-false}
+      - FLYWAY_CLEAN_DISABLED=${FLYWAY_CLEAN_DISABLED:-true}
+      - JPA_DDL_AUTO=${JPA_DDL_AUTO:-validate}
+      - JPA_SHOW_SQL=${JPA_SHOW_SQL:-false}
+      - JPA_FORMAT_SQL=${JPA_FORMAT_SQL:-false}
+      - LOGGING_LEVEL_ROOT=${LOGGING_LEVEL_ROOT:-INFO}
+      - LOGGING_LEVEL_FINX=${LOGGING_LEVEL_FINX:-DEBUG}
     depends_on:
-      config-server:
-        condition: service_healthy
       eureka-server:
         condition: service_healthy
       redis:
@@ -119,9 +91,6 @@ services:
     networks:
       - backend-net
 
-  # ---------------------------------------------------
-  # Communication Service
-  # ---------------------------------------------------
   communication-service:
     build:
       context: .
@@ -130,24 +99,32 @@ services:
         SERVICE_NAME: communication-service
     container_name: communication-service
     ports:
-      - "8086:8086"
+      - "8084:8084"
     environment:
-      - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE}
-      - SPRING_CLOUD_CONFIG_URI=http://config-server:8888
-      - SPRING_CLOUD_CONFIG_LABEL=main
-      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka-server:8761/eureka/
-      - eureka.client.service-url.defaultZone=http://eureka-server:8761/eureka/
-      - SPRING_CONFIG_IMPORT=${SPRING_CONFIG_IMPORT}
+      - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-dev}
+      - SERVER_PORT=${SERVER_PORT_COMMUNICATION:-8084}
+      - EUREKA_SERVER_URL=http://eureka-server:8761/eureka/
+      - EUREKA_INSTANCE_HOSTNAME=communication-service
+      - EUREKA_INSTANCE_PREFER_IP_ADDRESS=${EUREKA_INSTANCE_PREFER_IP_ADDRESS:-false}
       - JWT_SECRET=${JWT_SECRET}
-      - JWT_EXPIRATION=${JWT_EXPIRATION}
+      - JWT_EXPIRATION=${JWT_EXPIRATION:-3600000}
       - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS}
-      - SPRING_DATASOURCE_URL=jdbc:postgresql://host.docker.internal:5432/${POSTGRES_DB}
-      - SPRING_DATASOURCE_USERNAME=${POSTGRES_USER}
-      - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD}
-      - SPRING_DATA_REDIS_HOST=redis_cache
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://${POSTGRES_HOST:-host.docker.internal}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-staging_db}
+      - SPRING_DATASOURCE_USERNAME=${POSTGRES_USER:-admin}
+      - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD:-password}
+      - REDIS_HOST=redis_cache
+      - REDIS_PORT=${REDIS_PORT:-6379}
+      - FLYWAY_ENABLED=${FLYWAY_ENABLED:-true}
+      - FLYWAY_BASELINE_ON_MIGRATE=${FLYWAY_BASELINE_ON_MIGRATE:-true}
+      - FLYWAY_OUT_OF_ORDER=${FLYWAY_OUT_OF_ORDER:-false}
+      - FLYWAY_VALIDATE_ON_MIGRATE=${FLYWAY_VALIDATE_ON_MIGRATE:-false}
+      - FLYWAY_CLEAN_DISABLED=${FLYWAY_CLEAN_DISABLED:-true}
+      - JPA_DDL_AUTO=${JPA_DDL_AUTO:-validate}
+      - JPA_SHOW_SQL=${JPA_SHOW_SQL:-false}
+      - JPA_FORMAT_SQL=${JPA_FORMAT_SQL:-false}
+      - LOGGING_LEVEL_ROOT=${LOGGING_LEVEL_ROOT:-INFO}
+      - LOGGING_LEVEL_FINX=${LOGGING_LEVEL_FINX:-DEBUG}
     depends_on:
-      config-server:
-        condition: service_healthy
       eureka-server:
         condition: service_healthy
       access-management-service:
@@ -155,9 +132,6 @@ services:
     networks:
       - backend-net
 
-  # ---------------------------------------------------
-  # Master Data Service
-  # ---------------------------------------------------
   master-data-service:
     build:
       context: .
@@ -165,29 +139,36 @@ services:
       args:
         SERVICE_NAME: master-data-service
     container_name: master-data-service
-    ports:
-      - "8082:8082"
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8082/actuator/health" ]
+      test: [ "CMD", "curl", "-f", "http://localhost:8085/actuator/health" ]
       interval: 30s
       timeout: 10s
       retries: 5
       start_period: 60s
+    ports:
+      - "8085:8085"
     environment:
-      - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE}
-      - SPRING_CLOUD_CONFIG_URI=http://config-server:8888
-      - SPRING_CLOUD_CONFIG_LABEL=main
-      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka-server:8761/eureka/
-      - eureka.client.service-url.defaultZone=http://eureka-server:8761/eureka/
-      - SPRING_CONFIG_IMPORT=${SPRING_CONFIG_IMPORT}
-      - SPRING_DATASOURCE_URL=jdbc:postgresql://host.docker.internal:5432/${POSTGRES_DB}
-      - SPRING_DATASOURCE_USERNAME=${POSTGRES_USER}
-      - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD}
-      - SPRING_DATA_REDIS_HOST=redis_cache
-      - SPRING_FLYWAY_ENABLED=false
+      - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-dev}
+      - SERVER_PORT=${SERVER_PORT_MASTER_DATA:-8085}
+      - EUREKA_SERVER_URL=http://eureka-server:8761/eureka/
+      - EUREKA_INSTANCE_HOSTNAME=master-data-service
+      - EUREKA_INSTANCE_PREFER_IP_ADDRESS=${EUREKA_INSTANCE_PREFER_IP_ADDRESS:-false}
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://${POSTGRES_HOST:-host.docker.internal}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-staging_db}
+      - SPRING_DATASOURCE_USERNAME=${POSTGRES_USER:-admin}
+      - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD:-password}
+      - REDIS_HOST=redis_cache
+      - REDIS_PORT=${REDIS_PORT:-6379}
+      - FLYWAY_ENABLED=${FLYWAY_ENABLED:-true}
+      - FLYWAY_BASELINE_ON_MIGRATE=${FLYWAY_BASELINE_ON_MIGRATE:-true}
+      - FLYWAY_OUT_OF_ORDER=${FLYWAY_OUT_OF_ORDER:-false}
+      - FLYWAY_VALIDATE_ON_MIGRATE=${FLYWAY_VALIDATE_ON_MIGRATE:-false}
+      - FLYWAY_CLEAN_DISABLED=${FLYWAY_CLEAN_DISABLED:-true}
+      - JPA_DDL_AUTO=${JPA_DDL_AUTO:-validate}
+      - JPA_SHOW_SQL=${JPA_SHOW_SQL:-false}
+      - JPA_FORMAT_SQL=${JPA_FORMAT_SQL:-false}
+      - LOGGING_LEVEL_ROOT=${LOGGING_LEVEL_ROOT:-INFO}
+      - LOGGING_LEVEL_FINX=${LOGGING_LEVEL_FINX:-DEBUG}
     depends_on:
-      config-server:
-        condition: service_healthy
       eureka-server:
         condition: service_healthy
       redis:
@@ -197,9 +178,6 @@ services:
     networks:
       - backend-net
 
-  # ---------------------------------------------------
-  # Case Sourcing Service
-  # ---------------------------------------------------
   case-sourcing-service:
     build:
       context: .
@@ -207,29 +185,36 @@ services:
       args:
         SERVICE_NAME: case-sourcing-service
     container_name: case-sourcing-service
-    ports:
-      - "8083:8083"
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8083/actuator/health" ]
+      test: [ "CMD", "curl", "-f", "http://localhost:8082/actuator/health" ]
       interval: 30s
       timeout: 10s
       retries: 5
       start_period: 60s
+    ports:
+      - "8082:8082"
     environment:
-      - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE}
-      - SPRING_CLOUD_CONFIG_URI=http://config-server:8888
-      - SPRING_CLOUD_CONFIG_LABEL=main
-      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka-server:8761/eureka/
-      - eureka.client.service-url.defaultZone=http://eureka-server:8761/eureka/
-      - SPRING_CONFIG_IMPORT=${SPRING_CONFIG_IMPORT}
-      - SPRING_DATASOURCE_URL=jdbc:postgresql://host.docker.internal:5432/${POSTGRES_DB}
-      - SPRING_DATASOURCE_USERNAME=${POSTGRES_USER}
-      - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD}
-      - SPRING_DATA_REDIS_HOST=redis_cache
-      - SPRING_FLYWAY_ENABLED=false
+      - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-dev}
+      - SERVER_PORT=${SERVER_PORT_CASE_SOURCING:-8082}
+      - EUREKA_SERVER_URL=http://eureka-server:8761/eureka/
+      - EUREKA_INSTANCE_HOSTNAME=case-sourcing-service
+      - EUREKA_INSTANCE_PREFER_IP_ADDRESS=${EUREKA_INSTANCE_PREFER_IP_ADDRESS:-false}
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://${POSTGRES_HOST:-host.docker.internal}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-staging_db}
+      - SPRING_DATASOURCE_USERNAME=${POSTGRES_USER:-admin}
+      - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD:-password}
+      - REDIS_HOST=redis_cache
+      - REDIS_PORT=${REDIS_PORT:-6379}
+      - FLYWAY_ENABLED=${FLYWAY_ENABLED:-true}
+      - FLYWAY_BASELINE_ON_MIGRATE=${FLYWAY_BASELINE_ON_MIGRATE:-true}
+      - FLYWAY_OUT_OF_ORDER=${FLYWAY_OUT_OF_ORDER:-false}
+      - FLYWAY_VALIDATE_ON_MIGRATE=${FLYWAY_VALIDATE_ON_MIGRATE:-false}
+      - FLYWAY_CLEAN_DISABLED=${FLYWAY_CLEAN_DISABLED:-true}
+      - JPA_DDL_AUTO=${JPA_DDL_AUTO:-validate}
+      - JPA_SHOW_SQL=${JPA_SHOW_SQL:-false}
+      - JPA_FORMAT_SQL=${JPA_FORMAT_SQL:-false}
+      - LOGGING_LEVEL_ROOT=${LOGGING_LEVEL_ROOT:-INFO}
+      - LOGGING_LEVEL_FINX=${LOGGING_LEVEL_FINX:-DEBUG}
     depends_on:
-      config-server:
-        condition: service_healthy
       eureka-server:
         condition: service_healthy
       redis:
@@ -239,9 +224,52 @@ services:
     networks:
       - backend-net
 
-  # ---------------------------------------------------
-  # API Gateway (Entry Point)
-  # ---------------------------------------------------
+  allocation-reallocation-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE_NAME: allocation-reallocation-service
+    container_name: allocation-reallocation-service
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8083/actuator/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    ports:
+      - "8083:8083"
+    environment:
+      - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-dev}
+      - SERVER_PORT=${SERVER_PORT_ALLOCATION:-8083}
+      - EUREKA_SERVER_URL=http://eureka-server:8761/eureka/
+      - EUREKA_INSTANCE_HOSTNAME=allocation-reallocation-service
+      - EUREKA_INSTANCE_PREFER_IP_ADDRESS=${EUREKA_INSTANCE_PREFER_IP_ADDRESS:-false}
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://${POSTGRES_HOST:-host.docker.internal}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-staging_db}
+      - SPRING_DATASOURCE_USERNAME=${POSTGRES_USER:-admin}
+      - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD:-password}
+      - REDIS_HOST=redis_cache
+      - REDIS_PORT=${REDIS_PORT:-6379}
+      - FLYWAY_ENABLED=${FLYWAY_ENABLED:-true}
+      - FLYWAY_BASELINE_ON_MIGRATE=${FLYWAY_BASELINE_ON_MIGRATE:-true}
+      - FLYWAY_OUT_OF_ORDER=${FLYWAY_OUT_OF_ORDER:-false}
+      - FLYWAY_VALIDATE_ON_MIGRATE=${FLYWAY_VALIDATE_ON_MIGRATE:-false}
+      - FLYWAY_CLEAN_DISABLED=${FLYWAY_CLEAN_DISABLED:-true}
+      - JPA_DDL_AUTO=${JPA_DDL_AUTO:-validate}
+      - JPA_SHOW_SQL=${JPA_SHOW_SQL:-false}
+      - JPA_FORMAT_SQL=${JPA_FORMAT_SQL:-false}
+      - LOGGING_LEVEL_ROOT=${LOGGING_LEVEL_ROOT:-INFO}
+      - LOGGING_LEVEL_FINX=${LOGGING_LEVEL_FINX:-DEBUG}
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      access-management-service:
+        condition: service_healthy
+    networks:
+      - backend-net
+
   api-gateway:
     build:
       context: .
@@ -252,24 +280,39 @@ services:
     ports:
       - "8080:8080"
     environment:
-      - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE}
-      - SPRING_CLOUD_CONFIG_URI=http://config-server:8888
-      - SPRING_CLOUD_CONFIG_LABEL=main
-      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka-server:8761/eureka/
-      - eureka.client.service-url.defaultZone=http://eureka-server:8761/eureka/
-      - SPRING_CONFIG_IMPORT=${SPRING_CONFIG_IMPORT}
-      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS}
+      - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-dev}
+      - SERVER_PORT=${SERVER_PORT_API_GATEWAY:-8080}
+      - EUREKA_SERVER_URL=http://eureka-server:8761/eureka/
+      - EUREKA_INSTANCE_HOSTNAME=api-gateway
+      - EUREKA_INSTANCE_PREFER_IP_ADDRESS=${EUREKA_INSTANCE_PREFER_IP_ADDRESS:-false}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:8080}
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://${POSTGRES_HOST:-host.docker.internal}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-staging_db}
+      - SPRING_DATASOURCE_USERNAME=${POSTGRES_USER:-admin}
+      - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD:-password}
+      - REDIS_HOST=redis_cache
+      - REDIS_PORT=${REDIS_PORT:-6379}
+      - FLYWAY_ENABLED=${FLYWAY_ENABLED:-true}
+      - FLYWAY_BASELINE_ON_MIGRATE=${FLYWAY_BASELINE_ON_MIGRATE:-true}
+      - FLYWAY_OUT_OF_ORDER=${FLYWAY_OUT_OF_ORDER:-false}
+      - FLYWAY_VALIDATE_ON_MIGRATE=${FLYWAY_VALIDATE_ON_MIGRATE:-false}
+      - FLYWAY_CLEAN_DISABLED=${FLYWAY_CLEAN_DISABLED:-true}
+      - JPA_DDL_AUTO=${JPA_DDL_AUTO:-validate}
+      - JPA_SHOW_SQL=${JPA_SHOW_SQL:-false}
+      - JPA_FORMAT_SQL=${JPA_FORMAT_SQL:-false}
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_EXPIRATION=${JWT_EXPIRATION:-3600000}
+      - CIRCUIT_BREAKER_HEALTH_INDICATOR=${CIRCUIT_BREAKER_HEALTH_INDICATOR:-true}
+      - CIRCUIT_BREAKER_SLIDING_WINDOW_SIZE=${CIRCUIT_BREAKER_SLIDING_WINDOW_SIZE:-10}
+      - CIRCUIT_BREAKER_FAILURE_RATE_THRESHOLD=${CIRCUIT_BREAKER_FAILURE_RATE_THRESHOLD:-50}
+      - CIRCUIT_BREAKER_WAIT_DURATION=${CIRCUIT_BREAKER_WAIT_DURATION:-5s}
+      - LOGGING_LEVEL_ROOT=${LOGGING_LEVEL_ROOT:-INFO}
+      - LOGGING_LEVEL_FINX=${LOGGING_LEVEL_FINX:-DEBUG}
     depends_on:
-      config-server:
-        condition: service_healthy
       eureka-server:
         condition: service_healthy
     networks:
       - backend-net
 
-# ---------------------------------------------------
-# Common Docker Network
-# ---------------------------------------------------
 networks:
   backend-net:
     driver: bridge

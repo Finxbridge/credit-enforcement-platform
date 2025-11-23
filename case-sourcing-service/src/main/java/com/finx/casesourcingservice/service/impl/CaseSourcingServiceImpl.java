@@ -111,22 +111,6 @@ public class CaseSourcingServiceImpl implements CaseSourcingService {
                 // Generate batch ID
                 String batchId = generateBatchId();
 
-                // Create batch record
-                CaseBatch batch = CaseBatch.builder()
-                                .batchId(batchId)
-                                .sourceType(SourceType.MANUAL)
-                                .status(BatchStatus.PROCESSING)
-                                .fileName(file.getOriginalFilename())
-                                .uploadedBy(uploadedBy)
-                                .totalCases(0)
-                                .validCases(0)
-                                .invalidCases(0)
-                                .duplicateCases(0)
-                                .validationJobId("job_" + System.currentTimeMillis())
-                                .build();
-
-                caseBatchRepository.save(batch);
-
                 // Save the MultipartFile to a temporary location
                 Path tempFilePath;
                 try {
@@ -137,6 +121,30 @@ public class CaseSourcingServiceImpl implements CaseSourcingService {
                         throw new BusinessException("Failed to process file upload: " + e.getMessage());
                 }
 
+                // Quick count of CSV rows (excluding header)
+                int estimatedRowCount = 0;
+                try {
+                        estimatedRowCount = countCsvRows(tempFilePath);
+                } catch (Exception e) {
+                        log.warn("Failed to count CSV rows: {}", e.getMessage());
+                }
+
+                // Create batch record
+                CaseBatch batch = CaseBatch.builder()
+                                .batchId(batchId)
+                                .sourceType(SourceType.MANUAL)
+                                .status(BatchStatus.PROCESSING)
+                                .fileName(file.getOriginalFilename())
+                                .uploadedBy(uploadedBy)
+                                .totalCases(estimatedRowCount)
+                                .validCases(0)
+                                .invalidCases(0)
+                                .duplicateCases(0)
+                                .validationJobId("job_" + System.currentTimeMillis())
+                                .build();
+
+                caseBatchRepository.save(batch);
+
                 // Process file asynchronously
                 batchProcessingService.processBatchAsync(batchId, tempFilePath.toString());
 
@@ -146,6 +154,23 @@ public class CaseSourcingServiceImpl implements CaseSourcingService {
                                 .status(batch.getStatus().name())
                                 .validationJobId(batch.getValidationJobId())
                                 .build();
+        }
+
+        private int countCsvRows(Path filePath) throws IOException {
+                try (java.io.BufferedReader reader = Files.newBufferedReader(filePath)) {
+                        // Skip header line
+                        reader.readLine();
+
+                        // Count data rows (skip empty lines)
+                        int count = 0;
+                        String line;
+                        while ((line = reader.readLine()) != null) {
+                                if (!line.trim().isEmpty()) {
+                                        count++;
+                                }
+                        }
+                        return count;
+                }
         }
 
         @Override
@@ -506,6 +531,50 @@ public class CaseSourcingServiceImpl implements CaseSourcingService {
                                                 .build())
                                 .status(caseEntity.getCaseStatus())
                                 .createdAt(caseEntity.getCreatedAt())
+                                .build();
+        }
+
+        @Override
+        @Transactional(readOnly = true)
+        public Page<CaseSearchResultDTO> searchCases(CaseSearchRequest request, Pageable pageable) {
+                log.info("Searching cases with request: {}", request);
+
+                // TODO: Implement advanced case search with dynamic query building
+                // For now, return empty page to allow compilation
+                return Page.empty(pageable);
+        }
+
+        @Override
+        @Transactional(readOnly = true)
+        public CaseTimelineDTO getCaseTimeline(Long caseId) {
+                log.info("Fetching case timeline for caseId: {}", caseId);
+
+                // Verify case exists
+                Case caseEntity = caseRepository.findById(caseId)
+                                .orElseThrow(() -> new BusinessException("Case not found: " + caseId));
+
+                // TODO: Implement timeline event aggregation from multiple sources
+                // (calls, PTPs, payments, notes, communications, etc.)
+                // For now, return basic structure to allow compilation
+                return CaseTimelineDTO.builder()
+                                .caseId(caseEntity.getId())
+                                .caseNumber(caseEntity.getCaseNumber())
+                                .customerName(caseEntity.getLoan().getPrimaryCustomer().getFullName())
+                                .loanAccountNumber(caseEntity.getLoan().getLoanAccountNumber())
+                                .events(new ArrayList<>())
+                                .summary(TimelineSummaryDTO.builder()
+                                                .totalEvents(0)
+                                                .totalCalls(0)
+                                                .totalPTPs(0)
+                                                .totalPayments(0)
+                                                .totalNotes(0)
+                                                .totalMessages(0)
+                                                .connectedCalls(0)
+                                                .failedCalls(0)
+                                                .activePTPs(0)
+                                                .keptPTPs(0)
+                                                .brokenPTPs(0)
+                                                .build())
                                 .build();
         }
 }

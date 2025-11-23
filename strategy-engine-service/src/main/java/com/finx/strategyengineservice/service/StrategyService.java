@@ -1,32 +1,87 @@
 package com.finx.strategyengineservice.service;
 
-import com.finx.strategyengineservice.domain.dto.*;
+import com.finx.strategyengineservice.domain.dto.DashboardResponse;
+import com.finx.strategyengineservice.domain.dto.StrategyRequest;
+import com.finx.strategyengineservice.domain.dto.StrategyResponse;
 
 import java.util.List;
 
+/**
+ * Service for unified strategy management
+ * Handles complete strategy creation/update in a single operation
+ */
 public interface StrategyService {
 
-    List<StrategyDTO> getAllStrategies();
+    /**
+     * Create complete strategy with all configurations
+     *
+     * @param request Unified strategy request with filters, template, schedule
+     * @return Complete strategy response
+     */
+    StrategyResponse createStrategy(StrategyRequest request);
 
-    StrategyDTO createStrategy(CreateStrategyRequest request);
+    /**
+     * Update complete strategy configuration
+     *
+     * @param strategyId Strategy ID
+     * @param request Updated configuration
+     * @return Updated strategy response
+     */
+    StrategyResponse updateStrategy(Long strategyId, StrategyRequest request);
 
-    StrategyDetailDTO getStrategyById(Long strategyId);
+    /**
+     * Get complete strategy details
+     *
+     * @param strategyId Strategy ID
+     * @return Complete strategy response
+     */
+    StrategyResponse getStrategy(Long strategyId);
 
-    StrategyDTO updateStrategy(Long strategyId, UpdateStrategyRequest request);
+    /**
+     * Get all strategies with optional status filter
+     *
+     * @param status Filter by status (DRAFT/ACTIVE/INACTIVE), null for all
+     * @return List of strategies
+     */
+    List<StrategyResponse> getAllStrategies(String status);
 
+    /**
+     * Delete strategy and all related data
+     *
+     * @param strategyId Strategy ID
+     */
     void deleteStrategy(Long strategyId);
 
-    FiltersResponse updateFilters(Long strategyId, FiltersRequest request);
+    /**
+     * Update strategy status
+     *
+     * @param strategyId Strategy ID
+     * @param status New status (DRAFT/ACTIVE/INACTIVE)
+     * @return Updated strategy
+     */
+    StrategyResponse updateStrategyStatus(Long strategyId, String status);
 
-    FiltersResponse getFilters(Long strategyId);
+    /**
+     * Simulate strategy to see matched cases count
+     *
+     * @param strategyId Strategy ID
+     * @return Strategy response with estimated cases matched
+     */
+    StrategyResponse simulateStrategy(Long strategyId);
 
-    TemplateInfoResponse updateTemplate(Long strategyId, TemplateInfoRequest request);
+    /**
+     * Enable/Disable scheduler for strategy
+     *
+     * @param strategyId Strategy ID
+     * @param enabled Enable or disable
+     * @return Updated strategy
+     */
+    StrategyResponse toggleScheduler(Long strategyId, Boolean enabled);
 
-    TemplateInfoResponse getTemplate(Long strategyId);
-
-    TriggerConfigResponse configureTrigger(Long strategyId, TriggerConfigRequest request);
-
-    TriggerConfigResponse updateTrigger(Long strategyId, TriggerConfigRequest request);
-
-    SimulationResultDTO simulateStrategy(Long strategyId);
+    /**
+     * Get dashboard metrics with summary and strategy list
+     *
+     * @return Dashboard response with overall statistics and strategy details
+     */
+    DashboardResponse getDashboardMetrics();
 }

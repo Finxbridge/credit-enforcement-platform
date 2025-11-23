@@ -35,6 +35,7 @@ public class JwtUtil {
                 .getPayload();
     }
 
+    @SuppressWarnings("null")
     public java.util.List<String> extractPermissions(String token) {
         return (java.util.List<String>) getAllClaimsFromToken(token).get("permissions");
     }

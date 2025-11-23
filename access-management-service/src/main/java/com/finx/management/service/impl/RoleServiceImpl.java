@@ -14,6 +14,7 @@ import com.finx.management.mapper.RoleMapper;
 import com.finx.management.repository.ManagementPermissionRepository;
 import com.finx.management.repository.RoleGroupRepository;
 import com.finx.management.repository.ManagementRoleRepository;
+import com.finx.management.repository.UserRepository;
 import com.finx.management.service.RoleService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.cache.annotation.CacheEvict;
@@ -33,6 +34,7 @@ public class RoleServiceImpl implements RoleService {
     private final ManagementRoleRepository managementRoleRepository;
     private final RoleGroupRepository roleGroupRepository;
     private final ManagementPermissionRepository managementPermissionRepository;
+    private final UserRepository userRepository;
     private final RoleMapper roleMapper;
 
     @Override
@@ -54,6 +56,7 @@ public class RoleServiceImpl implements RoleService {
         }
     }
 
+    @SuppressWarnings("null")
     @Override
     @Cacheable(value = CacheConstants.ROLES, key = "#id")
     public RoleDTO getRoleById(Long id) {
@@ -62,6 +65,7 @@ public class RoleServiceImpl implements RoleService {
         return roleMapper.toDto(role);
     }
 
+    @SuppressWarnings("null")
     @Override
     @Transactional
     @CacheEvict(value = CacheConstants.ROLES, allEntries = true)
@@ -80,7 +84,8 @@ public class RoleServiceImpl implements RoleService {
         }
 
         if (request.getPermissionIds() != null && !request.getPermissionIds().isEmpty()) {
-            Set<Permission> permissions = new HashSet<>(managementPermissionRepository.findAllById(request.getPermissionIds()));
+            Set<Permission> permissions = new HashSet<>(
+                    managementPermissionRepository.findAllById(request.getPermissionIds()));
             if (permissions.size() != request.getPermissionIds().size()) {
                 throw new BusinessException("One or more permission IDs are invalid");
             }
@@ -91,6 +96,7 @@ public class RoleServiceImpl implements RoleService {
         return roleMapper.toDto(savedRole);
     }
 
+    @SuppressWarnings("null")
     @Override
     @Transactional
     @CacheEvict(value = CacheConstants.ROLES, allEntries = true)
@@ -117,7 +123,8 @@ public class RoleServiceImpl implements RoleService {
         }
 
         if (request.getPermissionIds() != null) {
-            Set<Permission> permissions = new HashSet<>(managementPermissionRepository.findAllById(request.getPermissionIds()));
+            Set<Permission> permissions = new HashSet<>(
+                    managementPermissionRepository.findAllById(request.getPermissionIds()));
             if (permissions.size() != request.getPermissionIds().size()) {
                 throw new BusinessException("One or more permission IDs are invalid");
             }
@@ -130,11 +137,22 @@ public class RoleServiceImpl implements RoleService {
         return roleMapper.toDto(updatedRole);
     }
 
+    @SuppressWarnings("null")
     @Override
     @CacheEvict(value = CacheConstants.ROLES, allEntries = true)
     public void deleteRole(Long id) {
         Role role = managementRoleRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Role", "id", id));
+
+        // Check if role is assigned to any active users
+        if (userRepository.existsByRoleIdAndActiveUsers(id)) {
+            long activeUserCount = userRepository.countActiveUsersByRoleId(id);
+            throw new BusinessException(
+                    String.format("Cannot delete role '%s'. It is currently assigned to %d active user(s). " +
+                            "Please remove this role from all active users before deleting.",
+                            role.getRoleName(), activeUserCount));
+        }
+
         managementRoleRepository.delete(role);
     }
 }

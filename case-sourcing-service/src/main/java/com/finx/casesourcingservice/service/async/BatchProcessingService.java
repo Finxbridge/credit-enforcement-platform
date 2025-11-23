@@ -16,11 +16,11 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 /**
@@ -39,13 +39,10 @@ public class BatchProcessingService {
     private final LoanDetailsRepository loanDetailsRepository;
     private final CaseRepository caseRepository;
 
-    private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("dd-MM-yyyy");
-
     /**
      * Process batch asynchronously
      */
     @Async("batchProcessingExecutor")
-    @Transactional
     public void processBatchAsync(String batchId, String filePath) {
         log.info("Starting async processing for batch: {}", batchId);
         Path path = Paths.get(filePath);
@@ -71,13 +68,13 @@ public class BatchProcessingService {
                     CaseValidationResult validationResult = validationService.validateCaseRow(row);
 
                     if (validationResult.isValid()) {
-                        // Create case
-                        createCase(row, batchId);
+                        // Create case in separate transaction
+                        processSingleRow(row, batchId);
                         validCount++;
                     } else {
                         // Log errors
                         for (String error : validationResult.getErrors()) {
-                            logBatchError(batchId, row, error);
+                            logBatchErrorInNewTransaction(batchId, row, error);
 
                             // Check if it's a duplicate error
                             if (error.contains("Duplicate")) {
@@ -86,9 +83,23 @@ public class BatchProcessingService {
                         }
                         invalidCount++;
                     }
+                } catch (org.springframework.dao.DataIntegrityViolationException e) {
+                    log.error("Database constraint violation for row {}: {}", row.getRowNumber(), e.getMessage());
+                    String errorMsg = "Database constraint violation: ";
+                    if (e.getMessage().contains("loan_account_number")) {
+                        errorMsg += "Duplicate loan account number: " + row.getLoanAccountNumber();
+                        duplicateCount++;
+                    } else if (e.getMessage().contains("external_case_id")) {
+                        errorMsg += "Duplicate external case ID: " + row.getExternalCaseId();
+                        duplicateCount++;
+                    } else {
+                        errorMsg += e.getMessage();
+                    }
+                    logBatchErrorInNewTransaction(batchId, row, errorMsg);
+                    invalidCount++;
                 } catch (Exception e) {
                     log.error("Error processing row {}: {}", row.getRowNumber(), e.getMessage(), e);
-                    logBatchError(batchId, row, "System error: " + e.getMessage());
+                    logBatchErrorInNewTransaction(batchId, row, "System error: " + e.getMessage());
                     invalidCount++;
                 }
             }
@@ -122,6 +133,14 @@ public class BatchProcessingService {
         }
     }
 
+    /**
+     * Process a single row in its own transaction
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void processSingleRow(CaseCsvRowDTO row, String batchId) {
+        createCase(row, batchId);
+    }
+
     @SuppressWarnings("null")
     private void createCase(CaseCsvRowDTO row, String batchId) {
         // Create or get customer
@@ -140,6 +159,7 @@ public class BatchProcessingService {
                 .caseOpenedAt(LocalDateTime.now())
                 .sourceType("MANUAL")
                 .importBatchId(batchId)
+                .geographyCode(row.getGeographyCode() != null ? row.getGeographyCode().toUpperCase() : null)
                 .isArchived(false)
                 .build();
 
@@ -155,12 +175,7 @@ public class BatchProcessingService {
                             .customerCode(row.getCustomerCode())
                             .fullName(row.getFullName())
                             .mobileNumber(row.getMobileNumber())
-                            .alternateMobile(row.getAlternateMobile())
-                            .email(row.getEmail())
-                            .address(row.getAddress())
-                            .city(row.getCity())
-                            .state(row.getState())
-                            .pincode(row.getPincode())
+                            .languagePreference(row.getLanguage() != null ? row.getLanguage().toLowerCase() : "en")
                             .customerType("INDIVIDUAL")
                             .isActive(true)
                             .build();
@@ -173,24 +188,46 @@ public class BatchProcessingService {
         return loanDetailsRepository.save(LoanDetails.builder()
                 .loanAccountNumber(row.getLoanAccountNumber())
                 .primaryCustomer(customer)
-                .bankCode(row.getBankCode())
-                .productCode(row.getProductCode())
-                .productType(row.getProductType())
-                .principalAmount(row.getPrincipalAmount())
-                .interestAmount(row.getInterestAmount())
-                .penaltyAmount(row.getPenaltyAmount())
-                .totalOutstanding(row.getTotalOutstanding())
-                .emiAmount(row.getEmiAmount())
-                .dpd(row.getDpd())
-                .bucket(row.getBucket())
-                .loanDisbursementDate(parseDate(row.getDisbursementDate()))
-                .dueDate(parseDate(row.getDueDate()))
+                .productCode(null) // Not available in CSV
+                .interestAmount(null) // Not available in CSV
+                .penaltyAmount(null) // Not available in CSV
+                .totalOutstanding(parseBigDecimal(row.getTotalOutstanding()))
+                .emiAmount(null) // Not available in CSV
+                .dpd(parseInteger(row.getDpd()))
                 .sourceSystem("CSV_UPLOAD")
                 .build());
     }
 
+    private java.math.BigDecimal parseBigDecimal(String value) {
+        if (value == null || value.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            return new java.math.BigDecimal(value.trim());
+        } catch (NumberFormatException e) {
+            log.warn("Failed to parse BigDecimal: {}", value);
+            return null;
+        }
+    }
+
+    private Integer parseInteger(String value) {
+        if (value == null || value.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            return Integer.parseInt(value.trim());
+        } catch (NumberFormatException e) {
+            log.warn("Failed to parse Integer: {}", value);
+            return null;
+        }
+    }
+
+    /**
+     * Log batch error in a new transaction
+     */
     @SuppressWarnings("null")
-    private void logBatchError(String batchId, CaseCsvRowDTO row, String errorMessage) {
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void logBatchErrorInNewTransaction(String batchId, CaseCsvRowDTO row, String errorMessage) {
         ErrorType errorType = determineErrorType(errorMessage);
 
         batchErrorRepository.save(BatchError.builder()
@@ -202,6 +239,11 @@ public class BatchProcessingService {
                 .build());
     }
 
+    @SuppressWarnings("null")
+    private void logBatchError(String batchId, CaseCsvRowDTO row, String errorMessage) {
+        logBatchErrorInNewTransaction(batchId, row, errorMessage);
+    }
+
     private ErrorType determineErrorType(String errorMessage) {
         if (errorMessage.contains("Duplicate")) {
             return ErrorType.DUPLICATE_ERROR;
@@ -211,18 +253,6 @@ public class BatchProcessingService {
             return ErrorType.SYSTEM_ERROR;
         } else {
             return ErrorType.DATA_ERROR;
-        }
-    }
-
-    private LocalDate parseDate(String dateStr) {
-        if (dateStr == null || dateStr.isEmpty()) {
-            return null;
-        }
-        try {
-            return LocalDate.parse(dateStr, DATE_FORMATTER);
-        } catch (Exception e) {
-            log.warn("Failed to parse date: {}", dateStr);
-            return null;
         }
     }
 

@@ -93,6 +93,7 @@ public class AuthenticationGatewayFilterFactory
         };
     }
 
+    @SuppressWarnings("null")
     private Mono<Void> handleUnauthorized(ServerWebExchange exchange, String message) {
         log.warn(message);
         exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);

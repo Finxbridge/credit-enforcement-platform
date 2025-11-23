@@ -43,6 +43,10 @@ public class StrategyAction {
     @Column(name = "template_id")
     private Long templateId;
 
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "variable_mapping", columnDefinition = "jsonb")
+    private Map<String, String> variableMapping;
+
     @Column(name = "channel", length = 50)
     private String channel;
 

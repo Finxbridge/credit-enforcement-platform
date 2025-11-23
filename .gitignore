@@ -52,11 +52,7 @@ spring-boot-devtools.properties
 .env.production
 
 # Application secrets
-application-local.yml
-application-dev.yml
-application-prod.yml
 **/secrets/
-credit-enforcement-platform/
 
 # Markdown files
 *.md

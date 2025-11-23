@@ -1,14 +1,15 @@
 package com.finx.casesourcingservice.domain.dto.csv;
 
+import com.opencsv.bean.CsvBindByName;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.math.BigDecimal;
-
 /**
  * DTO representing a single row in the case upload CSV
+ * Contains only required fields for simplified case upload
+ * Uses OpenCSV annotations for flexible column mapping
  */
 @Data
 @Builder
@@ -19,33 +20,32 @@ public class CaseCsvRowDTO {
     private Integer rowNumber;
 
     // Case Information
+    @CsvBindByName(column = "case_id", required = true)
     private String externalCaseId;
+
+    @CsvBindByName(column = "loan_id", required = true)
     private String loanAccountNumber;
 
     // Customer Information
+    @CsvBindByName(column = "customer_code", required = true)
     private String customerCode;
+
+    @CsvBindByName(column = "customer_name", required = true)
     private String fullName;
+
+    @CsvBindByName(column = "phone", required = true)
     private String mobileNumber;
-    private String alternateMobile;
-    private String email;
-    private String address;
-    private String city;
-    private String state;
-    private String pincode;
+
+    @CsvBindByName(column = "geography", required = true)
+    private String geographyCode;
+
+    @CsvBindByName(column = "language", required = true)
+    private String language;
 
     // Loan Financial Details
-    private BigDecimal principalAmount;
-    private BigDecimal interestAmount;
-    private BigDecimal penaltyAmount;
-    private BigDecimal totalOutstanding;
-    private BigDecimal emiAmount;
-    private Integer dpd;
-    private String bucket;
+    @CsvBindByName(column = "outstanding", required = true)
+    private String totalOutstanding;
 
-    // Additional Information
-    private String productType;
-    private String productCode;
-    private String bankCode;
-    private String disbursementDate;  // String for CSV parsing, will convert to LocalDate
-    private String dueDate;           // String for CSV parsing, will convert to LocalDate
+    @CsvBindByName(column = "dpd", required = true)
+    private String dpd; // String for CSV parsing, will convert to Integer
 }

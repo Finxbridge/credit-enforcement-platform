@@ -38,12 +38,13 @@ public class PaymentGatewayService {
 
         // 2. Build request body
         Map<String, Object> requestBody = Map.of(
-                "merchantId", request.getMerchantId() != null ? request.getMerchantId() : config.getConfigValueAsString("merchant_id"),
+                "merchantId",
+                request.getMerchantId() != null ? request.getMerchantId()
+                        : config.getConfigValueAsString("merchant_id"),
                 "amount", request.getAmount(),
                 "storeId", request.getStoreId() != null ? request.getStoreId() : "default_store",
                 "terminalId", request.getTerminalId() != null ? request.getTerminalId() : "default_terminal",
-                "provider", request.getProvider() != null ? request.getProvider() : "PHONEPE"
-        );
+                "provider", request.getProvider() != null ? request.getProvider() : "PHONEPE");
 
         // 3. Call Payment API
         String url = config.getApiEndpoint() + "/api/phonepe/dqr/init";
@@ -85,6 +86,7 @@ public class PaymentGatewayService {
                 .orElseThrow(() -> new ConfigurationNotFoundException(INTEGRATION_NAME));
     }
 
+    @SuppressWarnings("null")
     private String callPaymentApi(String url, Map<String, Object> body, ThirdPartyIntegrationMaster config) {
         try {
             return webClient.post()
@@ -101,6 +103,7 @@ public class PaymentGatewayService {
         }
     }
 
+    @SuppressWarnings("null")
     private String savePaymentTransaction(PaymentInitiateRequest request, String response) {
         String transactionId = UUID.randomUUID().toString();
 
@@ -117,7 +120,9 @@ public class PaymentGatewayService {
                 .build();
 
         try {
-            Map<String, Object> responseMap = objectMapper.readValue(response, new TypeReference<Map<String, Object>>() {});
+            Map<String, Object> responseMap = objectMapper.readValue(response,
+                    new TypeReference<Map<String, Object>>() {
+                    });
             transaction.setGatewayResponse(responseMap);
         } catch (Exception e) {
             log.warn("Failed to parse payment response", e);
