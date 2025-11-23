@@ -74,6 +74,9 @@ public class Customer {
     @Column(name = "is_active")
     private Boolean isActive;
 
+    @Column(name = "language_preference", length = 10)
+    private String languagePreference;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;

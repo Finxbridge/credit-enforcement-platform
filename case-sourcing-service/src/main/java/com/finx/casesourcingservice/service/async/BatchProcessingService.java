@@ -21,7 +21,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 /**
@@ -39,8 +38,6 @@ public class BatchProcessingService {
     private final CustomerRepository customerRepository;
     private final LoanDetailsRepository loanDetailsRepository;
     private final CaseRepository caseRepository;
-
-    private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("dd-MM-yyyy");
 
     /**
      * Process batch asynchronously
@@ -178,12 +175,7 @@ public class BatchProcessingService {
                             .customerCode(row.getCustomerCode())
                             .fullName(row.getFullName())
                             .mobileNumber(row.getMobileNumber())
-                            .alternateMobile(row.getAlternateMobile())
-                            .email(row.getEmail())
-                            .address(row.getAddress())
-                            .city(row.getCity())
-                            .state(row.getState())
-                            .pincode(row.getPincode())
+                            .languagePreference(row.getLanguage() != null ? row.getLanguage().toLowerCase() : "en")
                             .customerType("INDIVIDUAL")
                             .isActive(true)
                             .build();
@@ -196,18 +188,12 @@ public class BatchProcessingService {
         return loanDetailsRepository.save(LoanDetails.builder()
                 .loanAccountNumber(row.getLoanAccountNumber())
                 .primaryCustomer(customer)
-                .bankCode(row.getBankCode())
                 .productCode(null) // Not available in CSV
-                .productType(row.getProductType())
-                .principalAmount(parseBigDecimal(row.getPrincipalAmount()))
                 .interestAmount(null) // Not available in CSV
                 .penaltyAmount(null) // Not available in CSV
                 .totalOutstanding(parseBigDecimal(row.getTotalOutstanding()))
                 .emiAmount(null) // Not available in CSV
                 .dpd(parseInteger(row.getDpd()))
-                .bucket(row.getBucket())
-                .loanDisbursementDate(parseDate(row.getDisbursementDate()))
-                .dueDate(parseDate(row.getDueDate()))
                 .sourceSystem("CSV_UPLOAD")
                 .build());
     }
@@ -267,18 +253,6 @@ public class BatchProcessingService {
             return ErrorType.SYSTEM_ERROR;
         } else {
             return ErrorType.DATA_ERROR;
-        }
-    }
-
-    private LocalDate parseDate(String dateStr) {
-        if (dateStr == null || dateStr.isEmpty()) {
-            return null;
-        }
-        try {
-            return LocalDate.parse(dateStr, DATE_FORMATTER);
-        } catch (Exception e) {
-            log.warn("Failed to parse date: {}", dateStr);
-            return null;
         }
     }
 

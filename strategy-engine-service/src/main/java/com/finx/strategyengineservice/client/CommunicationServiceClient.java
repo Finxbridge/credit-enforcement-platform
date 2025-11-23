@@ -21,10 +21,10 @@ public interface CommunicationServiceClient {
     /**
      * Send SMS via Msg91
      *
-     * @param request SMS request with mobile, message, templateId
+     * @param request SMS request with templateId, recipients, etc.
      * @return CommonResponse indicating success/failure
      */
-    @PostMapping("/sms/send")
+    @PostMapping("/comm/sms/send")
     CommonResponse<Void> sendSMS(@RequestBody SMSRequest request);
 
     /**
@@ -33,15 +33,15 @@ public interface CommunicationServiceClient {
      * @param request Email request with email, subject, body, templateId
      * @return CommonResponse indicating success/failure
      */
-    @PostMapping("/email/send")
+    @PostMapping("/comm/email/send")
     CommonResponse<Void> sendEmail(@RequestBody EmailRequest request);
 
     /**
      * Send WhatsApp message via Msg91
      *
-     * @param request WhatsApp request with mobile, message, templateId
+     * @param request WhatsApp request with templateId, to, components, language
      * @return CommonResponse indicating success/failure
      */
-    @PostMapping("/whatsapp/send")
+    @PostMapping("/comm/whatsapp/send")
     CommonResponse<Void> sendWhatsApp(@RequestBody WhatsAppRequest request);
 }

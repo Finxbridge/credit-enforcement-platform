@@ -7,9 +7,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-import java.time.LocalDate;
-import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeParseException;
+import java.util.List;
 import java.util.regex.Pattern;
 
 /**
@@ -23,10 +21,7 @@ public class CaseValidationService {
     private final CaseRepository caseRepository;
 
     private static final Pattern MOBILE_PATTERN = Pattern.compile("^[6-9]\\d{9}$");
-    // RFC 5322 compliant email pattern (simplified)
-    private static final Pattern EMAIL_PATTERN = Pattern.compile("^[a-zA-Z0-9_+&*-]+(?:\\.[a-zA-Z0-9_+&*-]+)*@(?:[a-zA-Z0-9-]+\\.)+[a-zA-Z]{2,}$");
-    private static final Pattern PINCODE_PATTERN = Pattern.compile("^\\d{6}$");
-    private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("dd-MM-yyyy");
+    private static final List<String> SUPPORTED_LANGUAGES = List.of("en", "hi", "ta", "te", "mr", "kn", "ml", "gu", "bn", "pa");
 
     /**
      * Validate a single CSV row
@@ -86,6 +81,10 @@ public class CaseValidationService {
         if (isNullOrEmpty(row.getGeographyCode())) {
             result.addError("geographyCode", "Geography Code is required");
         }
+
+        if (isNullOrEmpty(row.getLanguage())) {
+            result.addError("language", "Language is required");
+        }
     }
 
     private void validateFormats(CaseCsvRowDTO row, CaseValidationResult result) {
@@ -94,36 +93,9 @@ public class CaseValidationService {
             result.addError("mobileNumber", "Invalid mobile number format (should be 10 digits starting with 6-9)");
         }
 
-        // Alternative mobile number validation
-        if (!isNullOrEmpty(row.getAlternateMobile()) && !MOBILE_PATTERN.matcher(row.getAlternateMobile()).matches()) {
-            result.addError("alternateMobile", "Invalid alternative mobile number format (should be 10 digits starting with 6-9)");
-        }
-
-        // Email validation
-        if (!isNullOrEmpty(row.getEmail()) && !EMAIL_PATTERN.matcher(row.getEmail()).matches()) {
-            result.addError("email", "Invalid email format");
-        }
-
-        // Pincode validation
-        if (!isNullOrEmpty(row.getPincode()) && !PINCODE_PATTERN.matcher(row.getPincode()).matches()) {
-            result.addError("pincode", "Invalid pincode format (should be 6 digits)");
-        }
-
-        // Date validations
-        if (!isNullOrEmpty(row.getDisbursementDate())) {
-            try {
-                LocalDate.parse(row.getDisbursementDate(), DATE_FORMATTER);
-            } catch (DateTimeParseException e) {
-                result.addError("disbursementDate", "Invalid date format (expected: dd-MM-yyyy)");
-            }
-        }
-
-        if (!isNullOrEmpty(row.getDueDate())) {
-            try {
-                LocalDate.parse(row.getDueDate(), DATE_FORMATTER);
-            } catch (DateTimeParseException e) {
-                result.addError("dueDate", "Invalid date format (expected: dd-MM-yyyy)");
-            }
+        // Language validation
+        if (!isNullOrEmpty(row.getLanguage()) && !SUPPORTED_LANGUAGES.contains(row.getLanguage().toLowerCase())) {
+            result.addError("language", "Invalid language code. Supported: " + String.join(", ", SUPPORTED_LANGUAGES));
         }
     }
 
@@ -147,35 +119,9 @@ public class CaseValidationService {
                 if (dpd < 0) {
                     result.addError("dpd", "DPD cannot be negative");
                 }
-                // Validate bucket based on DPD
-                if (!isNullOrEmpty(row.getBucket())) {
-                    validateBucket(dpd, row.getBucket(), result);
-                }
             } catch (NumberFormatException e) {
                 result.addError("dpd", "Invalid DPD format: " + row.getDpd());
             }
-        }
-    }
-
-    private void validateBucket(Integer dpd, String bucket, CaseValidationResult result) {
-        // Business rule: Bucket should match DPD range
-        // Example: X (0-30), X1 (31-60), X2 (61-89), X3 (90-119), X4+ (120+)
-        String expectedBucket;
-        if (dpd <= 30) {
-            expectedBucket = "X";
-        } else if (dpd <= 60) {
-            expectedBucket = "X1";
-        } else if (dpd < 90) {
-            expectedBucket = "X2";
-        } else if (dpd < 120) {
-            expectedBucket = "X3";
-        } else {
-            expectedBucket = "X4+";
-        }
-
-        if (!bucket.equals(expectedBucket)) {
-            result.addError("bucket", String.format("Bucket '%s' doesn't match DPD %d (expected: %s)",
-                    bucket, dpd, expectedBucket));
         }
     }
 

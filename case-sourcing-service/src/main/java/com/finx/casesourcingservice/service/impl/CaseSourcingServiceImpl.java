@@ -533,4 +533,48 @@ public class CaseSourcingServiceImpl implements CaseSourcingService {
                                 .createdAt(caseEntity.getCreatedAt())
                                 .build();
         }
+
+        @Override
+        @Transactional(readOnly = true)
+        public Page<CaseSearchResultDTO> searchCases(CaseSearchRequest request, Pageable pageable) {
+                log.info("Searching cases with request: {}", request);
+
+                // TODO: Implement advanced case search with dynamic query building
+                // For now, return empty page to allow compilation
+                return Page.empty(pageable);
+        }
+
+        @Override
+        @Transactional(readOnly = true)
+        public CaseTimelineDTO getCaseTimeline(Long caseId) {
+                log.info("Fetching case timeline for caseId: {}", caseId);
+
+                // Verify case exists
+                Case caseEntity = caseRepository.findById(caseId)
+                                .orElseThrow(() -> new BusinessException("Case not found: " + caseId));
+
+                // TODO: Implement timeline event aggregation from multiple sources
+                // (calls, PTPs, payments, notes, communications, etc.)
+                // For now, return basic structure to allow compilation
+                return CaseTimelineDTO.builder()
+                                .caseId(caseEntity.getId())
+                                .caseNumber(caseEntity.getCaseNumber())
+                                .customerName(caseEntity.getLoan().getPrimaryCustomer().getFullName())
+                                .loanAccountNumber(caseEntity.getLoan().getLoanAccountNumber())
+                                .events(new ArrayList<>())
+                                .summary(TimelineSummaryDTO.builder()
+                                                .totalEvents(0)
+                                                .totalCalls(0)
+                                                .totalPTPs(0)
+                                                .totalPayments(0)
+                                                .totalNotes(0)
+                                                .totalMessages(0)
+                                                .connectedCalls(0)
+                                                .failedCalls(0)
+                                                .activePTPs(0)
+                                                .keptPTPs(0)
+                                                .brokenPTPs(0)
+                                                .build())
+                                .build();
+        }
 }

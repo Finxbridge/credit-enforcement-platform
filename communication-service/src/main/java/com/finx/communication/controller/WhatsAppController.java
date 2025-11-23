@@ -30,7 +30,7 @@ public class WhatsAppController {
     @Operation(summary = "Send WhatsApp", description = "Send WhatsApp message with dynamic components")
     public ResponseEntity<CommonResponse<WhatsAppResponse>> sendWhatsApp(
             @Valid @RequestBody WhatsAppSendRequest request) {
-        log.info("Request to send WhatsApp to {} recipient groups", request.getRecipients().size());
+        log.info("Request to send WhatsApp to {} recipients", request.getTo().size());
         WhatsAppResponse response = whatsAppService.sendWhatsApp(request);
         return ResponseWrapper.ok("WhatsApp sent successfully", response);
     }

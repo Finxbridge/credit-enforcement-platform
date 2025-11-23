@@ -6,6 +6,7 @@ import com.finx.allocationreallocationservice.domain.dto.ReallocationCsvRow;
 import com.finx.allocationreallocationservice.domain.entity.AllocationBatch;
 import com.finx.allocationreallocationservice.domain.entity.AllocationHistory;
 import com.finx.allocationreallocationservice.domain.entity.BatchError;
+import com.finx.allocationreallocationservice.domain.entity.Case;
 import com.finx.allocationreallocationservice.domain.entity.CaseAllocation;
 import com.finx.allocationreallocationservice.domain.enums.AllocationAction;
 import com.finx.allocationreallocationservice.domain.enums.AllocationStatus;
@@ -88,12 +89,15 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
             rows.forEach(row -> {
                 String validationError = getValidationError(row);
                 if (validationError == null) {
-                    Long caseId = Long.parseLong(row.getCaseId());
+                    // Lookup case_id by loan_id (user-friendly identifier)
+                    Case caseEntity = caseReadRepository.findByLoanId(row.getLoanId())
+                            .orElseThrow(() -> new RuntimeException("Case not found for loan_id: " + row.getLoanId()));
+                    Long caseId = caseEntity.getId();
                     Long primaryAgentId = Long.parseLong(row.getPrimaryAgentId());
 
                     allocations.add(CaseAllocation.builder()
                             .caseId(caseId)
-                            .externalCaseId(row.getExternalCaseId())
+                            .externalCaseId(caseEntity.getExternalCaseId())
                             .primaryAgentId(primaryAgentId)
                             .secondaryAgentId(row.getSecondaryAgentId() != null && !row.getSecondaryAgentId().isEmpty()
                                     ? Long.parseLong(row.getSecondaryAgentId())
@@ -178,11 +182,16 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
     }
 
     private String getValidationError(AllocationCsvRow row) {
-        // Validate case_id format
-        try {
-            Long.parseLong(row.getCaseId());
-        } catch (NumberFormatException e) {
-            return "Invalid case_id: " + row.getCaseId();
+        // Validate loan_id is provided
+        if (row.getLoanId() == null || row.getLoanId().trim().isEmpty()) {
+            return "loan_id is required";
+        }
+
+        // CRITICAL: Validate case exists in cases table by loan_id
+        Optional<Case> caseOpt = caseReadRepository.findByLoanId(row.getLoanId());
+        if (!caseOpt.isPresent()) {
+            return "Case not found for loan_id: " + row.getLoanId() +
+                   ". Please ensure case with this loan ID exists in cases table before allocation.";
         }
 
         // Validate primary_agent_id format

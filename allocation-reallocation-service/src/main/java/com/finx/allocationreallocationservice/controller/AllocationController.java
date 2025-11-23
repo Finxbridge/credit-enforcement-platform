@@ -28,6 +28,25 @@ import org.springframework.web.bind.annotation.RequestPart;
 public class AllocationController {
 
     private final AllocationService allocationService;
+    private final com.finx.allocationreallocationservice.util.csv.CsvTemplateGenerator csvTemplateGenerator;
+
+    @GetMapping("/upload/template")
+    @Operation(summary = "Download allocation CSV template",
+               description = "Download CSV template for bulk case allocation with optional sample data")
+    public ResponseEntity<byte[]> downloadAllocationTemplate(
+            @RequestParam(defaultValue = "false") boolean includeSample) {
+        log.info("Downloading allocation template (includeSample: {})", includeSample);
+
+        byte[] csvData = csvTemplateGenerator.generateAllocationTemplate(includeSample);
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.parseMediaType("text/csv"));
+        headers.setContentDispositionFormData("attachment", "allocation_template.csv");
+
+        return ResponseEntity.ok()
+                .headers(headers)
+                .body(csvData);
+    }
 
     @PostMapping("/upload")
     @Operation(summary = "Upload allocation CSV for bulk assignment")
@@ -180,6 +199,28 @@ public class AllocationController {
 
         return ResponseEntity.ok(CommonResponse.success(
                 "Case allocation history retrieved successfully.", history));
+    }
+
+    @GetMapping("/contacts/upload/template")
+    @Operation(summary = "Download contact update CSV template",
+               description = "Download CSV template for bulk contact updates. Specify updateType: MOBILE_UPDATE, EMAIL_UPDATE, or ADDRESS_UPDATE")
+    public ResponseEntity<byte[]> downloadContactUpdateTemplate(
+            @RequestParam(defaultValue = "false") boolean includeSample,
+            @RequestParam(required = false) String updateType) {
+        log.info("Downloading contact update template (type: {}, includeSample: {})", updateType, includeSample);
+
+        byte[] csvData = csvTemplateGenerator.generateContactUpdateTemplate(includeSample, updateType);
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.parseMediaType("text/csv"));
+        String filename = updateType != null ?
+                "contact_update_" + updateType.toLowerCase() + "_template.csv" :
+                "contact_update_template.csv";
+        headers.setContentDispositionFormData("attachment", filename);
+
+        return ResponseEntity.ok()
+                .headers(headers)
+                .body(csvData);
     }
 
     @PostMapping("/contacts/upload")

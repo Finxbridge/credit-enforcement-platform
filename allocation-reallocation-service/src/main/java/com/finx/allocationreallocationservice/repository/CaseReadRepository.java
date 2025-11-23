@@ -24,6 +24,13 @@ public interface CaseReadRepository extends JpaRepository<Case, Long> {
 
     Optional<Case> findByExternalCaseId(String externalCaseId);
 
+    /**
+     * Find case by loan ID (loan account number)
+     * Used for allocation CSV where users provide loan_id instead of database case_id
+     */
+    @Query("SELECT c FROM Case c JOIN c.loan l WHERE l.loanAccountNumber = :loanId")
+    Optional<Case> findByLoanId(@Param("loanId") String loanId);
+
     Long countByCaseStatus(String caseStatus);
 
     /**

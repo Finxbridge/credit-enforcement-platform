@@ -36,6 +36,7 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
     private final com.finx.strategyengineservice.repository.StrategyRuleRepository strategyRuleRepository;
     private final com.finx.strategyengineservice.repository.StrategyActionRepository strategyActionRepository;
     private final com.finx.strategyengineservice.client.CommunicationServiceClient communicationClient;
+    private final com.finx.strategyengineservice.client.TemplateServiceClient templateServiceClient;
     private final com.finx.strategyengineservice.repository.CaseRepository caseRepository;
 
     @SuppressWarnings("null")
@@ -234,17 +235,108 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
             throw new BusinessException("Mobile number not available for case: " + caseEntity.getId());
         }
 
-        com.finx.strategyengineservice.client.dto.SMSRequest request = com.finx.strategyengineservice.client.dto.SMSRequest
-                .builder()
+        // Build SMS recipient with dynamic variables
+        com.finx.strategyengineservice.client.dto.SMSRequest.SmsRecipient recipient =
+                com.finx.strategyengineservice.client.dto.SMSRequest.SmsRecipient.builder()
                 .mobile(mobile)
-                .message("Payment reminder for loan: " + caseEntity.getLoan().getLoanAccountNumber())
+                .variables(buildDynamicVariables(caseEntity, action, "SMS"))
+                .build();
+
+        // Build SMS request aligned with communication-service format
+        com.finx.strategyengineservice.client.dto.SMSRequest request =
+                com.finx.strategyengineservice.client.dto.SMSRequest.builder()
                 .templateId(action.getTemplateId() != null ? action.getTemplateId().toString() : null)
+                .shortUrl("0") // Disable short URL by default
+                .recipients(java.util.Collections.singletonList(recipient))
                 .caseId(caseEntity.getId())
-                .caseNumber(caseEntity.getCaseNumber())
                 .build();
 
         communicationClient.sendSMS(request);
         log.debug("SMS sent successfully for case: {}", caseEntity.getId());
+    }
+
+    /**
+     * Build dynamic variables from case data based on template variable mapping
+     */
+    private java.util.Map<String, Object> buildDynamicVariables(
+            com.finx.strategyengineservice.domain.entity.Case caseEntity,
+            com.finx.strategyengineservice.domain.entity.StrategyAction action,
+            String channel) {
+
+        java.util.Map<String, Object> variables = new java.util.HashMap<>();
+
+        // If templateId and variableMapping are set, use dynamic mapping
+        if (action.getTemplateId() != null && action.getVariableMapping() != null && !action.getVariableMapping().isEmpty()) {
+            try {
+                // Fetch template details
+                com.finx.strategyengineservice.client.dto.TemplateDetailDTO template =
+                    templateServiceClient.getTemplate(action.getTemplateId()).getPayload();
+
+                if (template != null && template.getVariables() != null) {
+                    // Map each template variable to case entity value
+                    for (com.finx.strategyengineservice.client.dto.TemplateDetailDTO.TemplateVariableDTO templateVar : template.getVariables()) {
+                        String variableKey = templateVar.getVariableKey();
+                        String entityPath = action.getVariableMapping().get(variableKey);
+
+                        if (entityPath != null) {
+                            Object value = extractValueFromCase(caseEntity, entityPath);
+                            variables.put(variableKey, value != null ? value : templateVar.getDefaultValue());
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                log.error("Error fetching template or building dynamic variables, falling back to defaults", e);
+                // Fall back to default hardcoded variables
+                return buildDefaultVariables(caseEntity, channel);
+            }
+        } else {
+            // Fall back to default hardcoded variables
+            return buildDefaultVariables(caseEntity, channel);
+        }
+
+        return variables;
+    }
+
+    /**
+     * Build default hardcoded variables (backward compatibility)
+     */
+    private java.util.Map<String, Object> buildDefaultVariables(
+            com.finx.strategyengineservice.domain.entity.Case caseEntity, String channel) {
+        java.util.Map<String, Object> variables = new java.util.HashMap<>();
+
+        if ("SMS".equals(channel)) {
+            variables.put("VAR1", caseEntity.getLoan().getPrimaryCustomer().getFullName());
+            variables.put("VAR2", caseEntity.getLoan().getLoanAccountNumber());
+            variables.put("VAR3", caseEntity.getLoan().getOutstandingAmount() != null
+                    ? caseEntity.getLoan().getOutstandingAmount().toString() : "0");
+        }
+
+        return variables;
+    }
+
+    /**
+     * Extract value from case entity using property path (e.g., "loan.primaryCustomer.customerName")
+     */
+    private Object extractValueFromCase(com.finx.strategyengineservice.domain.entity.Case caseEntity, String propertyPath) {
+        try {
+            String[] parts = propertyPath.split("\\.");
+            Object current = caseEntity;
+
+            for (String part : parts) {
+                if (current == null) {
+                    return null;
+                }
+
+                // Use reflection to get property value
+                String methodName = "get" + part.substring(0, 1).toUpperCase() + part.substring(1);
+                current = current.getClass().getMethod(methodName).invoke(current);
+            }
+
+            return current;
+        } catch (Exception e) {
+            log.error("Error extracting value from path: {}", propertyPath, e);
+            return null;
+        }
     }
 
     /**
@@ -283,17 +375,97 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
             throw new BusinessException("Mobile number not available for case: " + caseEntity.getId());
         }
 
-        com.finx.strategyengineservice.client.dto.WhatsAppRequest request = com.finx.strategyengineservice.client.dto.WhatsAppRequest
-                .builder()
-                .mobile(mobile)
-                .message("Payment reminder for loan: " + caseEntity.getLoan().getLoanAccountNumber())
+        // Build WhatsApp request aligned with communication-service format
+        com.finx.strategyengineservice.client.dto.WhatsAppRequest request =
+                com.finx.strategyengineservice.client.dto.WhatsAppRequest.builder()
                 .templateId(action.getTemplateId() != null ? action.getTemplateId().toString() : null)
+                .to(java.util.Collections.singletonList(mobile))
+                .components(buildWhatsAppComponents(caseEntity, action))
+                .language(com.finx.strategyengineservice.client.dto.WhatsAppRequest.WhatsAppLanguage.builder()
+                        .code("en")
+                        .policy("deterministic")
+                        .build())
                 .caseId(caseEntity.getId())
-                .caseNumber(caseEntity.getCaseNumber())
                 .build();
 
         communicationClient.sendWhatsApp(request);
         log.debug("WhatsApp sent successfully for case: {}", caseEntity.getId());
+    }
+
+    /**
+     * Build WhatsApp components from case data with dynamic template variables
+     */
+    private java.util.Map<String, java.util.Map<String, String>> buildWhatsAppComponents(
+            com.finx.strategyengineservice.domain.entity.Case caseEntity,
+            com.finx.strategyengineservice.domain.entity.StrategyAction action) {
+
+        java.util.Map<String, java.util.Map<String, String>> components = new java.util.HashMap<>();
+
+        // If templateId and variableMapping are set, use dynamic mapping
+        if (action.getTemplateId() != null && action.getVariableMapping() != null && !action.getVariableMapping().isEmpty()) {
+            try {
+                // Fetch template details
+                com.finx.strategyengineservice.client.dto.TemplateDetailDTO template =
+                    templateServiceClient.getTemplate(action.getTemplateId()).getPayload();
+
+                if (template != null && template.getVariables() != null) {
+                    // Map each template variable to case entity value
+                    for (com.finx.strategyengineservice.client.dto.TemplateDetailDTO.TemplateVariableDTO templateVar : template.getVariables()) {
+                        String variableKey = templateVar.getVariableKey();
+                        String entityPath = action.getVariableMapping().get(variableKey);
+
+                        if (entityPath != null) {
+                            Object value = extractValueFromCase(caseEntity, entityPath);
+                            String valueStr = value != null ? value.toString() :
+                                (templateVar.getDefaultValue() != null ? templateVar.getDefaultValue() : "");
+
+                            java.util.Map<String, String> component = new java.util.HashMap<>();
+                            component.put("type", "text");
+                            component.put("value", valueStr);
+                            components.put(variableKey, component);
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                log.error("Error fetching template or building dynamic components, falling back to defaults", e);
+                // Fall back to default hardcoded components
+                return buildDefaultWhatsAppComponents(caseEntity);
+            }
+        } else {
+            // Fall back to default hardcoded components
+            return buildDefaultWhatsAppComponents(caseEntity);
+        }
+
+        return components;
+    }
+
+    /**
+     * Build default WhatsApp components (backward compatibility)
+     */
+    private java.util.Map<String, java.util.Map<String, String>> buildDefaultWhatsAppComponents(
+            com.finx.strategyengineservice.domain.entity.Case caseEntity) {
+        java.util.Map<String, java.util.Map<String, String>> components = new java.util.HashMap<>();
+
+        // body_1: Customer name
+        java.util.Map<String, String> body1 = new java.util.HashMap<>();
+        body1.put("type", "text");
+        body1.put("value", caseEntity.getLoan().getPrimaryCustomer().getFullName());
+        components.put("body_1", body1);
+
+        // body_2: Loan account number
+        java.util.Map<String, String> body2 = new java.util.HashMap<>();
+        body2.put("type", "text");
+        body2.put("value", caseEntity.getLoan().getLoanAccountNumber());
+        components.put("body_2", body2);
+
+        // body_3: Outstanding amount
+        java.util.Map<String, String> body3 = new java.util.HashMap<>();
+        body3.put("type", "text");
+        body3.put("value", caseEntity.getLoan().getOutstandingAmount() != null
+                ? caseEntity.getLoan().getOutstandingAmount().toString() : "0");
+        components.put("body_3", body3);
+
+        return components;
     }
 
     /**
