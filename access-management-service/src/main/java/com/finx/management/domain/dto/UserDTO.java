@@ -2,7 +2,9 @@ package com.finx.management.domain.dto;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.Data;
+
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Set;
 
 @Data
@@ -17,7 +19,7 @@ public class UserDTO {
     private String status;
     private Long userGroupId;
     private String userGroupName;
-    private String assignedGeographies;
+    private List<String> assignedGeographies;
     private Integer maxCaseCapacity;
     private Integer currentCaseCount;
     private Double allocationPercentage;

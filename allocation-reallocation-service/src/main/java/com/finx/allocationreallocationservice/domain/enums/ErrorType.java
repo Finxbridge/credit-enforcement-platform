@@ -6,5 +6,6 @@ public enum ErrorType {
     SYSTEM,
     DATA_INTEGRITY,
     DATA_ERROR,
-    PROCESSING
+    PROCESSING,
+    VALIDATION_ERROR
 }

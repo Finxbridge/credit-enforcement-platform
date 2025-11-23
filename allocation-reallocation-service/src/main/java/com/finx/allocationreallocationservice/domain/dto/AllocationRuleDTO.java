@@ -2,8 +2,6 @@ package com.finx.allocationreallocationservice.domain.dto;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
-import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Positive;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -35,14 +33,12 @@ public class AllocationRuleDTO {
     // Optional - can be used for filtering cases by bucket when applying rule
     private List<String> buckets;
 
-    @NotNull(message = "Max cases per agent is required")
-    @Positive(message = "Max cases per agent must be positive")
     private Integer maxCasesPerAgent;
 
-    @NotEmpty(message = "At least one agent ID is required")
+    // Optional - will be configured later via separate endpoint
     private List<Long> agentIds;
 
-    // Only required for PERCENTAGE_SPLIT rule type
+    // Optional - will be configured later via separate endpoint
     private List<Integer> percentages;
 
     // Legacy criteria field for backward compatibility

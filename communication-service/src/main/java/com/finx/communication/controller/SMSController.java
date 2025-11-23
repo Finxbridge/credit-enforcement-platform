@@ -46,13 +46,13 @@ public class SMSController {
     @PostMapping("/get-template-details")
     @Operation(summary = "Get Template Details", description = "Get SMS template details by template ID")
     public ResponseEntity<CommonResponse<Map<String, Object>>> getTemplateDetails(
-            @RequestParam String templateId) {
-        log.info("Request to get template details for: {}", templateId);
-        Map<String, Object> response = smsService.getTemplateDetails(templateId);
+            @Valid @RequestBody SmsGetTemplateVersionsRequest request) {
+        log.info("Request to get template details for: {}", request.getTemplateId());
+        Map<String, Object> response = smsService.getTemplateDetails(request);
         return ResponseWrapper.ok("Template details fetched successfully", response);
     }
 
-    @GetMapping("/logs")
+    @PostMapping("/logs")
     @Operation(summary = "Get SMS Logs", description = "Get SMS logs by date range")
     public ResponseEntity<CommonResponse<Map<String, Object>>> getLogs(
             @RequestParam String startDate,
@@ -60,5 +60,34 @@ public class SMSController {
         log.info("Request for SMS logs from {} to {}", startDate, endDate);
         Map<String, Object> logs = smsService.getLogs(startDate, endDate);
         return ResponseWrapper.ok("SMS logs fetched successfully", logs);
+    }
+
+    @PostMapping("/add-template-version")
+    @Operation(summary = "Add SMS Template Version", description = "Add a new version to an existing SMS template")
+    public ResponseEntity<CommonResponse<Map<String, Object>>> addTemplateVersion(
+            @Valid @RequestBody SmsAddTemplateVersionRequest request) {
+        log.info("Request to add template version for template: {}", request.getTemplateId());
+        Map<String, Object> response = smsService.addTemplateVersion(request);
+        return ResponseWrapper.ok("Template version added successfully", response);
+    }
+
+    @GetMapping("/analytics")
+    @Operation(summary = "Get SMS Analytics", description = "Get SMS analytics by date range")
+    public ResponseEntity<CommonResponse<Map<String, Object>>> getAnalytics(
+            @RequestParam String startDate,
+            @RequestParam String endDate) {
+        log.info("Request for SMS analytics from {} to {}", startDate, endDate);
+        Map<String, Object> analytics = smsService.getAnalytics(startDate, endDate);
+        return ResponseWrapper.ok("SMS analytics fetched successfully", analytics);
+    }
+
+    @GetMapping("/mark-active")
+    @Operation(summary = "Mark Template Version Active", description = "Mark a specific template version as active")
+    public ResponseEntity<CommonResponse<Map<String, Object>>> markTemplateActive(
+            @RequestParam String id,
+            @RequestParam String templateId) {
+        log.info("Request to mark template version {} as active for template {}", id, templateId);
+        Map<String, Object> response = smsService.markTemplateActive(id, templateId);
+        return ResponseWrapper.ok("Template version marked as active", response);
     }
 }

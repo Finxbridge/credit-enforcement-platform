@@ -26,6 +26,7 @@ public class UserController {
 
     private final UserService userService;
 
+    @SuppressWarnings("null")
     @PreAuthorize("hasAuthority('USER_READ')")
     @GetMapping
     public ResponseEntity<CommonResponse<Page<UserDTO>>> getAllUsers(

@@ -1,7 +1,5 @@
 package com.finx.allocationreallocationservice.client.dto;
 
-import com.finx.allocationreallocationservice.client.dto.CustomerDTO;
-import com.finx.allocationreallocationservice.client.dto.LoanDetailsDTO;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;

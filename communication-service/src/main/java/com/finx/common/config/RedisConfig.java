@@ -56,6 +56,7 @@ public class RedisConfig {
         /**
          * Redis Connection Factory using Lettuce
          */
+        @SuppressWarnings("null")
         @Bean
         public RedisConnectionFactory redisConnectionFactory() {
                 log.info("Initializing Redis connection to {}:{} database: {}", redisHost, redisPort, redisDatabase);
@@ -107,6 +108,7 @@ public class RedisConfig {
         /**
          * RedisTemplate with String key and JSON value serialization
          */
+        @SuppressWarnings("null")
         @Bean
         public RedisTemplate<String, Object> redisTemplate(
                         RedisConnectionFactory connectionFactory) {
@@ -138,6 +140,7 @@ public class RedisConfig {
          * Configures the Redis Cache Manager to use GenericJackson2JsonRedisSerializer
          * for cache values, ensuring proper serialization of non-Serializable objects.
          */
+        @SuppressWarnings("null")
         @Bean
         public CacheManager cacheManager(RedisConnectionFactory connectionFactory, ObjectMapper redisObjectMapper) {
                 log.info(

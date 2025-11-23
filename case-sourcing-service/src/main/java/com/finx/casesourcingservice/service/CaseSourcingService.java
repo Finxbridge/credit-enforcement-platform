@@ -81,4 +81,21 @@ public interface CaseSourcingService {
      * Get unallocated cases report for a date range
      */
     UnallocatedReportDTO getUnallocatedCasesReport(String startDate, String endDate);
+
+    /**
+     * FR-CS-5: Advanced case search with multiple filters
+     *
+     * @param request  Search criteria
+     * @param pageable Pagination parameters
+     * @return Paginated search results
+     */
+    Page<CaseSearchResultDTO> searchCases(CaseSearchRequest request, Pageable pageable);
+
+    /**
+     * FR-WF-2: Get complete case activity timeline
+     *
+     * @param caseId Case ID
+     * @return Timeline with all events (calls, PTPs, payments, notes, communications)
+     */
+    CaseTimelineDTO getCaseTimeline(Long caseId);
 }

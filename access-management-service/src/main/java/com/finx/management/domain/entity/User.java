@@ -10,6 +10,7 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Set;
 
 @Entity(name = "ManagementUser")
@@ -54,7 +55,7 @@ public class User {
     // For now, let's keep it as String.
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "assigned_geographies", columnDefinition = "jsonb")
-    private String assignedGeographies;
+    private List<String> assignedGeographies;
 
     @Column(name = "max_case_capacity")
     private Integer maxCaseCapacity = 100;

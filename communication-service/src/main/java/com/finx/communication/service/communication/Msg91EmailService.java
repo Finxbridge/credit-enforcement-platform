@@ -55,6 +55,7 @@ public class Msg91EmailService {
     /**
      * Transforms the internal email request and sends it via MSG91.
      */
+    @SuppressWarnings("null")
     public com.finx.communication.domain.dto.email.Msg91EmailResponse sendEmail(InternalEmailRequest internalRequest) {
         try {
             // 1. Get integration config from cache (URL + API Key)

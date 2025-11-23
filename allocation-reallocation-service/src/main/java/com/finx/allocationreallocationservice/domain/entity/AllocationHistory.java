@@ -37,6 +37,7 @@ public class AllocationHistory {
     private Long allocatedToUserId;
 
     // Maps to existing new_owner_type column
+    @Builder.Default
     @Column(name = "new_owner_type", nullable = false)
     private String newOwnerType = "USER";
 
@@ -49,6 +50,7 @@ public class AllocationHistory {
     private Long allocatedFromUserId;
 
     // Maps to existing previous_owner_type column
+    @Builder.Default
     @Column(name = "previous_owner_type")
     private String previousOwnerType = "USER";
 
@@ -72,7 +74,8 @@ public class AllocationHistory {
     @Column(name = "batch_id")
     private String batchId;
 
-    // New column - will be added via migration (though changed_at can serve this purpose)
+    // New column - will be added via migration (though changed_at can serve this
+    // purpose)
     @Column(name = "created_at", nullable = false, updatable = false, insertable = false)
     private LocalDateTime createdAt;
 

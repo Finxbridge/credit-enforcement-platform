@@ -1,22 +1,21 @@
 package com.finx.allocationreallocationservice.domain.dto;
 
+import com.finx.allocationreallocationservice.domain.enums.ContactUpdateType;
 import com.opencsv.bean.CsvBindByName;
 import lombok.Data;
 
+/**
+ * Unified CSV row for contact updates
+ * Supports MOBILE_UPDATE, EMAIL_UPDATE, and ADDRESS_UPDATE
+ */
 @Data
 public class ContactUpdateCsvRow {
 
     @CsvBindByName(column = "case_id", required = true)
     private String caseId;
 
-    @CsvBindByName(column = "external_case_id")
-    private String externalCaseId;
-
-    @CsvBindByName(column = "loan_account_number")
-    private String loanAccountNumber;
-
-    @CsvBindByName(column = "customer_name")
-    private String customerName;
+    @CsvBindByName(column = "update_type", required = true)
+    private String updateType;
 
     @CsvBindByName(column = "mobile_number")
     private String mobileNumber;
@@ -41,9 +40,6 @@ public class ContactUpdateCsvRow {
 
     @CsvBindByName(column = "pincode")
     private String pincode;
-
-    @CsvBindByName(column = "update_type")
-    private String updateType;
 
     @CsvBindByName(column = "remarks")
     private String remarks;

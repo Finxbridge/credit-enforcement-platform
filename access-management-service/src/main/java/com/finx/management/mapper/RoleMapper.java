@@ -26,7 +26,7 @@ public interface RoleMapper {
     @Mapping(target = "permissions", ignore = true)
     @Mapping(source = "name", target = "roleName")
     @Mapping(source = "name", target = "roleCode") // Use name for roleCode
-    @Mapping(source = "status", target = "isActive")
+    @Mapping(source = "status", target = "isActive", qualifiedByName = "mapStatusWithDefault")
     Role toEntity(CreateRoleRequest createRoleRequest);
 
     @Mapping(target = "id", ignore = true)
@@ -47,5 +47,14 @@ public interface RoleMapper {
     @Named("stringToBoolean")
     default Boolean stringToBoolean(String value) {
         return "ACTIVE".equalsIgnoreCase(value);
+    }
+
+    /**
+     * Maps status from CreateRoleRequest to isActive with default value of true
+     * If status is null (not provided), defaults to true (ACTIVE)
+     */
+    @Named("mapStatusWithDefault")
+    default Boolean mapStatusWithDefault(Boolean status) {
+        return status != null ? status : true;
     }
 }

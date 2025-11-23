@@ -69,11 +69,13 @@ public class RedisConfig {
         return objectMapper;
     }
 
+    @SuppressWarnings("null")
     @Bean
     public RedisSerializer<Object> redisValueSerializer(ObjectMapper redisObjectMapper) {
         return new GenericJackson2JsonRedisSerializer(redisObjectMapper);
     }
 
+    @SuppressWarnings("null")
     @Bean
     public RedisTemplate<String, Object> redisTemplate(
             RedisConnectionFactory connectionFactory,
@@ -96,6 +98,7 @@ public class RedisConfig {
         return template;
     }
 
+    @SuppressWarnings("null")
     @Bean
     public CacheManager cacheManager(
             RedisConnectionFactory connectionFactory,

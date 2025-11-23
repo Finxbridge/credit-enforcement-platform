@@ -1,21 +1,25 @@
-server:
-  port: ${SERVER_PORT:8761}
-
 spring:
   application:
     name: eureka-server
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+
+server:
+  port: ${SERVER_PORT:8761}
 
 eureka:
-  instance:
-    hostname: eureka-server
   client:
-    registerWithEureka: false
-    fetchRegistry: false
-    serviceUrl:
-      defaultZone: http://${eureka.instance.hostname}:${server.port}/eureka/
+    register-with-eureka: false
+    fetch-registry: false
+    service-url:
+      defaultZone: ${EUREKA_SERVER_URL:http://localhost:8761/eureka/}
   server:
     enable-self-preservation: false
-    eviction-interval-timer-in-ms: 5000
+    peer-node-read-timeout-ms: 5000
+    peer-node-connect-timeout-ms: 2000
+    peer-node-connection-idle-timeout-seconds: 30
+    peer-eureka-nodes-update-interval-ms: 600000
+    peer-eureka-status-refresh-time-interval-ms: 30000
 
 management:
   endpoints:
@@ -24,9 +28,10 @@ management:
         include: health,info,metrics
   endpoint:
     health:
-      show-details: always
+      show-details: when_authorized
 
 logging:
   level:
-    com.netflix.eureka: INFO
-    com.netflix.discovery: INFO
+    root: ${LOGGING_LEVEL_ROOT:INFO}
+    com.netflix.eureka: ${LOGGING_LEVEL_EUREKA:DEBUG}
+    com.netflix.discovery: ${LOGGING_LEVEL_DISCOVERY:DEBUG}

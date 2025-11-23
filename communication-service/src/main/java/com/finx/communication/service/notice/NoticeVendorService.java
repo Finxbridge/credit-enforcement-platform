@@ -102,6 +102,7 @@ public class NoticeVendorService {
         return body;
     }
 
+    @SuppressWarnings("null")
     private String callVendorApi(String url, Map<String, Object> body, ThirdPartyIntegrationMaster config) {
         try {
             return webClient.post()
@@ -121,7 +122,8 @@ public class NoticeVendorService {
 
     private Map<String, Object> parseResponse(String response) {
         try {
-            return objectMapper.readValue(response, new TypeReference<Map<String, Object>>() {});
+            return objectMapper.readValue(response, new TypeReference<Map<String, Object>>() {
+            });
         } catch (Exception e) {
             log.warn("Failed to parse vendor response", e);
             return Map.of("raw_response", response);

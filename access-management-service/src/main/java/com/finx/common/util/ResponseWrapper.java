@@ -204,6 +204,7 @@ public class ResponseWrapper {
      * Usage: return ResponseWrapper.custom(HttpStatus.ACCEPTED,
      * CommonResponse.success(data));
      */
+    @SuppressWarnings("null")
     public static <T> ResponseEntity<CommonResponse<T>> custom(HttpStatus status, CommonResponse<T> response) {
         return ResponseEntity.status(status).body(response);
     }

@@ -56,6 +56,7 @@ public class OTPService {
      * Success: {"type": "success", "request_id": "..."}
      * Error: {"type": "error", "message": "..."}
      */
+    @SuppressWarnings("null")
     public Map<String, Object> sendOtp(OtpSendRequest request) {
         try {
             log.info("Sending OTP to mobile: {}", request.getMobile());
@@ -86,7 +87,8 @@ public class OTPService {
             log.info("MSG91 send OTP response: {}", rawResponse);
 
             // 6. Parse response
-            Map<String, Object> response = objectMapper.readValue(rawResponse, new TypeReference<>() {});
+            Map<String, Object> response = objectMapper.readValue(rawResponse, new TypeReference<>() {
+            });
 
             // 7. Save to database (only if successful)
             if ("success".equals(response.get("type"))) {
@@ -106,8 +108,7 @@ public class OTPService {
             log.error("Error sending OTP", e);
             return Map.of(
                     "type", "error",
-                    "message", e.getMessage() != null ? e.getMessage() : "Failed to send OTP"
-            );
+                    "message", e.getMessage() != null ? e.getMessage() : "Failed to send OTP");
         }
     }
 
@@ -148,7 +149,8 @@ public class OTPService {
             log.info("MSG91 verify OTP response: {}", rawResponse);
 
             // 4. Parse response
-            Map<String, Object> response = objectMapper.readValue(rawResponse, new TypeReference<>() {});
+            Map<String, Object> response = objectMapper.readValue(rawResponse, new TypeReference<>() {
+            });
 
             // 5. Update database asynchronously (only if successful)
             if ("success".equals(response.get("type"))) {
@@ -163,8 +165,7 @@ public class OTPService {
             return Map.of(
                     "code", "500",
                     "type", "error",
-                    "message", e.getMessage() != null ? e.getMessage() : "Failed to verify OTP"
-            );
+                    "message", e.getMessage() != null ? e.getMessage() : "Failed to verify OTP");
         }
     }
 
@@ -204,7 +205,8 @@ public class OTPService {
             log.info("MSG91 resend OTP response: {}", rawResponse);
 
             // 4. Parse response
-            Map<String, Object> response = objectMapper.readValue(rawResponse, new TypeReference<>() {});
+            Map<String, Object> response = objectMapper.readValue(rawResponse, new TypeReference<>() {
+            });
 
             // 5. Return raw MSG91 response
             return response;
@@ -214,8 +216,7 @@ public class OTPService {
             return Map.of(
                     "code", "500",
                     "type", "error",
-                    "message", e.getMessage() != null ? e.getMessage() : "Failed to resend OTP"
-            );
+                    "message", e.getMessage() != null ? e.getMessage() : "Failed to resend OTP");
         }
     }
 
@@ -229,7 +230,8 @@ public class OTPService {
      *
      * Response format:
      * Success: {"data": [...], "total": {...}}
-     * Error: {"code": "401", "errors": "Unauthorized", "status": "fail", "apiError": null, "hasError": true}
+     * Error: {"code": "401", "errors": "Unauthorized", "status": "fail",
+     * "apiError": null, "hasError": true}
      */
     public Map<String, Object> getAnalytics(String startDate, String endDate) {
         try {
@@ -257,7 +259,8 @@ public class OTPService {
             log.info("MSG91 analytics response: {}", rawResponse);
 
             // 4. Parse and return raw MSG91 response
-            return objectMapper.readValue(rawResponse, new TypeReference<>() {});
+            return objectMapper.readValue(rawResponse, new TypeReference<>() {
+            });
 
         } catch (Exception e) {
             log.error("Error fetching OTP analytics", e);
@@ -266,8 +269,7 @@ public class OTPService {
                     "errors", e.getMessage() != null ? e.getMessage() : "Failed to fetch analytics",
                     "status", "fail",
                     "apiError", null,
-                    "hasError", true
-            );
+                    "hasError", true);
         }
     }
 
@@ -290,9 +292,11 @@ public class OTPService {
 
     /**
      * Build MSG91 send OTP URL with query parameters
-     * Format: https://control.msg91.com/api/v5/otp?mobile=...&authkey=...&otp_expiry=...&template_id=...&realTimeResponse=1
+     * Format:
+     * https://control.msg91.com/api/v5/otp?mobile=...&authkey=...&otp_expiry=...&template_id=...&realTimeResponse=1
      */
-    private String buildSendOtpUrl(ThirdPartyIntegrationMaster config, String mobile, Integer otpExpiry, String templateId) {
+    private String buildSendOtpUrl(ThirdPartyIntegrationMaster config, String mobile, Integer otpExpiry,
+            String templateId) {
         StringBuilder url = new StringBuilder(config.getApiEndpoint());
         url.append("/api/v5/otp");
         url.append("?mobile=").append(mobile);
@@ -328,6 +332,7 @@ public class OTPService {
      * Uses @Async to not block the API response
      * Executes in background thread pool configured in AsyncConfig
      */
+    @SuppressWarnings("null")
     @Async("taskExecutor")
     private void saveOtpRequest(OtpSendRequest request, String requestId, String providerResponse, Integer otpExpiry) {
         try {

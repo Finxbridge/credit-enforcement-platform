@@ -47,6 +47,7 @@ public class SessionManagementService {
      * FR-AM-5: Single active session per user
      * Cache: session (TTL: 15 minutes - matches session timeout)
      */
+    @SuppressWarnings("null")
     @Transactional
     @CachePut(value = "session", key = "'session:' + #result.sessionId")
     public UserSession createSession(User user, String accessToken, String refreshToken,
@@ -170,6 +171,7 @@ public class SessionManagementService {
      * Terminate session and evict from cache
      * Cache: Removes session from Redis to prevent stale cache
      */
+    @SuppressWarnings("null")
     @Transactional
     @CacheEvict(value = "session", key = "'session:' + #sessionId")
     public void terminateSession(String sessionId, String reason) {
@@ -195,6 +197,7 @@ public class SessionManagementService {
      * Terminate all sessions for user (used during logout or admin action)
      * Cache: Evicts all sessions from cache
      */
+    @SuppressWarnings("null")
     @Transactional
     @CacheEvict(value = "session", allEntries = true)
     public void terminateAllSessionsForUser(Long userId, String reason) {
@@ -212,6 +215,7 @@ public class SessionManagementService {
     /**
      * Get active sessions for user
      */
+    @SuppressWarnings("null")
     @Cacheable(value = CacheConstants.ACTIVE_SESSIONS, key = "#userId")
     public ActiveSessionResponse getActiveSessionsForUser(Long userId) {
         List<UserSession> sessions = userSessionRepository.findActiveSessionsByUserId(userId);

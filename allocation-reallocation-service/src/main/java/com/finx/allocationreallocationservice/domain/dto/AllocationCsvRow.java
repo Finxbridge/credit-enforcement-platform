@@ -6,14 +6,14 @@ import lombok.Data;
 @Data
 public class AllocationCsvRow {
 
-    @CsvBindByName(column = "case_id", required = true)
+    @CsvBindByName(column = "case_id")
     private String caseId;
 
     @CsvBindByName(column = "external_case_id")
     private String externalCaseId;
 
-    @CsvBindByName(column = "loan_account_number")
-    private String loanAccountNumber;
+    @CsvBindByName(column = "loan_id", required = true)
+    private String loanId;
 
     @CsvBindByName(column = "customer_name")
     private String customerName;
