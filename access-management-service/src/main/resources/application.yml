@@ -19,8 +19,6 @@ spring:
         format_sql: ${JPA_FORMAT_SQL:false}
 
   flyway:
-    schemas: ${FLYWAY_SCHEMA_NAME:naveen}
-    default-schema: ${FLYWAY_SCHEMA_NAME:naveen}
     enabled: ${FLYWAY_ENABLED:true}
     baseline-on-migrate: ${FLYWAY_BASELINE_ON_MIGRATE:true}
     out-of-order: ${FLYWAY_OUT_OF_ORDER:false}
