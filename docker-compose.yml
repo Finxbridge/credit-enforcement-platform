@@ -43,11 +43,12 @@ services:
       - backend-net
 
   access-management-service:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        SERVICE_NAME: access-management-service
+    # build:
+    #   # context: .
+    #   # dockerfile: Dockerfile
+    #   args:
+    #     SERVICE_NAME: access-management-service
+    image: qvwy18uw.c1.de1.container-registry.ovh.net/fincolreg/access-management-service:1.0.0
     container_name: access-management-service
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:8081/actuator/health" ]
