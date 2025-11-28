@@ -11,7 +11,7 @@ import java.util.Map;
  * Feign Client for Communication Service
  * Used to sync templates with external providers (MSG91, Twilio, etc.)
  */
-@FeignClient(name = "communication-service", path = "/api/v1")
+@FeignClient(name = "communication-service", url = "${COMMUNICATION_SERVICE_URL:http://communication-service:8084}", path = "/api/v1")
 public interface CommunicationServiceClient {
 
     /**

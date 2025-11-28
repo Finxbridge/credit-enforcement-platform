@@ -6,7 +6,7 @@ import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 
-@FeignClient(name = "communication-service", fallback = CommunicationServiceFallback.class, configuration = FeignConfig.class)
+@FeignClient(name = "communication-service", url = "${COMMUNICATION_SERVICE_URL:http://communication-service:8084}", fallback = CommunicationServiceFallback.class, configuration = FeignConfig.class)
 public interface CommunicationServiceClient {
 
     @PostMapping("/comm/email/sendgrid/send")

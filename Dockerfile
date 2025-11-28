@@ -9,7 +9,6 @@ WORKDIR /workspace
 # Copy Maven descriptors first (for dependency caching)
 COPY pom.xml ./
 COPY api-gateway/pom.xml ./api-gateway/
-COPY eureka-server/pom.xml ./eureka-server/
 COPY access-management-service/pom.xml ./access-management-service/
 COPY communication-service/pom.xml ./communication-service/
 COPY master-data-service/pom.xml ./master-data-service/

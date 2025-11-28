@@ -14,7 +14,6 @@
   <description>Credit Enforcement Platform - Microservices Architecture</description>
   <modules>
     <!-- Infrastructure Modules -->
-    <module>eureka-server</module>
     <module>api-gateway</module>
     <!-- Microservices -->
     <module>access-management-service</module>

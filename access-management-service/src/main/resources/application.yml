@@ -9,14 +9,31 @@ spring:
     username: ${SPRING_DATASOURCE_USERNAME:admin}
     password: ${SPRING_DATASOURCE_PASSWORD:password}
     driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: ${DB_POOL_SIZE:20}
+      minimum-idle: ${DB_MIN_IDLE:5}
+      connection-timeout: ${DB_CONN_TIMEOUT:30000}
+      idle-timeout: ${DB_IDLE_TIMEOUT:600000}
+      max-lifetime: ${DB_MAX_LIFETIME:1800000}
+      connection-test-query: SELECT 1
 
   jpa:
     hibernate:
       ddl-auto: ${JPA_DDL_AUTO:validate}
-    show-sql: ${JPA_SHOW_SQL:false}
+    show-sql: ${JPA_SHOW_SQL:true}
     properties:
       hibernate:
         format_sql: ${JPA_FORMAT_SQL:false}
+        # Query performance optimizations
+        jdbc.batch_size: 20
+        order_inserts: true
+        order_updates: true
+        jdbc.fetch_size: 50
+        # Second level cache (optional - disabled for now)
+        cache.use_second_level_cache: false
+        # Query plan cache
+        query.plan_cache_max_size: 2048
+        query.plan_parameter_metadata_max_size: 128
 
   flyway:
     enabled: ${FLYWAY_ENABLED:true}
@@ -29,19 +46,13 @@ spring:
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
+      username: ${REDIS_USERNAME:}
+      password: ${REDIS_PASSWORD:}
+      ssl:
+        enabled: ${REDIS_SSL_ENABLED:false}
 
 server:
   port: ${SERVER_PORT:8081}
-
-eureka:
-  client:
-    service-url:
-      defaultZone: ${EUREKA_SERVER_URL:http://localhost:8761/eureka/}
-    fetch-registry: true
-    register-with-eureka: true
-  instance:
-    hostname: ${EUREKA_INSTANCE_HOSTNAME:localhost}
-    prefer-ip-address: ${EUREKA_INSTANCE_PREFER_IP_ADDRESS:false}
 
 management:
   endpoints:
@@ -56,6 +67,11 @@ logging:
   level:
     root: ${LOGGING_LEVEL_ROOT:INFO}
     com.finx: ${LOGGING_LEVEL_FINX:DEBUG}
+    org.springframework.cache: ${LOGGING_LEVEL_CACHE:INFO}
+    org.springframework.data.redis: ${LOGGING_LEVEL_REDIS:DEBUG}
+    io.lettuce.core: ${LOGGING_LEVEL_LETTUCE:DEBUG}
+    org.hibernate.SQL: ${LOGGING_LEVEL_HIBERNATE_SQL:INFO}
+    org.hibernate.type.descriptor.sql: ${LOGGING_LEVEL_HIBERNATE_TYPE:INFO}
 
 auth:
   token:

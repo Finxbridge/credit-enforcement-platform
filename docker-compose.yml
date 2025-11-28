@@ -1,47 +1,4 @@
 services:
-  redis:
-    image: redis:7.2-alpine
-    container_name: redis_cache
-    restart: unless-stopped
-    volumes:
-      - redis_data:/data
-    networks:
-      - backend-net
-    healthcheck:
-      test: [ "CMD", "redis-cli", "ping" ]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-  eureka-server:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        SERVICE_NAME: eureka-server
-    container_name: eureka-server
-    healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8761/actuator/health" ]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 60s
-    ports:
-      - "8761:8761"
-    environment:
-      - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-dev}
-      - SERVER_PORT=${SERVER_PORT_EUREKA:-8761}
-      - LOGGING_LEVEL_ROOT=${LOGGING_LEVEL_ROOT:-INFO}
-      - LOGGING_LEVEL_EUREKA=${LOGGING_LEVEL_EUREKA:-DEBUG}
-      - LOGGING_LEVEL_DISCOVERY=${LOGGING_LEVEL_DISCOVERY:-DEBUG}
-    networks:
-      - backend-net
-
   access-management-service:
     build:
       context: .
@@ -60,19 +17,19 @@ services:
     environment:
       - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-dev}
       - SERVER_PORT=${SERVER_PORT_ACCESS_MGMT:-8081}
-      - EUREKA_SERVER_URL=http://eureka-server:8761/eureka/
-      - EUREKA_INSTANCE_HOSTNAME=access-management-service
-      - EUREKA_INSTANCE_PREFER_IP_ADDRESS=${EUREKA_INSTANCE_PREFER_IP_ADDRESS:-false}
       - JWT_SECRET=${JWT_SECRET}
       - JWT_EXPIRATION=${JWT_EXPIRATION:-3600000}
       - JWT_ISSUER=${JWT_ISSUER:-finxbridge}
       - JWT_REFRESH_TOKEN_EXPIRY=${JWT_REFRESH_TOKEN_EXPIRY:-604800000}
       - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS}
-      - SPRING_DATASOURCE_URL=jdbc:postgresql://${POSTGRES_HOST:-host.docker.internal}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-staging_db}
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://${POSTGRES_HOST:-host.docker.internal}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-staging_db}?sslmode=${POSTGRES_SSL_MODE:-require}&connectTimeout=${POSTGRES_CONNECT_TIMEOUT:-30}
       - SPRING_DATASOURCE_USERNAME=${POSTGRES_USER:-admin}
       - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD:-password}
-      - REDIS_HOST=redis_cache
-      - REDIS_PORT=${REDIS_PORT:-6379}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - REDIS_USERNAME=${REDIS_USERNAME}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - REDIS_SSL_ENABLED=${REDIS_SSL_ENABLED:-false}
       - FLYWAY_ENABLED=${FLYWAY_ENABLED:-true}
       - FLYWAY_BASELINE_ON_MIGRATE=${FLYWAY_BASELINE_ON_MIGRATE:-true}
       - FLYWAY_OUT_OF_ORDER=${FLYWAY_OUT_OF_ORDER:-false}
@@ -83,11 +40,10 @@ services:
       - JPA_FORMAT_SQL=${JPA_FORMAT_SQL:-false}
       - LOGGING_LEVEL_ROOT=${LOGGING_LEVEL_ROOT:-INFO}
       - LOGGING_LEVEL_FINX=${LOGGING_LEVEL_FINX:-DEBUG}
-    depends_on:
-      eureka-server:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+      - LOGGING_LEVEL_CACHE=${LOGGING_LEVEL_CACHE:-TRACE}
+      - LOGGING_LEVEL_REDIS=${LOGGING_LEVEL_REDIS:-DEBUG}
+      - LOGGING_LEVEL_LETTUCE=${LOGGING_LEVEL_LETTUCE:-DEBUG}
+      - COMMUNICATION_SERVICE_URL=${COMMUNICATION_SERVICE_URL:-http://communication-service:8084}
     networks:
       - backend-net
 
@@ -103,17 +59,19 @@ services:
     environment:
       - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-dev}
       - SERVER_PORT=${SERVER_PORT_COMMUNICATION:-8084}
-      - EUREKA_SERVER_URL=http://eureka-server:8761/eureka/
-      - EUREKA_INSTANCE_HOSTNAME=communication-service
-      - EUREKA_INSTANCE_PREFER_IP_ADDRESS=${EUREKA_INSTANCE_PREFER_IP_ADDRESS:-false}
       - JWT_SECRET=${JWT_SECRET}
       - JWT_EXPIRATION=${JWT_EXPIRATION:-3600000}
       - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS}
-      - SPRING_DATASOURCE_URL=jdbc:postgresql://${POSTGRES_HOST:-host.docker.internal}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-staging_db}
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://${POSTGRES_HOST:-host.docker.internal}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-staging_db}?sslmode=${POSTGRES_SSL_MODE:-require}&connectTimeout=${POSTGRES_CONNECT_TIMEOUT:-30}
       - SPRING_DATASOURCE_USERNAME=${POSTGRES_USER:-admin}
       - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD:-password}
-      - REDIS_HOST=redis_cache
-      - REDIS_PORT=${REDIS_PORT:-6379}
+      ##      - REDIS_HOST=redis_cache
+      ##      - REDIS_PORT=${REDIS_PORT:-6379}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - REDIS_USERNAME=${REDIS_USERNAME}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - REDIS_SSL_ENABLED=${REDIS_SSL_ENABLED:-false}
       - FLYWAY_ENABLED=${FLYWAY_ENABLED:-true}
       - FLYWAY_BASELINE_ON_MIGRATE=${FLYWAY_BASELINE_ON_MIGRATE:-true}
       - FLYWAY_OUT_OF_ORDER=${FLYWAY_OUT_OF_ORDER:-false}
@@ -124,9 +82,10 @@ services:
       - JPA_FORMAT_SQL=${JPA_FORMAT_SQL:-false}
       - LOGGING_LEVEL_ROOT=${LOGGING_LEVEL_ROOT:-INFO}
       - LOGGING_LEVEL_FINX=${LOGGING_LEVEL_FINX:-DEBUG}
+      - LOGGING_LEVEL_CACHE=${LOGGING_LEVEL_CACHE:-TRACE}
+      - LOGGING_LEVEL_REDIS=${LOGGING_LEVEL_REDIS:-DEBUG}
+      - LOGGING_LEVEL_LETTUCE=${LOGGING_LEVEL_LETTUCE:-DEBUG}
     depends_on:
-      eureka-server:
-        condition: service_healthy
       access-management-service:
         condition: service_healthy
     networks:
@@ -150,14 +109,16 @@ services:
     environment:
       - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-dev}
       - SERVER_PORT=${SERVER_PORT_MASTER_DATA:-8085}
-      - EUREKA_SERVER_URL=http://eureka-server:8761/eureka/
-      - EUREKA_INSTANCE_HOSTNAME=master-data-service
-      - EUREKA_INSTANCE_PREFER_IP_ADDRESS=${EUREKA_INSTANCE_PREFER_IP_ADDRESS:-false}
-      - SPRING_DATASOURCE_URL=jdbc:postgresql://${POSTGRES_HOST:-host.docker.internal}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-staging_db}
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://${POSTGRES_HOST:-host.docker.internal}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-staging_db}?sslmode=${POSTGRES_SSL_MODE:-require}&connectTimeout=${POSTGRES_CONNECT_TIMEOUT:-30}
       - SPRING_DATASOURCE_USERNAME=${POSTGRES_USER:-admin}
       - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD:-password}
-      - REDIS_HOST=redis_cache
-      - REDIS_PORT=${REDIS_PORT:-6379}
+      ##      - REDIS_HOST=redis_cache
+      ##      - REDIS_PORT=${REDIS_PORT:-6379}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - REDIS_USERNAME=${REDIS_USERNAME}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - REDIS_SSL_ENABLED=${REDIS_SSL_ENABLED:-false}
       - FLYWAY_ENABLED=${FLYWAY_ENABLED:-true}
       - FLYWAY_BASELINE_ON_MIGRATE=${FLYWAY_BASELINE_ON_MIGRATE:-true}
       - FLYWAY_OUT_OF_ORDER=${FLYWAY_OUT_OF_ORDER:-false}
@@ -168,11 +129,10 @@ services:
       - JPA_FORMAT_SQL=${JPA_FORMAT_SQL:-false}
       - LOGGING_LEVEL_ROOT=${LOGGING_LEVEL_ROOT:-INFO}
       - LOGGING_LEVEL_FINX=${LOGGING_LEVEL_FINX:-DEBUG}
+      - LOGGING_LEVEL_CACHE=${LOGGING_LEVEL_CACHE:-TRACE}
+      - LOGGING_LEVEL_REDIS=${LOGGING_LEVEL_REDIS:-DEBUG}
+      - LOGGING_LEVEL_LETTUCE=${LOGGING_LEVEL_LETTUCE:-DEBUG}
     depends_on:
-      eureka-server:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
       access-management-service:
         condition: service_healthy
     networks:
@@ -196,14 +156,16 @@ services:
     environment:
       - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-dev}
       - SERVER_PORT=${SERVER_PORT_CASE_SOURCING:-8082}
-      - EUREKA_SERVER_URL=http://eureka-server:8761/eureka/
-      - EUREKA_INSTANCE_HOSTNAME=case-sourcing-service
-      - EUREKA_INSTANCE_PREFER_IP_ADDRESS=${EUREKA_INSTANCE_PREFER_IP_ADDRESS:-false}
-      - SPRING_DATASOURCE_URL=jdbc:postgresql://${POSTGRES_HOST:-host.docker.internal}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-staging_db}
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://${POSTGRES_HOST:-host.docker.internal}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-staging_db}?sslmode=${POSTGRES_SSL_MODE:-require}&connectTimeout=${POSTGRES_CONNECT_TIMEOUT:-30}
       - SPRING_DATASOURCE_USERNAME=${POSTGRES_USER:-admin}
       - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD:-password}
-      - REDIS_HOST=redis_cache
-      - REDIS_PORT=${REDIS_PORT:-6379}
+      ##      - REDIS_HOST=redis_cache
+      ##      - REDIS_PORT=${REDIS_PORT:-6379}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - REDIS_USERNAME=${REDIS_USERNAME}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - REDIS_SSL_ENABLED=${REDIS_SSL_ENABLED:-false}
       - FLYWAY_ENABLED=${FLYWAY_ENABLED:-true}
       - FLYWAY_BASELINE_ON_MIGRATE=${FLYWAY_BASELINE_ON_MIGRATE:-true}
       - FLYWAY_OUT_OF_ORDER=${FLYWAY_OUT_OF_ORDER:-false}
@@ -214,11 +176,10 @@ services:
       - JPA_FORMAT_SQL=${JPA_FORMAT_SQL:-false}
       - LOGGING_LEVEL_ROOT=${LOGGING_LEVEL_ROOT:-INFO}
       - LOGGING_LEVEL_FINX=${LOGGING_LEVEL_FINX:-DEBUG}
+      - LOGGING_LEVEL_CACHE=${LOGGING_LEVEL_CACHE:-TRACE}
+      - LOGGING_LEVEL_REDIS=${LOGGING_LEVEL_REDIS:-DEBUG}
+      - LOGGING_LEVEL_LETTUCE=${LOGGING_LEVEL_LETTUCE:-DEBUG}
     depends_on:
-      eureka-server:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
       access-management-service:
         condition: service_healthy
     networks:
@@ -242,14 +203,16 @@ services:
     environment:
       - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-dev}
       - SERVER_PORT=${SERVER_PORT_ALLOCATION:-8083}
-      - EUREKA_SERVER_URL=http://eureka-server:8761/eureka/
-      - EUREKA_INSTANCE_HOSTNAME=allocation-reallocation-service
-      - EUREKA_INSTANCE_PREFER_IP_ADDRESS=${EUREKA_INSTANCE_PREFER_IP_ADDRESS:-false}
-      - SPRING_DATASOURCE_URL=jdbc:postgresql://${POSTGRES_HOST:-host.docker.internal}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-staging_db}
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://${POSTGRES_HOST:-host.docker.internal}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-staging_db}?sslmode=${POSTGRES_SSL_MODE:-require}&connectTimeout=${POSTGRES_CONNECT_TIMEOUT:-30}
       - SPRING_DATASOURCE_USERNAME=${POSTGRES_USER:-admin}
       - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD:-password}
-      - REDIS_HOST=redis_cache
-      - REDIS_PORT=${REDIS_PORT:-6379}
+      ##      - REDIS_HOST=redis_cache
+      ##      - REDIS_PORT=${REDIS_PORT:-6379}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - REDIS_USERNAME=${REDIS_USERNAME}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - REDIS_SSL_ENABLED=${REDIS_SSL_ENABLED:-false}
       - FLYWAY_ENABLED=${FLYWAY_ENABLED:-true}
       - FLYWAY_BASELINE_ON_MIGRATE=${FLYWAY_BASELINE_ON_MIGRATE:-true}
       - FLYWAY_OUT_OF_ORDER=${FLYWAY_OUT_OF_ORDER:-false}
@@ -260,11 +223,10 @@ services:
       - JPA_FORMAT_SQL=${JPA_FORMAT_SQL:-false}
       - LOGGING_LEVEL_ROOT=${LOGGING_LEVEL_ROOT:-INFO}
       - LOGGING_LEVEL_FINX=${LOGGING_LEVEL_FINX:-DEBUG}
+      - LOGGING_LEVEL_CACHE=${LOGGING_LEVEL_CACHE:-TRACE}
+      - LOGGING_LEVEL_REDIS=${LOGGING_LEVEL_REDIS:-DEBUG}
+      - LOGGING_LEVEL_LETTUCE=${LOGGING_LEVEL_LETTUCE:-DEBUG}
     depends_on:
-      eureka-server:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
       access-management-service:
         condition: service_healthy
     networks:
@@ -282,15 +244,17 @@ services:
     environment:
       - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-dev}
       - SERVER_PORT=${SERVER_PORT_API_GATEWAY:-8080}
-      - EUREKA_SERVER_URL=http://eureka-server:8761/eureka/
-      - EUREKA_INSTANCE_HOSTNAME=api-gateway
-      - EUREKA_INSTANCE_PREFER_IP_ADDRESS=${EUREKA_INSTANCE_PREFER_IP_ADDRESS:-false}
       - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:8080}
-      - SPRING_DATASOURCE_URL=jdbc:postgresql://${POSTGRES_HOST:-host.docker.internal}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-staging_db}
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://${POSTGRES_HOST:-host.docker.internal}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-staging_db}?sslmode=${POSTGRES_SSL_MODE:-require}&connectTimeout=${POSTGRES_CONNECT_TIMEOUT:-30}
       - SPRING_DATASOURCE_USERNAME=${POSTGRES_USER:-admin}
       - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD:-password}
-      - REDIS_HOST=redis_cache
-      - REDIS_PORT=${REDIS_PORT:-6379}
+      ##      - REDIS_HOST=redis_cache
+      ##      - REDIS_PORT=${REDIS_PORT:-6379}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - REDIS_USERNAME=${REDIS_USERNAME}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - REDIS_SSL_ENABLED=${REDIS_SSL_ENABLED:-false}
       - FLYWAY_ENABLED=${FLYWAY_ENABLED:-true}
       - FLYWAY_BASELINE_ON_MIGRATE=${FLYWAY_BASELINE_ON_MIGRATE:-true}
       - FLYWAY_OUT_OF_ORDER=${FLYWAY_OUT_OF_ORDER:-false}
@@ -307,9 +271,14 @@ services:
       - CIRCUIT_BREAKER_WAIT_DURATION=${CIRCUIT_BREAKER_WAIT_DURATION:-5s}
       - LOGGING_LEVEL_ROOT=${LOGGING_LEVEL_ROOT:-INFO}
       - LOGGING_LEVEL_FINX=${LOGGING_LEVEL_FINX:-DEBUG}
-    depends_on:
-      eureka-server:
-        condition: service_healthy
+      - LOGGING_LEVEL_CACHE=${LOGGING_LEVEL_CACHE:-TRACE}
+      - LOGGING_LEVEL_REDIS=${LOGGING_LEVEL_REDIS:-DEBUG}
+      - LOGGING_LEVEL_LETTUCE=${LOGGING_LEVEL_LETTUCE:-DEBUG}
+      - ACCESS_MANAGEMENT_SERVICE_URL=${ACCESS_MANAGEMENT_SERVICE_URL:-http://access-management-service:8081}
+      - MASTER_DATA_SERVICE_URL=${MASTER_DATA_SERVICE_URL:-http://master-data-service:8085}
+      - CASE_SOURCING_SERVICE_URL=${CASE_SOURCING_SERVICE_URL:-http://case-sourcing-service:8082}
+      - ALLOCATION_REALLOCATION_SERVICE_URL=${ALLOCATION_REALLOCATION_SERVICE_URL:-http://allocation-reallocation-service:8083}
+      - COMMUNICATION_SERVICE_URL=${COMMUNICATION_SERVICE_URL:-http://communication-service:8084}
     networks:
       - backend-net
 

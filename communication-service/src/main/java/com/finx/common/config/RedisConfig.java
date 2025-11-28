@@ -13,6 +13,7 @@ import org.springframework.data.redis.cache.RedisCacheConfiguration;
 import org.springframework.data.redis.cache.RedisCacheManager;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
+import org.springframework.data.redis.connection.lettuce.LettuceClientConfiguration;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
@@ -47,11 +48,17 @@ public class RedisConfig {
         @Value("${spring.data.redis.port:6379}")
         private int redisPort;
 
+        @Value("${spring.data.redis.username:}")
+        private String redisUsername;
+
         @Value("${spring.data.redis.password:}")
         private String redisPassword;
 
         @Value("${spring.data.redis.database:0}")
         private int redisDatabase;
+
+        @Value("${spring.data.redis.ssl.enabled:false}")
+        private boolean sslEnabled;
 
         /**
          * Redis Connection Factory using Lettuce
@@ -59,18 +66,38 @@ public class RedisConfig {
         @SuppressWarnings("null")
         @Bean
         public RedisConnectionFactory redisConnectionFactory() {
-                log.info("Initializing Redis connection to {}:{} database: {}", redisHost, redisPort, redisDatabase);
+                log.info("Initializing Redis connection to {}:{} database: {} SSL: {}", redisHost, redisPort, redisDatabase, sslEnabled);
 
                 RedisStandaloneConfiguration config = new RedisStandaloneConfiguration();
                 config.setHostName(redisHost);
                 config.setPort(redisPort);
                 config.setDatabase(redisDatabase);
 
+                if (redisUsername != null && !redisUsername.isEmpty()) {
+                        config.setUsername(redisUsername);
+                }
+
                 if (redisPassword != null && !redisPassword.isEmpty()) {
                         config.setPassword(redisPassword);
                 }
 
-                return new LettuceConnectionFactory(config);
+                LettuceClientConfiguration clientConfig;
+
+                if (sslEnabled) {
+                        log.info("Configuring SSL/TLS for Redis connection");
+                        clientConfig = LettuceClientConfiguration.builder()
+                                .commandTimeout(Duration.ofSeconds(10))
+                                .useSsl()
+                                .build();
+                } else {
+                        clientConfig = LettuceClientConfiguration.builder()
+                                .commandTimeout(Duration.ofSeconds(10))
+                                .build();
+                }
+
+                LettuceConnectionFactory factory = new LettuceConnectionFactory(config, clientConfig);
+                log.info("Redis connection factory created successfully");
+                return factory;
         }
 
         /**

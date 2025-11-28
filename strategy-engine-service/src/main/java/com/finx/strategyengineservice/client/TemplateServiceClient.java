@@ -9,7 +9,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 /**
  * Feign Client for Template Management Service
  */
-@FeignClient(name = "template-management-service", path = "/api/v1/templates")
+@FeignClient(name = "template-management-service", url = "${TEMPLATE_SERVICE_URL:http://template-management-service:8087}", path = "/api/v1/templates")
 public interface TemplateServiceClient {
 
     /**
