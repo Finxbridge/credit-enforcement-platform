@@ -1,0 +1,280 @@
+    1  la
+    2  ls
+    3  cd ~
+    4  cd C
+    5  ls
+    6  cd C:/
+    7  cd Projects/
+    8  ls
+    9  cd Collection
+   10  ls
+   11  cd credit-enforcement-platform/
+   12  ls
+   13  echo -n "postgresql-9011f0fc-o4187f84d.database.cloud.ovh.net" | base64
+   14  [200~echo -n "20184" | base64
+   15  echo -n "defaultdb" | base64
+   16  echo -n "avnadmin" | base64
+   17  echo -n "KE5PMicV9Z0aO1XJRNx3" | base64
+   18  [200~openssl rand -base64 32 | base64
+   19  openssl rand -base64 32 | base64
+   20  echo -n "finxbridge" | base64
+   21  kubectl cluster-info
+   22  [200~kubectl create secret docker-registry ovh-registry-secret   --docker-server=qvwy18uw.c1.de1.container-registry.ovh.net   --docker-username=fnEXvAjPJn   --docker-password=8xHa6p07531249PR   --namespace=credit-enforcement   --dry-run=client -o yaml > ovh-registry-secret.yaml~
+   23  kubectl create secret docker-registry ovh-registry-secret   --docker-server=qvwy18uw.c1.de1.container-registry.ovh.net   --docker-username=fnEXvAjPJn   --docker-password=8xHa6p07531249PR   --namespace=credit-enforcement   --dry-run=client -o yaml > ovh-registry-secret.yaml
+   24  kubectl apply -f secrets-actual.yaml
+   25  ls
+   26  cat secrets-actual.yaml
+   27  cp secrets.yaml secrets-actual.yaml
+   28  cd k8s
+   29  cd base
+   30  cp secrets.yaml secrets-actual.yaml
+   31  kubectl apply -f secrets-actual.yaml
+   32  echo -n "postgresql-9011f0fc-o4187f84d.database.cloud.ovh.net" | base64
+   33  echo -n "20184" | base64
+   34  echo -n "defaultdb" | base64
+   35  echo -n "avnadmin" | base64
+   36  echo -n "KE5PMicV9Z0aO1XJRNx3" | base64
+   37  # JWT Secret (generate new one!)
+   38  openssl rand -base64 32 | base64
+   39  echo -n "finxbridge" | base64
+   40  kubectl create secret docker-registry ovh-registry-secret   --docker-server=qvwy18uw.c1.de1.container-registry.ovh.net   --docker-username=fnEXvAjPJn   --docker-password=8xHa6p07531249PR   --namespace=credit-enforcement   --dry-run=client -o yaml > ovh-registry-secret.yaml
+   41  kubectl apply -f secrets-actual.yaml
+   42  openssl rand -base64 32
+   43  kubectl apply -f secrets-actual.yaml
+   44  [200~openssl rand -base64 32
+   45  openssl rand -base64 32
+   46  kubectl apply -f secrets-actual.yaml
+   47  kubectl apply -f secrets-actual.yaml
+   48  kubectl apply -f secrets-actual.yaml
+   49  kubectl apply -f secrets-actual.yaml
+   50  kubectl cluster-info
+   51  kubectl node
+   52  kubectl node-info
+   53  kubectl get nodes
+   54  kubectl get storageclass
+   55  cp secrets.yaml secrets-actual.yaml
+   56  echo -n "postgresql-9011f0fc-o4187f84d.database.cloud.ovh.net" | base64 -w 0
+   57  echo -n "20184" | base64 -w 0
+   58  echo -n "defaultdb" | base64 -w 0
+   59  echo -n "avnadmin" | base64 -w 0
+   60  echo -n "KE5PMicV9Z0aO1XJRNx3" | base64 -w 0
+   61  openssl rand -base64 32
+   62  echo -n "finxbridge" | base64 -w 0
+   63  kubectl apply -f secrets-actual.yaml
+   64  echo -n "http://localhost:3000" | base64 -w 0
+   65  kubectl apply -f secrets-actual.yaml
+   66  kubectl get ns
+   67  kubectl get all -n default
+   68  kubectl get all -n kube-system
+   69  kubectl create namespace credit-enforcement
+   70  kubectl apply -f secrets-actual.yaml
+   71  kubectl get ns
+   72  kubectl get secrets -n credit-enforcement
+   73  kubectl apply -f configmap.yaml
+   74  kubectl apply -f redis-statefulset.yaml
+   75  kubectl wait --for=condition=ready pod -l app=redis -n credit-enforcement --timeout=300s
+   76  kubectl get pods -n credit-enforcement
+   77  kubectl get pvc -n credit-enforcement
+   78  clear
+   79  kubectl apply -f eureka-server.yaml
+   80  kubectl wait --for=condition=ready pod -l app=eureka-server -n credit-enforcement --timeout=300s
+   81  kubectl get pods -n credit-enforcement -l app=eureka-server
+   82  kubectl get pods -n credit-enforcement
+   83  kubectl apply -f access-management-service.yaml
+   84  kubectl wait --for=condition=ready pod -l app=access-management-service -n credit-enforcement --timeout=300s
+   85  kubectl get pods -n credit-enforcement
+   86  kubectl apply -f master-data-service.yaml
+   87  kubectl apply -f case-sourcing-service.yaml
+   88  kubectl apply -f communication-service.yaml
+   89  kubectl apply -f allocation-reallocation-service.yaml
+   90  kubectl get pods -n credit-enforcement
+   91  kubectl get pods -n credit-enforcement
+   92  kubectl apply -f api-gateway.yaml
+   93  kubectl get pods -n credit-enforcement
+   94  kubectl get pods -n credit-enforcement
+   95  kubectl get pods -n credit-enforcement
+   96  kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.8.2/deploy/static/provider/cloud/deploy.yaml
+   97  kubectl get svc -n ingress-nginx ingress-nginx-controller -w
+   98  INGRESS_IP=$(kubectl get svc -n ingress-nginx ingress-nginx-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+   99  echo "Your Ingress External IP: $INGRESS_IP"
+  100  kubectl apply -f ingress.yaml
+  101  kubectl get svc -n credit-enforcement
+  102  kubectl get pods -n credit-enforcement
+  103  kubectl port-forward svc/eureka-server 8761:8761 -n credit-enforcement
+  104  kubectl get pods -n credit-enforcement
+  105  clear
+  106  kubectl get pods -n credit-enforcement
+  107  kubectl get pods -n credit-enforcement
+  108  kubectl get pods -n credit-enforcement
+  109  kubectl logs -f deployment/api-gateway -n credit-enforcement
+  110  kubectl get pods -n credit-enforcement
+  111  kubectl logs -f deployment/eureka-server -n credit-enforcement
+  112  clear
+  113  kubectl scale deployment --all --replicas=0 -n credit-enforcement
+  114  kubectl get pods -n credit-enforcement
+  115  kubectl get pods -n credit-enforcement
+  116  kubectl get pods -n credit-enforcement
+  117  kubectl get pods -n credit-enforcement
+  118  kubectl scale deployment eureka-server --replicas=1 -n credit-enforcement
+  119  kubectl get pods -n credit-enforcement
+  120  kubectl get pods -n credit-enforcement
+  121  kubectl get pods -n credit-enforcement
+  122  kubectl get pods -n credit-enforcement
+  123  kubectl get pods -n credit-enforcement
+  124  kubectl scale deployment access-management-service --replicas=1 -n credit-enforcement
+  125  kubectl get pods -n credit-enforcement
+  126  kubectl get pods -n credit-enforcement
+  127  kubectl scale deployment master-data-service --replicas=1 -n credit-enforcement
+  128  kubectl scale deployment case-sourcing-service --replicas=1 -n credit-enforcement
+  129  kubectl scale deployment communication-service --replicas=1 -n credit-enforcement
+  130  kubectl get pods -n credit-enforcement
+  131  kubectl scale deployment allocation-reallocation-service --replicas=1 -n credit-enforcement
+  132  kubectl get pods -n credit-enforcement
+  133  kubectl get pods -n credit-enforcement
+  134  kubectl get pods -n credit-enforcement
+  135  kubectl get pods -n credit-enforcement
+  136  kubectl scale deployment api-gateway --replicas=1 -n credit-enforcement
+  137  kubectl get pods -n credit-enforcement
+  138  kubectl get pods -n credit-enforcement
+  139  echo "Your Ingress External IP: $INGRESS_IP"
+  140    postman request POST 'http://57.129.92.33/api/v1/access/auth/login'   --header 'Content-Type: application/json'   --body '{
+    "username": "superadmin",
+    "password": "Collect@123",
+    "deviceType": "WEB",
+    "ipAddress": "192.168.31.7"
+}'
+  141  curl --location 'http://57.129.92.33/api/v1/access/auth/login' --header 'Content-Type: application/json' --data-raw '{
+    "username": "superadmin",
+    "password": "Collect@123",
+    "deviceType": "WEB",
+    "ipAddress": "192.168.31.7"
+}'
+  142  kubectl get pods -n credit-enforcement
+  143  kubectl logs -f deployment/eureka-server -n credit-enforcement
+  144  curl --location 'https://api.yourdomain.com/api/v1/access/auth/login' --header 'Content-Type: application/json' --data-raw '{
+    "username": "superadmin",
+    "password": "Collect@123",
+    "deviceType": "WEB",
+    "ipAddress": "192.168.31.7"
+}'
+  145  curl --location 'http://57.129.92.33/api/v1/access/auth/login' --header 'Content-Type: application/json' --data-raw '{
+    "username": "superadmin",
+    "password": "Collect@123",
+    "deviceType": "WEB",
+    "ipAddress": "192.168.31.7"
+}'
+  146  kubectl logs -f deployment/api-gateway -n credit-enforcement
+  147  clear
+  148  kubectl apply -f access-management-service.yaml
+  149  kubectl apply -f master-data-service.yaml
+  150  kubectl apply -f case-sourcing-service.yaml
+  151  kubectl apply -f communication-service.yaml
+  152  kubectl apply -f allocation-reallocation-service.yaml
+  153  kubectl apply -f api-gateway.yaml
+  154  kubectl rollout status deployment/api-gateway -n credit-enforcement
+  155  kubectl rollout status deployment/access-management-service -n credit-enforcement
+  156  kubectl port-forward svc/eureka-server 8761:8761 -n credit-enforcement
+  157  kubectl port-forward svc/eureka-server 8761:8761 -n credit-enforcement
+  158  kubectl port-forward svc/eureka-server 8761:8761 -n credit-enforcement
+  159  curl --location 'http://57.129.92.33/api/v1/access/auth/login' --header 'Content-Type: application/json' --data-raw '{
+    "username": "superadmin",
+    "password": "Collect@123",
+    "deviceType": "WEB",
+    "ipAddress": "192.168.31.7"
+}'
+  160  curl --location 'https://57.129.92.33/api/v1/access/auth/login' --header 'Content-Type: application/json' --data-raw '{
+    "username": "superadmin",
+    "password": "Collect@123",
+    "deviceType": "WEB",
+    "ipAddress": "192.168.31.7"
+}'
+  161  kubectl logs -f deployment/api-gateway -n credit-enforcement
+  162  curl --location 'https://57.129.92.33/api/v1/access/auth/login' --header 'Content-Type: application/json' --data-raw '{
+    "username": "superadmin",
+    "password": "Collect@123",
+    "deviceType": "WEB",
+    "ipAddress": "192.168.31.7"
+}'
+  163  curl --location 'http://57.129.92.33/api/v1/access/auth/login' --header 'Content-Type: application/json' --data-raw '{
+    "username": "superadmin",
+    "password": "Collect@123",
+    "deviceType": "WEB",
+    "ipAddress": "192.168.31.7"
+}'
+  164  kubectl logs -f deployment/api-gateway -n credit-enforcement
+  165  kubectl get pods -n credit-enforcement
+  166  curl --location 'http://57.129.92.33/api/v1/access/auth/login' --header 'Content-Type: application/json' --data-raw '{
+    "username": "superadmin",
+    "password": "Collect@123",
+    "deviceType": "WEB",
+    "ipAddress": "192.168.31.7"
+}'
+  167  curl --location 'http://57.129.92.33/access/auth/login' --header 'Content-Type: application/json' --data-raw '{
+    "username": "superadmin",
+    "password": "Collect@123",
+    "deviceType": "WEB",
+    "ipAddress": "192.168.31.7"
+}'
+  168  kubectl set image deployment/api-gateway   api-gateway=qvwy18uw.c1.de1.container-registry.ovh.net/fincolreg/api-gateway:3.0.0   -n credit-enforcement
+  169  kubectl rollout status deployment/api-gateway -n credit-enforcement
+  170  curl --location 'http://57.129.92.33/access/auth/login' --header 'Content-Type: application/json' --data-raw '{
+    "username": "superadmin",
+    "password": "Collect@123",
+    "deviceType": "WEB",
+    "ipAddress": "192.168.31.7"
+}'
+  171  curl --location 'http://57.129.92.33/api/v1/access/auth/login' --header 'Content-Type: application/json' --data-raw '{
+    "username": "superadmin",
+    "password": "Collect@123",
+    "deviceType": "WEB",
+    "ipAddress": "192.168.31.7"
+}'
+  172  kubectl set image deployment/api-gateway   api-gateway=qvwy18uw.c1.de1.container-registry.ovh.net/fincolreg/api-gateway:2.0.0   -n credit-enforcement
+  173  kubectl rollout status deployment/api-gateway -n credit-enforcement
+  174  curl --location 'http://57.129.92.33/api/v1/access/auth/login' --header 'Content-Type: application/json' --data-raw '{
+    "username": "superadmin",
+    "password": "Collect@123",
+    "deviceType": "WEB",
+    "ipAddress": "192.168.31.7"
+}'
+  175  kubectl logs -f deployment/access-management-service -n credit-enforcement
+  176  curl -v --location 'http://57.129.92.33/api/v1/access/auth/login' --header 'Content-Type: application/json' --data-raw '{
+    "username": "superadmin",
+    "password": "Collect@123",
+    "deviceType": "WEB",
+    "ipAddress": "192.168.31.7"
+}'
+  177  kubectl port-forward svc/access-management-service 8081:8081 -n credit-enforcement
+  178  kubectl port-forward svc/api-gateway 8080:8080 -n credit-enforcement
+  179  kubectl logs -f deployment/api-gateway -n credit-enforcement --tail=50
+  180  kubectl get ingress -n credit-enforcement
+  181  INGRESS_IP=$(kubectl get svc -n ingress-nginx ingress-nginx-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+  182  curl -v -H "Host: api.yourdomain.com"   -X POST http://$INGRESS_IP/api/v1/access/auth/login   -H "Content-Type: application/json"   -d '{"username":"test","password":"test123"}'
+  183  kubectl get ingress -n credit-enforcement
+  184  curl -v --location 'http://api.yourdomain.com/api/v1/access/auth/login' --header 'Content-Type: application/json' --data-raw '{
+    "username": "superadmin",
+    "password": "Collect@123",
+    "deviceType": "WEB",
+    "ipAddress": "192.168.31.7"
+}'
+  185  kubectl get svc -n ingress-nginx ingress-nginx-controller
+  186  curl -v --location 'http://57.129.92.33/api/v1/access/auth/login' --header 'Content-Type: application/json' --data-raw '{
+    "username": "superadmin",
+    "password": "Collect@123",
+    "deviceType": "WEB",
+    "ipAddress": "192.168.31.7"
+}'
+  187  ACTUAL_IP=$(kubectl get svc -n ingress-nginx ingress-nginx-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+  188  echo $ACTUAL_IP
+  189  echo "$ACTUAL_IP api.yourdomain.com" | sudo tee -a /etc/hosts
+  190  curl -v -X POST http://api.yourdomain.com/api/v1/access/auth/login   -H "Content-Type: application/json"   -d '{"username":"superadmin","password":"Collect@123"}'
+  191  kubectl set image deployment/api-gateway   api-gateway=qvwy18uw.c1.de1.container-registry.ovh.net/fincolreg/api-gateway:4.0.0   -n credit-enforcement
+  192  kubectl rollout status deployment/api-gateway -n credit-enforcement
+  193  curl -v -X POST http://57.129.92.33/api/v1/access/auth/login   -H "Content-Type: application/json"   -d '{
+    "username": "superadmin",
+    "password": "Collect@123",
+    "deviceType": "WEB",
+    "ipAddress": "192.168.31.7"
+  }'
+  194  history
+  195  history > commands.txt

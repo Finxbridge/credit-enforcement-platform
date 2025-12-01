@@ -1,0 +1,180 @@
+# ============================================
+# EUREKA SERVER - SERVICE DISCOVERY
+# ============================================
+#
+# WHY DEPLOY FIRST?
+# - All microservices register with Eureka on startup
+# - If Eureka is down, services can't register and discover each other
+# - Must be healthy before deploying other services
+#
+# KUBERNETES SERVICE DISCOVERY vs EUREKA:
+# - K8s has built-in DNS-based service discovery
+# - But Eureka provides:
+#   * Client-side load balancing (Ribbon/LoadBalancer)
+#   * Health checks and circuit breakers
+#   * Dynamic service registry (no DNS TTL issues)
+#   * Works with Spring Cloud ecosystem
+#
+# SERVICE DNS IN KUBERNETES:
+# - Service name: eureka-server
+# - Full DNS: eureka-server.credit-enforcement.svc.cluster.local
+# - Short DNS (same namespace): eureka-server
+#
+# ============================================
+
+---
+# Service - exposes Eureka to other pods
+apiVersion: v1
+kind: Service
+metadata:
+  name: eureka-server
+  namespace: credit-enforcement
+  labels:
+    app: eureka-server
+spec:
+  type: ClusterIP  # Internal only, not exposed to internet
+  ports:
+    - port: 8761
+      targetPort: 8761
+      protocol: TCP
+      name: http
+  selector:
+    app: eureka-server
+
+---
+# Deployment - manages Eureka pod(s)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: eureka-server
+  namespace: credit-enforcement
+  labels:
+    app: eureka-server
+spec:
+  replicas: 1  # Single instance for dev/staging, 3+ for production HA
+
+  # Rolling update strategy - zero downtime deployments
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1        # Create 1 extra pod during update
+      maxUnavailable: 0  # Keep all pods running during update
+
+  selector:
+    matchLabels:
+      app: eureka-server
+
+  template:
+    metadata:
+      labels:
+        app: eureka-server
+    spec:
+      # Image pull secret for private OVH registry
+      imagePullSecrets:
+        - name: ovh-registry-secret
+
+      containers:
+      - name: eureka-server
+        image: qvwy18uw.c1.de1.container-registry.ovh.net/fincolreg/eureka-server:1.0.0
+        imagePullPolicy: Always  # Always pull latest image (use IfNotPresent for production with tags)
+
+        ports:
+        - containerPort: 8761
+          name: http
+
+        # Environment variables from ConfigMap and Secrets
+        env:
+        - name: SPRING_PROFILES_ACTIVE
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: SPRING_PROFILES_ACTIVE
+
+        - name: SERVER_PORT
+          value: "8761"
+
+        - name: LOGGING_LEVEL_ROOT
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: LOGGING_LEVEL_ROOT
+
+        - name: LOGGING_LEVEL_EUREKA
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: LOGGING_LEVEL_EUREKA
+
+        - name: LOGGING_LEVEL_DISCOVERY
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: LOGGING_LEVEL_DISCOVERY
+
+        # Eureka server configuration
+        - name: EUREKA_CLIENT_REGISTER_WITH_EUREKA
+          value: "false"  # Server doesn't register with itself
+
+        - name: EUREKA_CLIENT_FETCH_REGISTRY
+          value: "false"  # Server doesn't fetch registry from itself
+
+        # Resource limits - prevents pod from consuming all node resources
+        resources:
+          requests:
+            memory: "512Mi"  # Minimum guaranteed memory
+            cpu: "250m"      # Minimum guaranteed CPU (0.25 cores)
+          limits:
+            memory: "1Gi"    # Maximum memory before OOMKill
+            cpu: "500m"      # Maximum CPU (0.5 cores)
+
+        # Startup probe - gives app time to start (important for slow JVM startup)
+        startupProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8761
+          initialDelaySeconds: 30  # Wait 30s before first check
+          periodSeconds: 10        # Check every 10s
+          failureThreshold: 12     # Allow 2 minutes total startup time (12 * 10s)
+
+        # Liveness probe - restarts pod if unhealthy
+        livenessProbe:
+          httpGet:
+            path: /actuator/health/liveness
+            port: 8761
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+
+        # Readiness probe - removes pod from service if not ready
+        readinessProbe:
+          httpGet:
+            path: /actuator/health/readiness
+            port: 8761
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+
+---
+# DEPLOYMENT NOTES:
+#
+# 1. HEALTH CHECKS EXPLAINED:
+#    - startupProbe: Protects slow-starting apps (JVM initialization)
+#    - livenessProbe: Detects deadlocks, restarts pod if app hangs
+#    - readinessProbe: Prevents traffic to pods not ready to serve
+#
+# 2. RESOURCE LIMITS:
+#    - requests: Kubernetes scheduler guarantees these resources
+#    - limits: Pod is killed if exceeds these (OOMKilled)
+#    - No limits = pod can consume all node resources (BAD!)
+#
+# 3. ROLLING UPDATES:
+#    - maxSurge=1: Creates new pod before killing old
+#    - maxUnavailable=0: Ensures no downtime during deployment
+#    - Process: New pod starts → readiness passes → old pod terminates
+#
+# 4. IMAGE PULL POLICY:
+#    - Always: Pulls image every time (use for 'latest' tag)
+#    - IfNotPresent: Only pulls if not cached (use for versioned tags)
+#    - Never: Only uses local cache

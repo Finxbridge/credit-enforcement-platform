@@ -1,0 +1,192 @@
+# ============================================
+# INGRESS - EXTERNAL ACCESS TO YOUR CLUSTER
+# ============================================
+#
+# WHAT IS INGRESS?
+# - Manages external HTTP/HTTPS access to services in cluster
+# - Acts as reverse proxy and load balancer
+# - Single entry point for all external traffic
+#
+# WHY USE INGRESS (vs LoadBalancer)?
+# - LoadBalancer creates separate external IP per service ($$$)
+# - Ingress uses ONE external IP for ALL services (cheaper)
+# - Provides SSL/TLS termination, domain routing, path-based routing
+#
+# INGRESS vs API GATEWAY:
+# - Ingress: Layer 7 (HTTP) routing at infrastructure level
+#   * Routes: example.com → api-gateway service
+#   * Handles SSL certificates
+#   * Path routing: /api → backend, /admin → admin-panel
+#
+# - API Gateway: Application-level routing
+#   * Routes: /api/auth → auth service, /api/cases → case service
+#   * Business logic, authentication, circuit breaking
+#
+# PREREQUISITES:
+# 1. Install Ingress Controller in cluster (NGINX recommended)
+# 2. Configure DNS to point to LoadBalancer IP
+# 3. Setup SSL certificates (Let's Encrypt, cert-manager)
+#
+# ============================================
+
+---
+# Ingress Controller must be installed first
+# For OVH Kubernetes, install NGINX Ingress Controller:
+#
+# kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.8.2/deploy/static/provider/cloud/deploy.yaml
+#
+# This creates:
+# - Ingress controller pods (handles routing logic)
+# - LoadBalancer service (gets external IP from OVH)
+# - ConfigMaps and RBAC resources
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: credit-enforcement-ingress
+  namespace: credit-enforcement
+  annotations:
+    # NGINX Ingress Controller annotations
+    kubernetes.io/ingress.class: "nginx"
+
+    # SSL redirect - force HTTPS
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+
+    # Client body size - increase for file uploads
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+
+    # Timeouts - increase for long-running requests
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+
+    # CORS headers (if not handled by API Gateway)
+    # nginx.ingress.kubernetes.io/enable-cors: "true"
+    # nginx.ingress.kubernetes.io/cors-allow-origin: "https://yourdomain.com"
+
+    # Rate limiting (optional, recommended for production)
+    # nginx.ingress.kubernetes.io/limit-rps: "100"
+
+    # Cert-manager annotation for automatic SSL (if using cert-manager)
+    # cert-manager.io/cluster-issuer: "letsencrypt-prod"
+
+spec:
+  # TLS/SSL Configuration
+  tls:
+  - hosts:
+    - api.yourdomain.com  # Replace with your actual domain
+    - www.yourdomain.com
+    secretName: credit-enforcement-tls  # Kubernetes secret containing SSL certificate
+    # If using cert-manager, this secret is auto-created
+    # Otherwise, create manually with your SSL cert
+
+  rules:
+  # Rule 1: API traffic → API Gateway
+  - host: api.yourdomain.com  # Replace with your actual API domain
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: api-gateway
+            port:
+              number: 8080
+
+  # Rule 2: Eureka Dashboard (optional, for monitoring - consider restricting access)
+  - host: eureka.yourdomain.com  # Replace with your actual domain
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: eureka-server
+            port:
+              number: 8761
+
+---
+# ALTERNATIVE: Simple Ingress without TLS (for testing only)
+# Use this for initial testing, then switch to TLS version above
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: credit-enforcement-ingress-http
+  namespace: credit-enforcement
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+spec:
+  rules:
+  - http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: api-gateway
+            port:
+              number: 8080
+
+---
+# DEPLOYMENT STEPS:
+#
+# 1. INSTALL NGINX INGRESS CONTROLLER (one-time setup):
+#    kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.8.2/deploy/static/provider/cloud/deploy.yaml
+#
+# 2. GET EXTERNAL IP ADDRESS:
+#    kubectl get svc -n ingress-nginx ingress-nginx-controller
+#    Wait for EXTERNAL-IP (takes 2-5 minutes on OVH)
+#
+# 3. CONFIGURE DNS:
+#    Create A record: api.yourdomain.com → EXTERNAL-IP
+#    Create A record: www.yourdomain.com → EXTERNAL-IP
+#
+# 4. SETUP SSL CERTIFICATE (Option A - Manual):
+#    kubectl create secret tls credit-enforcement-tls \
+#      --cert=path/to/tls.crt \
+#      --key=path/to/tls.key \
+#      -n credit-enforcement
+#
+# 5. SETUP SSL CERTIFICATE (Option B - Automatic with cert-manager):
+#    # Install cert-manager
+#    kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.0/cert-manager.yaml
+#
+#    # Create ClusterIssuer for Let's Encrypt
+#    # See: k8s/base/cert-manager-issuer.yaml
+#
+# 6. APPLY INGRESS:
+#    kubectl apply -f ingress.yaml
+#
+# 7. VERIFY:
+#    kubectl get ingress -n credit-enforcement
+#    curl -k https://api.yourdomain.com/actuator/health
+#
+# NOTES:
+#
+# 1. PATH TYPES:
+#    - Prefix: Matches /api, /api/auth, /api/anything
+#    - Exact: Only matches exact path
+#    - ImplementationSpecific: Depends on ingress controller
+#
+# 2. HOST-BASED vs PATH-BASED ROUTING:
+#    Host-based (recommended):
+#      api.yourdomain.com → api-gateway
+#      eureka.yourdomain.com → eureka-server
+#
+#    Path-based (alternative):
+#      yourdomain.com/api → api-gateway
+#      yourdomain.com/eureka → eureka-server
+#
+# 3. SECURITY CONSIDERATIONS:
+#    - Always use TLS in production
+#    - Restrict Eureka dashboard access (IP whitelist or BasicAuth)
+#    - Enable rate limiting to prevent DDoS
+#    - Use WAF (Web Application Firewall) if available
+#
+# 4. TESTING WITHOUT DOMAIN:
+#    # Get LoadBalancer IP
+#    INGRESS_IP=$(kubectl get svc -n ingress-nginx ingress-nginx-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+#
+#    # Test with host header
+#    curl -H "Host: api.yourdomain.com" http://$INGRESS_IP/actuator/health

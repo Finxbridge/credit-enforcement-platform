@@ -1,0 +1,144 @@
+# ============================================
+# ALLOCATION-REALLOCATION SERVICE
+# ============================================
+# Manages case allocation and reallocation logic
+# Deploy after: Eureka, Access Management
+# ============================================
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: allocation-reallocation-service
+  namespace: credit-enforcement
+  labels:
+    app: allocation-reallocation-service
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8083
+      targetPort: 8083
+      protocol: TCP
+      name: http
+  selector:
+    app: allocation-reallocation-service
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: allocation-reallocation-service
+  namespace: credit-enforcement
+  labels:
+    app: allocation-reallocation-service
+spec:
+  replicas: 2
+
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+
+  selector:
+    matchLabels:
+      app: allocation-reallocation-service
+
+  template:
+    metadata:
+      labels:
+        app: allocation-reallocation-service
+    spec:
+      imagePullSecrets:
+        - name: ovh-registry-secret
+
+      containers:
+      - name: allocation-reallocation-service
+        image: qvwy18uw.c1.de1.container-registry.ovh.net/fincolreg/allocation-reallocation-service:1.0.0
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8083
+          name: http
+
+        envFrom:
+        - configMapRef:
+            name: app-config
+
+        env:
+        - name: SERVER_PORT
+          value: "8083"
+        - name: EUREKA_SERVER_URL
+          value: "http://eureka-server:8761/eureka/"
+        - name: EUREKA_INSTANCE_HOSTNAME
+          value: "allocation-reallocation-service"
+        - name: EUREKA_INSTANCE_PREFER_IP_ADDRESS
+          value: "true"
+        - name: POSTGRES_HOST
+          valueFrom:
+            secretKeyRef:
+              name: postgres-credentials
+              key: postgres-host
+        - name: POSTGRES_PORT
+          valueFrom:
+            secretKeyRef:
+              name: postgres-credentials
+              key: postgres-port
+        - name: POSTGRES_DB
+          valueFrom:
+            secretKeyRef:
+              name: postgres-credentials
+              key: postgres-database
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: postgres-credentials
+              key: postgres-username
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-credentials
+              key: postgres-password
+        - name: SPRING_DATASOURCE_URL
+          value: "jdbc:postgresql://$(POSTGRES_HOST):$(POSTGRES_PORT)/$(POSTGRES_DB)"
+        - name: SPRING_DATASOURCE_USERNAME
+          value: "$(POSTGRES_USER)"
+        - name: SPRING_DATASOURCE_PASSWORD
+          value: "$(POSTGRES_PASSWORD)"
+        - name: REDIS_HOST
+          value: "redis-service"
+        - name: REDIS_PORT
+          value: "6379"
+
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+
+        startupProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8083
+          initialDelaySeconds: 40
+          periodSeconds: 10
+          failureThreshold: 15
+
+        livenessProbe:
+          httpGet:
+            path: /actuator/health/liveness
+            port: 8083
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+
+        readinessProbe:
+          httpGet:
+            path: /actuator/health/readiness
+            port: 8083
+          initialDelaySeconds: 40
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3

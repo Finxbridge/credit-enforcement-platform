@@ -38,6 +38,19 @@ spring:
           enabled: true
           lower-case-service-id: true
 
+      # Use Kubernetes service names, not Eureka instance hostnames
+      httpclient:
+        connect-timeout: 30000
+        response-timeout: 30s
+
+    loadbalancer:
+      # CRITICAL: Use service name from Eureka metadata, not instance hostname
+      # In Kubernetes, instance hostname is the pod name (ephemeral)
+      # Service name is the Kubernetes service (stable DNS)
+      configurations: default
+      ribbon:
+        enabled: false
+
       globalcors:
         corsConfigurations:
           '[/**]':
@@ -53,14 +66,14 @@ spring:
           predicates:
             - Path=/api/v1/access/auth/**
           filters:
-            - StripPrefix=2
+            - StripPrefix=2  # Strip /api/v1 → forward /access/auth/**
 
         - id: access-management-management
           uri: lb://access-management-service
           predicates:
             - Path=/api/v1/access/management/**
           filters:
-            - StripPrefix=2
+            - StripPrefix=2  # Strip /api/v1 → forward /access/management/**
             - Authentication
 
         - id: master-data-service
@@ -68,7 +81,7 @@ spring:
           predicates:
             - Path=/api/v1/master-data/**
           filters:
-            - StripPrefix=2
+            - StripPrefix=2  # Strip /api/v1 → forward /master-data/**
             - Authentication
 
         - id: case-sourcing-service
@@ -76,7 +89,7 @@ spring:
           predicates:
             - Path=/api/v1/case/**
           filters:
-            - StripPrefix=2
+            - StripPrefix=2  # Strip /api/v1 → forward /case/**
             - Authentication
 
         - id: allocation-reallocation-service
@@ -84,7 +97,7 @@ spring:
           predicates:
             - Path=/api/v1/allocations/**, /api/v1/reallocations/**
           filters:
-            - StripPrefix=2
+            - StripPrefix=2  # Strip /api/v1 → forward /allocations/** or /reallocations/**
             - Authentication
 
         - id: communication-service
@@ -92,7 +105,7 @@ spring:
           predicates:
             - Path=/api/v1/communication/**
           filters:
-            - StripPrefix=0
+            - StripPrefix=2  # Strip /api/v1 → forward /communication/**
             - Authentication
 
       default-filters:

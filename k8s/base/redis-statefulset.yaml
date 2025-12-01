@@ -1,0 +1,149 @@
+# ============================================
+# REDIS STATEFULSET
+# ============================================
+#
+# WHY STATEFULSET (not Deployment)?
+# - StatefulSets provide stable network identities
+# - Ordered deployment and scaling (redis-0, redis-1, etc.)
+# - Persistent storage that survives pod restarts
+# - Essential for stateful applications like databases, caches
+#
+# WHY PERSISTENT VOLUME?
+# - Docker volumes are ephemeral - lost when container stops
+# - PersistentVolumes survive pod deletion/restart
+# - Data persists even if pod crashes or is rescheduled
+#
+# IN DOCKER-COMPOSE vs KUBERNETES:
+# Docker: volumes: - redis_data:/data
+# K8s: PersistentVolumeClaim + StorageClass
+#
+# ============================================
+
+---
+# Service for Redis (headless service for StatefulSet)
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: credit-enforcement
+  labels:
+    app: redis
+spec:
+  # ClusterIP: None = headless service
+  # Allows direct pod-to-pod communication
+  # DNS: redis-0.redis.credit-enforcement.svc.cluster.local
+  clusterIP: None
+  ports:
+    - port: 6379
+      targetPort: 6379
+      name: redis
+  selector:
+    app: redis
+
+---
+# Regular service for load balancing (if needed)
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-service
+  namespace: credit-enforcement
+  labels:
+    app: redis
+spec:
+  type: ClusterIP
+  ports:
+    - port: 6379
+      targetPort: 6379
+      name: redis
+  selector:
+    app: redis
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+  namespace: credit-enforcement
+  labels:
+    app: redis
+spec:
+  serviceName: "redis"  # Must match headless service name
+  replicas: 1  # Single instance for now, can scale to 3 for HA with Redis Sentinel
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+      - name: redis
+        image: redis:7.2-alpine
+        ports:
+        - containerPort: 6379
+          name: redis
+
+        # Resource limits prevent Redis from consuming all node memory
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+
+        # Health checks - Kubernetes restarts unhealthy pods
+        livenessProbe:
+          exec:
+            command:
+            - redis-cli
+            - ping
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+
+        readinessProbe:
+          exec:
+            command:
+            - redis-cli
+            - ping
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 1
+          failureThreshold: 3
+
+        # Mount persistent volume
+        volumeMounts:
+        - name: redis-data
+          mountPath: /data  # Redis stores data here
+
+        # Optional: Redis configuration
+        # command: ["redis-server", "--requirepass", "$(REDIS_PASSWORD)"]
+        # env:
+        # - name: REDIS_PASSWORD
+        #   valueFrom:
+        #     secretKeyRef:
+        #       name: redis-credentials
+        #       key: redis-password
+
+  # PersistentVolumeClaim template - creates a PVC for each pod
+  volumeClaimTemplates:
+  - metadata:
+      name: redis-data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]  # Single pod can mount for read/write
+      storageClassName: "csi-cinder-high-speed"  # OVH storage class (verify with: kubectl get storageclass)
+      resources:
+        requests:
+          storage: 10Gi  # 10GB persistent storage for Redis data
+
+---
+# NOTES:
+# 1. OVH Kubernetes uses OpenStack Cinder for storage
+# 2. Available storage classes (check with: kubectl get storageclass):
+#    - csi-cinder-high-speed (SSD - recommended for Redis)
+#    - csi-cinder-classic (HDD - cheaper, slower)
+# 3. If storage class doesn't exist, Kubernetes will use default
+# 4. PersistentVolume is automatically created by dynamic provisioning

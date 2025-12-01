@@ -19,11 +19,12 @@ services:
         max-file: "3"
 
   eureka-server:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        SERVICE_NAME: eureka-server
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
+    #   args:
+    #     SERVICE_NAME: eureka-server
+    image: qvwy18uw.c1.de1.container-registry.ovh.net/fincolreg/eureka-server:1.0.0
     container_name: eureka-server
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:8761/actuator/health" ]
@@ -48,7 +49,7 @@ services:
     #   # dockerfile: Dockerfile
     #   args:
     #     SERVICE_NAME: access-management-service
-    image: qvwy18uw.c1.de1.container-registry.ovh.net/fincolreg/access-management-service:1.0.0
+    image: qvwy18uw.c1.de1.container-registry.ovh.net/fincolreg/access-management-service:2.0.0
     container_name: access-management-service
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:8081/actuator/health" ]
@@ -93,11 +94,12 @@ services:
       - backend-net
 
   communication-service:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        SERVICE_NAME: communication-service
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
+    #   args:
+    #     SERVICE_NAME: communication-service
+    image: qvwy18uw.c1.de1.container-registry.ovh.net/fincolreg/communication-service:1.0.0
     container_name: communication-service
     ports:
       - "8084:8084"
@@ -134,11 +136,12 @@ services:
       - backend-net
 
   master-data-service:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        SERVICE_NAME: master-data-service
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
+    #   args:
+    #     SERVICE_NAME: master-data-service
+    image: qvwy18uw.c1.de1.container-registry.ovh.net/fincolreg/master-data-service:1.0.0
     container_name: master-data-service
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:8085/actuator/health" ]
@@ -180,11 +183,12 @@ services:
       - backend-net
 
   case-sourcing-service:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        SERVICE_NAME: case-sourcing-service
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
+    #   args:
+    #     SERVICE_NAME: case-sourcing-service
+    image: qvwy18uw.c1.de1.container-registry.ovh.net/fincolreg/case-sourcing-service:1.0.0
     container_name: case-sourcing-service
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:8082/actuator/health" ]
@@ -226,11 +230,12 @@ services:
       - backend-net
 
   allocation-reallocation-service:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        SERVICE_NAME: allocation-reallocation-service
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
+    #   args:
+    #     SERVICE_NAME: allocation-reallocation-service
+    image: qvwy18uw.c1.de1.container-registry.ovh.net/fincolreg/allocation-reallocation-service:1.0.0
     container_name: allocation-reallocation-service
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:8083/actuator/health" ]
@@ -272,11 +277,12 @@ services:
       - backend-net
 
   api-gateway:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        SERVICE_NAME: api-gateway
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
+    #   args:
+    #     SERVICE_NAME: api-gateway
+    image: qvwy18uw.c1.de1.container-registry.ovh.net/fincolreg/api-gateway:1.0.0
     container_name: api-gateway
     ports:
       - "8080:8080"

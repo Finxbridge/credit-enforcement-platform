@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: credit-enforcement
+  labels:
+    app: credit-enforcement-platform
+    environment: base
+---
+# This namespace isolates all your microservices
+# Benefits:
+# 1. Resource isolation - quotas, limits per namespace
+# 2. RBAC - security policies per namespace
+# 3. Network policies - control traffic between namespaces
+# 4. Easy cleanup - delete namespace = delete everything

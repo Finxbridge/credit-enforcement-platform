@@ -1,0 +1,247 @@
+# ============================================
+# API GATEWAY - ENTRY POINT FOR ALL REQUESTS
+# ============================================
+#
+# WHY DEPLOY LAST?
+# - API Gateway routes requests to all microservices
+# - All backend services must be running and registered with Eureka first
+# - Gateway performs health checks and circuit breaking
+#
+# RESPONSIBILITIES:
+# - Request routing based on paths
+# - Authentication/Authorization
+# - Rate limiting
+# - Circuit breaker for resilience
+# - CORS handling
+#
+# IMPORTANT: This is the ONLY service that should be publicly accessible
+# All other services are ClusterIP (internal only)
+#
+# ============================================
+
+---
+# Service - Internal ClusterIP (Ingress will route to this)
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway
+  namespace: credit-enforcement
+  labels:
+    app: api-gateway
+spec:
+  type: ClusterIP  # Use ClusterIP + Ingress (not LoadBalancer)
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+      name: http
+  selector:
+    app: api-gateway
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: credit-enforcement
+  labels:
+    app: api-gateway
+spec:
+  replicas: 3  # Higher replicas for entry point (handles all external traffic)
+
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+
+  selector:
+    matchLabels:
+      app: api-gateway
+
+  template:
+    metadata:
+      labels:
+        app: api-gateway
+    spec:
+      imagePullSecrets:
+        - name: ovh-registry-secret
+
+      containers:
+      - name: api-gateway
+        image: qvwy18uw.c1.de1.container-registry.ovh.net/fincolreg/api-gateway:2.0.0
+        imagePullPolicy: Always
+
+        ports:
+        - containerPort: 8080
+          name: http
+
+        envFrom:
+        - configMapRef:
+            name: app-config
+
+        env:
+        # Server Configuration
+        - name: SERVER_PORT
+          value: "8080"
+
+        # Eureka Configuration
+        - name: EUREKA_SERVER_URL
+          value: "http://eureka-server:8761/eureka/"
+
+        # Use service name instead of pod name for routing
+        - name: EUREKA_INSTANCE_HOSTNAME
+          value: "api-gateway"  # Use service name, not pod name
+
+        # Prefer IP address for Kubernetes environments
+        - name: EUREKA_INSTANCE_PREFER_IP_ADDRESS
+          value: "true"  # Use pod IP, not hostname
+
+        # JWT Configuration (for authentication)
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: jwt-secret
+              key: jwt-secret
+
+        - name: JWT_EXPIRATION
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: JWT_EXPIRATION
+
+        # CORS Configuration
+        - name: CORS_ALLOWED_ORIGINS
+          valueFrom:
+            secretKeyRef:
+              name: app-config-secrets
+              key: cors-allowed-origins
+
+        # Database Configuration (if gateway needs DB access)
+        - name: POSTGRES_HOST
+          valueFrom:
+            secretKeyRef:
+              name: postgres-credentials
+              key: postgres-host
+        - name: POSTGRES_PORT
+          valueFrom:
+            secretKeyRef:
+              name: postgres-credentials
+              key: postgres-port
+        - name: POSTGRES_DB
+          valueFrom:
+            secretKeyRef:
+              name: postgres-credentials
+              key: postgres-database
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: postgres-credentials
+              key: postgres-username
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-credentials
+              key: postgres-password
+        - name: SPRING_DATASOURCE_URL
+          value: "jdbc:postgresql://$(POSTGRES_HOST):$(POSTGRES_PORT)/$(POSTGRES_DB)"
+        - name: SPRING_DATASOURCE_USERNAME
+          value: "$(POSTGRES_USER)"
+        - name: SPRING_DATASOURCE_PASSWORD
+          value: "$(POSTGRES_PASSWORD)"
+
+        # Redis Configuration
+        - name: REDIS_HOST
+          value: "redis-service"
+        - name: REDIS_PORT
+          value: "6379"
+
+        # Circuit Breaker Configuration (important for gateway resilience)
+        - name: CIRCUIT_BREAKER_HEALTH_INDICATOR
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: CIRCUIT_BREAKER_HEALTH_INDICATOR
+
+        - name: CIRCUIT_BREAKER_SLIDING_WINDOW_SIZE
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: CIRCUIT_BREAKER_SLIDING_WINDOW_SIZE
+
+        - name: CIRCUIT_BREAKER_FAILURE_RATE_THRESHOLD
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: CIRCUIT_BREAKER_FAILURE_RATE_THRESHOLD
+
+        - name: CIRCUIT_BREAKER_WAIT_DURATION
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: CIRCUIT_BREAKER_WAIT_DURATION
+
+        # Resource Management (higher for gateway as it handles all traffic)
+        resources:
+          requests:
+            memory: "768Mi"
+            cpu: "500m"
+          limits:
+            memory: "1.5Gi"
+            cpu: "1000m"
+
+        # Health Checks
+        startupProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8080
+          initialDelaySeconds: 40
+          periodSeconds: 10
+          failureThreshold: 15
+
+        livenessProbe:
+          httpGet:
+            path: /actuator/health/liveness
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+
+        readinessProbe:
+          httpGet:
+            path: /actuator/health/readiness
+            port: 8080
+          initialDelaySeconds: 40
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+
+---
+# NOTES:
+#
+# 1. WHY 3 REPLICAS FOR GATEWAY?
+#    - Handles ALL external traffic (high load)
+#    - Single point of entry - needs high availability
+#    - Load distribution across pods
+#    - Can handle rolling updates without downtime
+#
+# 2. WHY ClusterIP (not LoadBalancer)?
+#    - LoadBalancer creates external IP per service (expensive on cloud)
+#    - Ingress uses single LoadBalancer for ALL services (cheaper)
+#    - Ingress provides:
+#      * Path-based routing (/api/auth → auth service)
+#      * SSL/TLS termination
+#      * Domain name routing
+#
+# 3. CIRCUIT BREAKER PATTERN:
+#    - If downstream service (e.g., case-sourcing) is down:
+#      * Circuit opens after failure threshold
+#      * Gateway returns fallback response
+#      * Prevents cascading failures
+#      * Periodically retries (wait duration)
+#
+# 4. SECURITY:
+#    - JWT_SECRET must match across all services
+#    - CORS_ALLOWED_ORIGINS should be production domain
+#    - Consider rate limiting per client IP
