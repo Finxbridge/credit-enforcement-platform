@@ -93,9 +93,9 @@ spec:
         - name: EUREKA_INSTANCE_HOSTNAME
           value: "api-gateway"  # Use service name, not pod name
 
-        # Prefer IP address for Kubernetes environments
+        # Use hostname (service name) for stable routing in Kubernetes
         - name: EUREKA_INSTANCE_PREFER_IP_ADDRESS
-          value: "true"  # Use pod IP, not hostname
+          value: "false"  # Use service name, not pod IP
 
         # JWT Configuration (for authentication)
         - name: JWT_SECRET

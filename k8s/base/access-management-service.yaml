@@ -95,9 +95,9 @@ spec:
         - name: EUREKA_INSTANCE_HOSTNAME
           value: "access-management-service"
 
-        # Prefer IP address for Kubernetes environments
+        # Use hostname (service name) for stable routing in Kubernetes
         - name: EUREKA_INSTANCE_PREFER_IP_ADDRESS
-          value: "true"
+          value: "false"
 
         # JWT Configuration - FROM SECRETS (SECURE!)
         - name: JWT_SECRET
