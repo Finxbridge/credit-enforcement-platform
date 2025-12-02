@@ -53,6 +53,10 @@ spring-boot-devtools.properties
 
 # Application secrets
 **/secrets/
+k8s/base/secrets-actual.yaml
+k8s/base/ovh-registry-secret.yaml
+k8s/overlays/*/secrets-*.yaml
 
-# Markdown files
-*.md
+# Kubernetes local configs
+**/kubeconfig*.yml
+**/kubeconfig*.yaml
