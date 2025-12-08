@@ -27,6 +27,7 @@ public class LoginResponse {
 
     private Boolean isFirstLogin; // True if user needs to change password
     private Boolean requiresOtp; // True if OTP is required for password reset
+    private Boolean hasActiveSession; // True if user has an active session in another browser
 
     private String message; // Additional message (e.g., "Please reset your password")
 

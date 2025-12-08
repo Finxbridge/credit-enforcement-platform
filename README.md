@@ -25,9 +25,6 @@ This platform is composed of the following microservices:
 *   **Template Service (Port 8087):** Provides template management, rendering, and versioning for various communication channels.
 *   **Report Service (Port 8088):** Generates scheduled and on-demand reports, and manages audit logs.
 
-*   **Config Server:** Centralized configuration management for all microservices.
-*   **Eureka Server:** Service discovery server for microservices.
-
 ## Building and Running
 
 ### Prerequisites

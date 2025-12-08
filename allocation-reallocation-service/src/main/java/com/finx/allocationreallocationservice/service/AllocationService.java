@@ -15,6 +15,8 @@ public interface AllocationService {
 
     byte[] exportFailedAllocationRows(String batchId);
 
+    byte[] exportAllocationBatch(String batchId);
+
     List<AllocationBatchDTO> getAllBatches(String status, LocalDate startDate, LocalDate endDate, int page, int size);
 
     // Allocation Summary

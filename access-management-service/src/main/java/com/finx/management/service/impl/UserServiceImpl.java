@@ -4,6 +4,7 @@ import com.finx.common.constants.CacheConstants;
 import com.finx.management.domain.dto.CreateUserRequest;
 import com.finx.management.domain.dto.UpdateUserRequest;
 import com.finx.management.domain.dto.UserDTO;
+import com.finx.management.domain.dto.UserListDTO;
 import com.finx.management.domain.dto.UserPermissionDTO;
 import com.finx.management.domain.entity.Role;
 import com.finx.management.domain.entity.User;
@@ -43,7 +44,7 @@ public class UserServiceImpl implements UserService {
 
     @SuppressWarnings("null")
     @Override
-    public Page<UserDTO> getAllUsers(Pageable pageable, String search, String status) {
+    public Page<UserListDTO> getAllUsers(Pageable pageable, String search, String status) {
         Specification<User> spec = Specification.where(null);
 
         if (search != null && !search.trim().isEmpty()) {
@@ -63,7 +64,8 @@ public class UserServiceImpl implements UserService {
             }
         }
 
-        return userRepository.findAll(spec, pageable).map(userMapper::toDto);
+        // Use simplified toListDto to avoid fetching roles/permissions (N+1 query issue)
+        return userRepository.findAll(spec, pageable).map(userMapper::toListDto);
     }
 
     @SuppressWarnings("null")
@@ -173,7 +175,8 @@ public class UserServiceImpl implements UserService {
     @Override
     @Cacheable(value = CacheConstants.USER_PERMISSIONS, key = "#userId")
     public List<UserPermissionDTO> getUserPermissions(Long userId) {
-        User user = userRepository.findById(userId)
+        // Use optimized query that fetches roles and permissions in single query
+        User user = userRepository.findByIdWithRolesAndPermissions(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User", "id", userId));
 
         return user.getRoles().stream()

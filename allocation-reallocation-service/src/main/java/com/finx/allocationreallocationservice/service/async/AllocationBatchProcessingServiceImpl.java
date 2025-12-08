@@ -440,12 +440,12 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
                 String validationError = getValidationError(row);
                 if (validationError == null) {
                     try {
-                        Long caseId = Long.parseLong(row.getCaseId());
+                        String loanId = row.getLoanId();
 
-                        // 1. Find the Case entity
+                        // 1. Find the Case entity by loan account number
                         com.finx.allocationreallocationservice.domain.entity.Case caseEntity = caseReadRepository
-                                .findById(caseId)
-                                .orElseThrow(() -> new RuntimeException("Case not found for ID: " + caseId));
+                                .findByLoanId(loanId)
+                                .orElseThrow(() -> new RuntimeException("Case not found for loan_id: " + loanId));
 
                         // 2. Get the primary customer from the LoanDetails associated with the case
                         // Assuming contact updates are always for the primary customer of the loan
@@ -503,24 +503,24 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
 
                         if (updated) {
                             customerRepository.save(customer);
-                            log.debug("Contact updated successfully for case {}: {}", row.getCaseId(),
+                            log.debug("Contact updated successfully for loan {}: {}", row.getLoanId(),
                                     row.getUpdateType());
                             successfulUpdates.incrementAndGet();
                         } else {
                             errors.add(buildError(batchId, rowNumber[0],
                                     "No contact information provided for update type: " + row.getUpdateType(),
-                                    row.getCaseId()));
+                                    row.getLoanId()));
                             failedUpdates.incrementAndGet();
                         }
 
                     } catch (Exception e) {
-                        log.error("Failed to update contact for case {}: {}", row.getCaseId(), e.getMessage());
+                        log.error("Failed to update contact for loan {}: {}", row.getLoanId(), e.getMessage());
                         errors.add(
-                                buildError(batchId, rowNumber[0], "Service error: " + e.getMessage(), row.getCaseId()));
+                                buildError(batchId, rowNumber[0], "Service error: " + e.getMessage(), row.getLoanId()));
                         failedUpdates.incrementAndGet();
                     }
                 } else {
-                    errors.add(buildError(batchId, rowNumber[0], validationError, row.getCaseId()));
+                    errors.add(buildError(batchId, rowNumber[0], validationError, row.getLoanId()));
                     failedUpdates.incrementAndGet();
                 }
                 rowNumber[0]++;
@@ -552,11 +552,9 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
     }
 
     private String getValidationError(ContactUpdateCsvRow row) {
-        // Validate case_id
-        try {
-            Long.parseLong(row.getCaseId());
-        } catch (NumberFormatException e) {
-            return "Invalid case_id: " + row.getCaseId();
+        // Validate loan_id
+        if (row.getLoanId() == null || row.getLoanId().trim().isEmpty()) {
+            return "loan_id is required";
         }
 
         // Validate update_type

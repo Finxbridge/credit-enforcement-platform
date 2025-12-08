@@ -1,6 +1,9 @@
 package com.finx.templatemanagementservice.service.impl;
 
+import com.finx.templatemanagementservice.client.CommunicationServiceClient;
 import com.finx.templatemanagementservice.domain.dto.*;
+import com.finx.templatemanagementservice.domain.dto.comm.SmsCreateTemplateRequest;
+import com.finx.templatemanagementservice.domain.dto.comm.WhatsAppCreateTemplateRequest;
 import com.finx.templatemanagementservice.domain.entity.Template;
 import com.finx.templatemanagementservice.domain.entity.TemplateContent;
 import com.finx.templatemanagementservice.domain.entity.TemplateVariable;
@@ -19,7 +22,9 @@ import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -33,6 +38,7 @@ public class TemplateServiceImpl implements TemplateService {
     private final TemplateRepository templateRepository;
     private final TemplateVariableRepository templateVariableRepository;
     private final TemplateContentRepository templateContentRepository;
+    private final CommunicationServiceClient communicationServiceClient;
 
     @Override
     @Transactional
@@ -206,11 +212,122 @@ public class TemplateServiceImpl implements TemplateService {
     }
 
     @Override
+    @Transactional
     public void syncWithProvider(Long templateId) {
         log.info("Syncing template {} with provider", templateId);
-        // TODO: Implement provider sync logic
-        // This would call CommunicationServiceClient to sync with MSG91
-        throw new BusinessException("Provider sync not yet implemented");
+
+        // Get template with details
+        Template template = templateRepository.findByIdWithDetails(templateId)
+                .orElseThrow(() -> new TemplateNotFoundException(templateId));
+
+        // Get content for the template
+        TemplateContent content = template.getContents() != null && !template.getContents().isEmpty()
+                ? template.getContents().get(0)
+                : null;
+
+        if (content == null) {
+            throw new BusinessException("Template content is required for provider sync");
+        }
+
+        try {
+            switch (template.getChannel()) {
+                case SMS -> syncSmsTemplate(template, content);
+                case WHATSAPP -> syncWhatsAppTemplate(template, content);
+                case EMAIL -> syncEmailTemplate(template, content);
+                default -> throw new BusinessException("Unsupported channel: " + template.getChannel());
+            }
+            log.info("Template {} synced successfully with provider", templateId);
+        } catch (Exception e) {
+            log.error("Failed to sync template {} with provider: {}", templateId, e.getMessage());
+            throw new BusinessException("Failed to sync with provider: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Sync SMS template with MSG91 via communication-service
+     */
+    private void syncSmsTemplate(Template template, TemplateContent content) {
+        log.info("Syncing SMS template: {}", template.getTemplateName());
+
+        SmsCreateTemplateRequest request = SmsCreateTemplateRequest.builder()
+                .templateName(template.getTemplateName())
+                .template(content.getContent())
+                .dltTemplateId(template.getProviderTemplateId()) // Using providerTemplateId as DLT ID
+                .build();
+
+        CommonResponse<Map<String, Object>> response = communicationServiceClient.createSMSTemplate(request);
+
+        if (response != null && response.getData() != null) {
+            // Extract provider template ID from response if available
+            Object templateId = response.getData().get("template_id");
+            if (templateId != null && template.getProviderTemplateId() == null) {
+                template.setProviderTemplateId(templateId.toString());
+                templateRepository.save(template);
+            }
+            log.info("SMS template synced successfully: {}", response.getData());
+        }
+    }
+
+    /**
+     * Sync WhatsApp template with MSG91 via communication-service
+     */
+    private void syncWhatsAppTemplate(Template template, TemplateContent content) {
+        log.info("Syncing WhatsApp template: {}", template.getTemplateName());
+
+        // Build components based on template content
+        List<WhatsAppCreateTemplateRequest.TemplateComponent> components = new ArrayList<>();
+
+        // Add BODY component with template content
+        WhatsAppCreateTemplateRequest.TemplateComponent bodyComponent =
+                WhatsAppCreateTemplateRequest.TemplateComponent.builder()
+                        .type("BODY")
+                        .text(content.getContent())
+                        .build();
+        components.add(bodyComponent);
+
+        WhatsAppCreateTemplateRequest request = WhatsAppCreateTemplateRequest.builder()
+                .templateName(template.getTemplateName())
+                .language(content.getLanguageCode() != null ? content.getLanguageCode() : "en")
+                .category("UTILITY") // Default category
+                .components(components)
+                .build();
+
+        CommonResponse<Map<String, Object>> response = communicationServiceClient.createWhatsAppTemplate(request);
+
+        if (response != null && response.getData() != null) {
+            // Extract provider template ID from response if available
+            Object templateId = response.getData().get("id");
+            if (templateId != null && template.getProviderTemplateId() == null) {
+                template.setProviderTemplateId(templateId.toString());
+                templateRepository.save(template);
+            }
+            log.info("WhatsApp template synced successfully: {}", response.getData());
+        }
+    }
+
+    /**
+     * Sync Email template with MSG91 via communication-service
+     */
+    private void syncEmailTemplate(Template template, TemplateContent content) {
+        log.info("Syncing Email template: {}", template.getTemplateName());
+
+        Map<String, Object> request = Map.of(
+                "name", template.getTemplateName(),
+                "subject", content.getSubject() != null ? content.getSubject() : template.getTemplateName(),
+                "body", content.getContent()
+        );
+
+        CommonResponse<Map<String, Object>> response = communicationServiceClient.createEmailTemplate(request);
+
+        if (response != null && response.getData() != null) {
+            // Extract provider template ID from response if available
+            Object templateId = response.getData().get("id");
+            if (templateId != null && template.getProviderTemplateId() == null) {
+                template.setProviderTemplateId(templateId.toString());
+                templateRepository.save(template);
+            }
+            log.info("Email template synced successfully: {}", response.getData());
+        }
     }
 
     // ==================== Mapping Methods ====================

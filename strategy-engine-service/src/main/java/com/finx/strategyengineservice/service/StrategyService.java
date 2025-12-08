@@ -1,6 +1,7 @@
 package com.finx.strategyengineservice.service;
 
 import com.finx.strategyengineservice.domain.dto.DashboardResponse;
+import com.finx.strategyengineservice.domain.dto.SimulationResponse;
 import com.finx.strategyengineservice.domain.dto.StrategyRequest;
 import com.finx.strategyengineservice.domain.dto.StrategyResponse;
 
@@ -62,12 +63,12 @@ public interface StrategyService {
     StrategyResponse updateStrategyStatus(Long strategyId, String status);
 
     /**
-     * Simulate strategy to see matched cases count
+     * Simulate strategy to see matched cases and count
      *
      * @param strategyId Strategy ID
-     * @return Strategy response with estimated cases matched
+     * @return Simulation response with matched cases and count
      */
-    StrategyResponse simulateStrategy(Long strategyId);
+    SimulationResponse simulateStrategy(Long strategyId);
 
     /**
      * Enable/Disable scheduler for strategy

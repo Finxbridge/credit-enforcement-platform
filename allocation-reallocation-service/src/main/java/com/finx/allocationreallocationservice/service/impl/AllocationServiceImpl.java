@@ -162,6 +162,23 @@ public class AllocationServiceImpl implements AllocationService {
     }
 
     @Override
+    public byte[] exportAllocationBatch(String batchId) {
+        log.info("Exporting all allocations for batch: {}", batchId);
+
+        if (!allocationBatchRepository.existsByBatchId(batchId)) {
+            throw new ResourceNotFoundException("Allocation batch not found: " + batchId);
+        }
+
+        List<CaseAllocation> allocations = caseAllocationRepository.findByBatchId(batchId);
+
+        if (allocations.isEmpty()) {
+            throw new BusinessException("No allocations found for batch: " + batchId);
+        }
+
+        return csvExporter.exportAllocations(allocations);
+    }
+
+    @Override
     @Cacheable(value = "allocationSummary")
     public AllocationSummaryDTO getAllocationSummary() {
         log.info("Fetching overall allocation summary");
@@ -440,7 +457,7 @@ public class AllocationServiceImpl implements AllocationService {
         do {
             Pageable pageable = PageRequest.of(page, size);
 
-            // Query cases based on filters
+            // Query cases based on filters (all queries now filter for ACTIVE cases only with status=200)
             if (geographies != null && !geographies.isEmpty() && buckets != null && !buckets.isEmpty()) {
                 // Filter by both geography and buckets
                 casesPage = caseReadRepository.findUnallocatedCasesByGeographyAndBucket(geographies, buckets, pageable);
@@ -451,8 +468,8 @@ public class AllocationServiceImpl implements AllocationService {
                 // Filter by buckets only
                 casesPage = caseReadRepository.findUnallocatedCasesByBucket(buckets, pageable);
             } else {
-                // No filters - get all unallocated cases
-                casesPage = caseReadRepository.findByCaseStatus("UNALLOCATED", pageable);
+                // No filters - get all ACTIVE unallocated cases
+                casesPage = caseReadRepository.findByCaseStatusAndActive("UNALLOCATED", pageable);
             }
 
             allMatchingCases.addAll(casesPage.getContent());

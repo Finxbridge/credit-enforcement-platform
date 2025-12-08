@@ -3,6 +3,7 @@ package com.finx.management.mapper;
 import com.finx.management.domain.dto.UpdateUserRequest;
 import com.finx.management.domain.dto.CreateUserRequest;
 import com.finx.management.domain.dto.UserDTO;
+import com.finx.management.domain.dto.UserListDTO;
 import com.finx.management.domain.entity.User;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
@@ -21,6 +22,12 @@ public interface UserMapper {
     @Mapping(target = "roles", source = "roles") // Explicitly map roles
     @Mapping(target = "permissions", expression = "java(mapRolesToPermissions(user.getRoles()))")
     UserDTO toDto(User user);
+
+    /**
+     * Simplified mapping for list endpoint - no roles/permissions to avoid N+1 queries
+     */
+    @Mapping(source = "userGroup.groupName", target = "userGroupName")
+    UserListDTO toListDto(User user);
 
     @Mapping(target = "id", ignore = true)
     @Mapping(target = "createdAt", ignore = true)

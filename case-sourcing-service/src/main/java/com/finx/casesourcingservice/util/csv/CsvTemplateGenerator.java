@@ -69,7 +69,9 @@ public class CsvTemplateGenerator {
                 "geography",
                 "language",
                 "outstanding",
-                "dpd"
+                "dpd",
+                "primary_agent",
+                "secondary_agent"
         );
 
         if (!includeSample) {
@@ -86,7 +88,9 @@ public class CsvTemplateGenerator {
                         "MUMBAI_WEST",
                         "en",
                         "125000",
-                        "45"
+                        "45",
+                        "101",
+                        "102"
                 ),
                 List.of(
                         "EXT002",
@@ -97,7 +101,9 @@ public class CsvTemplateGenerator {
                         "DELHI_SOUTH",
                         "hi",
                         "180000",
-                        "32"
+                        "32",
+                        "103",
+                        ""
                 )
         );
 

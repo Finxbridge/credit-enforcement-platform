@@ -97,6 +97,15 @@ public class Case {
     @Column(name = "is_archived")
     private Boolean isArchived;
 
+    /**
+     * Numeric status code for case lifecycle
+     * 200 = ACTIVE (default for new cases)
+     * 400 = CLOSED
+     */
+    @Column(name = "status")
+    @Builder.Default
+    private Integer status = 200;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 

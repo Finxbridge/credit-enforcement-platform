@@ -56,72 +56,25 @@ public class StrategyRequest {
         private String type;  // SMS, WHATSAPP, EMAIL, IVR, NOTICE
 
         @NotBlank(message = "Template name is required")
-        private String templateName;  // Template name/code to lookup template ID
+        private String templateName;  // Template name/code for reference
 
-        // Optional: Can be provided directly or looked up from templateName
-        private Long templateId;
+        // Provider template ID (MSG91 template ID) - used directly for sending
+        private String templateId;
     }
 
     // ===================================
-    // 3. FILTERS
+    // 3. FILTERS (New Flexible Multi-Filter System)
     // ===================================
 
-    @NotNull(message = "Filters configuration is required")
+    /**
+     * List of filters - user can add multiple filters of any type
+     * Each filter can be:
+     * - Text Filter (Language, Product, State, Pincode)
+     * - Numeric Filter (Overdue Amount, DPD, EMI Amount, etc.)
+     * - Date Filter (Due Date, Disbursement Date, etc.)
+     */
     @Valid
-    private Filters filters;
-
-    @Data
-    @Builder
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class Filters {
-
-        // Text Filters (multiple selections allowed)
-        private List<String> language;   // ['ENGLISH', 'TELUGU', 'HINDI']
-        private List<String> product;    // ['PERSONAL_LOAN', 'HOME_LOAN']
-        private List<String> pincode;    // ['500001', '500072']
-        private List<String> state;      // ['TELANGANA', 'ANDHRA PRADESH']
-        private List<String> bucket;     // ['B1', 'B2', 'B3']
-
-        // DPD Range Filter (required)
-        @NotNull(message = "DPD range is required")
-        @Valid
-        private DpdRange dpdRange;
-
-        // Outstanding Amount Filter (optional, supports simple value or range)
-        private Double outstandingAmount;  // Simple filter: >= this amount
-        private OutstandingRange outstandingRange;  // Advanced: custom range
-    }
-
-    @Data
-    @Builder
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class DpdRange {
-
-        @NotNull(message = "DPD 'from' value is required")
-        @Min(value = 0, message = "DPD 'from' must be >= 0")
-        private Integer from;
-
-        @NotNull(message = "DPD 'to' value is required")
-        @Min(value = 0, message = "DPD 'to' must be >= 0")
-        private Integer to;
-    }
-
-    @Data
-    @Builder
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class OutstandingRange {
-
-        @NotNull(message = "Outstanding 'from' value is required")
-        @Min(value = 0, message = "Outstanding 'from' must be >= 0")
-        private Double from;
-
-        @NotNull(message = "Outstanding 'to' value is required")
-        @Min(value = 0, message = "Outstanding 'to' must be >= 0")
-        private Double to;
-    }
+    private List<FilterDTO> filters;
 
     // ===================================
     // 4. SCHEDULE CONFIGURATION

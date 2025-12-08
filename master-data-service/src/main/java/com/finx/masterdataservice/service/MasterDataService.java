@@ -1,6 +1,8 @@
 package com.finx.masterdataservice.service;
 
+import com.finx.masterdataservice.domain.dto.CreateMasterDataRequest;
 import com.finx.masterdataservice.domain.dto.MasterDataDTO;
+import com.finx.masterdataservice.domain.dto.MasterDataResponse;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
@@ -18,4 +20,8 @@ public interface MasterDataService {
     MasterDataDTO updateMasterData(Long id, MasterDataDTO masterDataDTO);
 
     void deleteMasterDataByType(String type);
+
+    MasterDataDTO createMasterData(CreateMasterDataRequest request);
+
+    MasterDataResponse getAllMasterData();
 }

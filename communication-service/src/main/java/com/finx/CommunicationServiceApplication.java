@@ -32,8 +32,8 @@ import org.springframework.kafka.annotation.EnableKafka;
 @EnableCaching
 @ComponentScan(basePackages = { "com.finx.communication", "com.finx.common" })
 @EnableJpaRepositories(basePackages = { "com.finx.communication.repository", "com.finx.common.repository" })
-@EntityScan(basePackages = { "com.finx.communication.domain.entity", "com.finx.common.model",
-        "com.finx.common.domain.entity" })
+@EntityScan(basePackages = { "com.finx.communication.domain.entity", "com.finx.communication.domain.model",
+        "com.finx.common.model", "com.finx.common.domain.entity" })
 public class CommunicationServiceApplication {
 
     public static void main(String[] args) {

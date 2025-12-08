@@ -256,49 +256,48 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
     }
 
     /**
-     * Build dynamic variables from case data based on template variable mapping
+     * Build dynamic variables from case data using centralized template resolution API
+     * Uses template-management-service for variable resolution with transformers
      */
     private java.util.Map<String, Object> buildDynamicVariables(
             com.finx.strategyengineservice.domain.entity.Case caseEntity,
             com.finx.strategyengineservice.domain.entity.StrategyAction action,
             String channel) {
 
-        java.util.Map<String, Object> variables = new java.util.HashMap<>();
-
-        // If templateId and variableMapping are set, use dynamic mapping
-        if (action.getTemplateId() != null && action.getVariableMapping() != null && !action.getVariableMapping().isEmpty()) {
+        // If templateId is set, use centralized template resolution API
+        if (action.getTemplateId() != null) {
             try {
-                // Fetch template details
-                com.finx.strategyengineservice.client.dto.TemplateDetailDTO template =
-                    templateServiceClient.getTemplate(action.getTemplateId()).getPayload();
+                // Call template resolution API
+                com.finx.strategyengineservice.client.dto.TemplateResolveRequest resolveRequest =
+                    com.finx.strategyengineservice.client.dto.TemplateResolveRequest.builder()
+                        .caseId(caseEntity.getId())
+                        .additionalContext(null) // Can be extended for additional context
+                        .build();
 
-                if (template != null && template.getVariables() != null) {
-                    // Map each template variable to case entity value
-                    for (com.finx.strategyengineservice.client.dto.TemplateDetailDTO.TemplateVariableDTO templateVar : template.getVariables()) {
-                        String variableKey = templateVar.getVariableKey();
-                        String entityPath = action.getVariableMapping().get(variableKey);
+                Long templateId = Long.parseLong(action.getTemplateId());
+                com.finx.strategyengineservice.client.dto.TemplateResolveResponse resolveResponse =
+                    templateServiceClient.resolveTemplate(templateId, resolveRequest).getPayload();
 
-                        if (entityPath != null) {
-                            Object value = extractValueFromCase(caseEntity, entityPath);
-                            variables.put(variableKey, value != null ? value : templateVar.getDefaultValue());
-                        }
-                    }
+                if (resolveResponse != null && resolveResponse.getResolvedVariables() != null) {
+                    log.debug("Resolved {} variables using centralized template resolution for template ID: {}",
+                            resolveResponse.getResolvedVariables().size(), action.getTemplateId());
+                    return resolveResponse.getResolvedVariables();
                 }
+
             } catch (Exception e) {
-                log.error("Error fetching template or building dynamic variables, falling back to defaults", e);
+                log.error("Error resolving template variables via API, falling back to defaults", e);
                 // Fall back to default hardcoded variables
                 return buildDefaultVariables(caseEntity, channel);
             }
-        } else {
-            // Fall back to default hardcoded variables
-            return buildDefaultVariables(caseEntity, channel);
         }
 
-        return variables;
+        // Fall back to default hardcoded variables
+        return buildDefaultVariables(caseEntity, channel);
     }
 
     /**
      * Build default hardcoded variables (backward compatibility)
+     * Used when template resolution API is unavailable or templateId is not set
      */
     private java.util.Map<String, Object> buildDefaultVariables(
             com.finx.strategyengineservice.domain.entity.Case caseEntity, String channel) {
@@ -307,57 +306,42 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
         if ("SMS".equals(channel)) {
             variables.put("VAR1", caseEntity.getLoan().getPrimaryCustomer().getFullName());
             variables.put("VAR2", caseEntity.getLoan().getLoanAccountNumber());
-            variables.put("VAR3", caseEntity.getLoan().getOutstandingAmount() != null
-                    ? caseEntity.getLoan().getOutstandingAmount().toString() : "0");
+            variables.put("VAR3", caseEntity.getLoan().getTotalOutstanding() != null
+                    ? caseEntity.getLoan().getTotalOutstanding().toString() : "0");
         }
 
         return variables;
     }
 
     /**
-     * Extract value from case entity using property path (e.g., "loan.primaryCustomer.customerName")
-     */
-    private Object extractValueFromCase(com.finx.strategyengineservice.domain.entity.Case caseEntity, String propertyPath) {
-        try {
-            String[] parts = propertyPath.split("\\.");
-            Object current = caseEntity;
-
-            for (String part : parts) {
-                if (current == null) {
-                    return null;
-                }
-
-                // Use reflection to get property value
-                String methodName = "get" + part.substring(0, 1).toUpperCase() + part.substring(1);
-                current = current.getClass().getMethod(methodName).invoke(current);
-            }
-
-            return current;
-        } catch (Exception e) {
-            log.error("Error extracting value from path: {}", propertyPath, e);
-            return null;
-        }
-    }
-
-    /**
-     * Send Email via communication service
+     * Send Email via communication service using dynamic variable resolution
      */
     private void sendEmail(com.finx.strategyengineservice.domain.entity.Case caseEntity,
             com.finx.strategyengineservice.domain.entity.StrategyAction action) {
 
-        String email = caseEntity.getLoan().getPrimaryCustomer().getEmailAddress();
+        String email = caseEntity.getLoan().getPrimaryCustomer().getEmail();
         if (email == null || email.isEmpty()) {
             throw new BusinessException("Email not available for case: " + caseEntity.getId());
         }
 
+        // Build dynamic variables using centralized template resolution
+        Map<String, Object> resolvedVariables = buildDynamicVariables(caseEntity, action, "EMAIL");
+
+        // Convert Map<String, Object> to Map<String, String> for EmailRequest
+        Map<String, String> variables = new HashMap<>();
+        for (Map.Entry<String, Object> entry : resolvedVariables.entrySet()) {
+            variables.put(entry.getKey(), entry.getValue() != null ? entry.getValue().toString() : "");
+        }
+
+        String customerName = caseEntity.getLoan().getPrimaryCustomer().getFullName();
+
         com.finx.strategyengineservice.client.dto.EmailRequest request = com.finx.strategyengineservice.client.dto.EmailRequest
                 .builder()
-                .email(email)
-                .subject("Payment Reminder")
-                .body("Payment reminder for loan: " + caseEntity.getLoan().getLoanAccountNumber())
+                .toEmail(email)
+                .toName(customerName)
                 .templateId(action.getTemplateId() != null ? action.getTemplateId().toString() : null)
+                .variables(variables)
                 .caseId(caseEntity.getId())
-                .caseNumber(caseEntity.getCaseNumber())
                 .build();
 
         communicationClient.sendEmail(request);
@@ -393,7 +377,7 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
     }
 
     /**
-     * Build WhatsApp components from case data with dynamic template variables
+     * Build WhatsApp components from case data using centralized template resolution API
      */
     private java.util.Map<String, java.util.Map<String, String>> buildWhatsAppComponents(
             com.finx.strategyengineservice.domain.entity.Case caseEntity,
@@ -401,42 +385,42 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
 
         java.util.Map<String, java.util.Map<String, String>> components = new java.util.HashMap<>();
 
-        // If templateId and variableMapping are set, use dynamic mapping
-        if (action.getTemplateId() != null && action.getVariableMapping() != null && !action.getVariableMapping().isEmpty()) {
+        // If templateId is set, use centralized template resolution API
+        if (action.getTemplateId() != null) {
             try {
-                // Fetch template details
-                com.finx.strategyengineservice.client.dto.TemplateDetailDTO template =
-                    templateServiceClient.getTemplate(action.getTemplateId()).getPayload();
+                // Call template resolution API
+                com.finx.strategyengineservice.client.dto.TemplateResolveRequest resolveRequest =
+                    com.finx.strategyengineservice.client.dto.TemplateResolveRequest.builder()
+                        .caseId(caseEntity.getId())
+                        .additionalContext(null)
+                        .build();
 
-                if (template != null && template.getVariables() != null) {
-                    // Map each template variable to case entity value
-                    for (com.finx.strategyengineservice.client.dto.TemplateDetailDTO.TemplateVariableDTO templateVar : template.getVariables()) {
-                        String variableKey = templateVar.getVariableKey();
-                        String entityPath = action.getVariableMapping().get(variableKey);
+                Long templateId = Long.parseLong(action.getTemplateId());
+                com.finx.strategyengineservice.client.dto.TemplateResolveResponse resolveResponse =
+                    templateServiceClient.resolveTemplate(templateId, resolveRequest).getPayload();
 
-                        if (entityPath != null) {
-                            Object value = extractValueFromCase(caseEntity, entityPath);
-                            String valueStr = value != null ? value.toString() :
-                                (templateVar.getDefaultValue() != null ? templateVar.getDefaultValue() : "");
-
-                            java.util.Map<String, String> component = new java.util.HashMap<>();
-                            component.put("type", "text");
-                            component.put("value", valueStr);
-                            components.put(variableKey, component);
-                        }
+                if (resolveResponse != null && resolveResponse.getResolvedVariables() != null) {
+                    // Convert resolved variables to WhatsApp component format
+                    for (java.util.Map.Entry<String, Object> entry : resolveResponse.getResolvedVariables().entrySet()) {
+                        java.util.Map<String, String> component = new java.util.HashMap<>();
+                        component.put("type", "text");
+                        component.put("value", entry.getValue() != null ? entry.getValue().toString() : "");
+                        components.put(entry.getKey(), component);
                     }
+
+                    log.debug("Built {} WhatsApp components using centralized template resolution", components.size());
+                    return components;
                 }
+
             } catch (Exception e) {
-                log.error("Error fetching template or building dynamic components, falling back to defaults", e);
+                log.error("Error resolving template variables via API, falling back to defaults", e);
                 // Fall back to default hardcoded components
                 return buildDefaultWhatsAppComponents(caseEntity);
             }
-        } else {
-            // Fall back to default hardcoded components
-            return buildDefaultWhatsAppComponents(caseEntity);
         }
 
-        return components;
+        // Fall back to default hardcoded components
+        return buildDefaultWhatsAppComponents(caseEntity);
     }
 
     /**
@@ -461,8 +445,8 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
         // body_3: Outstanding amount
         java.util.Map<String, String> body3 = new java.util.HashMap<>();
         body3.put("type", "text");
-        body3.put("value", caseEntity.getLoan().getOutstandingAmount() != null
-                ? caseEntity.getLoan().getOutstandingAmount().toString() : "0");
+        body3.put("value", caseEntity.getLoan().getTotalOutstanding() != null
+                ? caseEntity.getLoan().getTotalOutstanding().toString() : "0");
         components.put("body_3", body3);
 
         return components;

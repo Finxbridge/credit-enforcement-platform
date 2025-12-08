@@ -5,15 +5,12 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
-/**
- * Read-only Customer entity for strategy execution
- * Maps to customers table in shared database
- * Used for accessing customer contact information for communications
- */
 @Entity
 @Table(name = "customers")
 @Data
@@ -26,7 +23,7 @@ public class Customer {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "customer_code", unique = true, nullable = false, length = 50)
+    @Column(name = "customer_code", unique = true, length = 50)
     private String customerCode;
 
     @Column(name = "full_name", nullable = false, length = 255)
@@ -38,51 +35,53 @@ public class Customer {
     @Column(name = "alternate_mobile", length = 15)
     private String alternateMobile;
 
-    @Column(name = "email_address", length = 100)
-    private String emailAddress;
+    @Column(length = 100)
+    private String email;
 
     @Column(name = "alternate_email", length = 100)
     private String alternateEmail;
 
-    @Column(name = "address_line1", length = 255)
-    private String addressLine1;
+    @Column(length = 500)
+    private String address;
 
-    @Column(name = "address_line2", length = 255)
-    private String addressLine2;
-
-    @Column(name = "city", length = 100)
+    @Column(length = 100)
     private String city;
 
-    @Column(name = "state", length = 100)
+    @Column(length = 100)
     private String state;
 
-    @Column(name = "pincode", length = 10)
+    @Column(length = 10)
     private String pincode;
+
+    @Column(name = "pan_number", length = 20)
+    private String panNumber;
+
+    @Column(name = "aadhar_number", length = 20)
+    private String aadharNumber;
 
     @Column(name = "date_of_birth")
     private LocalDate dateOfBirth;
 
+    @Column(length = 10)
+    private String gender;
+
+    @Column(length = 100)
+    private String occupation;
+
     @Column(name = "customer_type", length = 20)
     private String customerType;
-
-    @Column(name = "pan_number", length = 10)
-    private String panNumber;
-
-    @Column(name = "aadhar_number", length = 12)
-    private String aadharNumber;
 
     @Column(name = "is_active")
     private Boolean isActive;
 
+    @Column(name = "language_preference", length = 10)
+    private String languagePreference;
+
+    @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
+    @UpdateTimestamp
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
-
-    @Column(name = "created_by")
-    private Long createdBy;
-
-    @Column(name = "updated_by")
-    private Long updatedBy;
 }

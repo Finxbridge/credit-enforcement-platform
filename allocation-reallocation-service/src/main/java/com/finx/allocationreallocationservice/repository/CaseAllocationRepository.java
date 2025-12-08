@@ -18,4 +18,6 @@ public interface CaseAllocationRepository extends JpaRepository<CaseAllocation, 
 
     long countByPrimaryAgentIdAndStatus(Long primaryAgentId, AllocationStatus status);
 
+    List<CaseAllocation> findByBatchId(String batchId);
+
 }

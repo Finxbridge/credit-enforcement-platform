@@ -40,8 +40,8 @@ public class StrategyAction {
     @Column(name = "action_config", columnDefinition = "jsonb", nullable = false)
     private Map<String, Object> actionConfig;
 
-    @Column(name = "template_id")
-    private Long templateId;
+    @Column(name = "template_id", length = 100)
+    private String templateId;
 
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "variable_mapping", columnDefinition = "jsonb")

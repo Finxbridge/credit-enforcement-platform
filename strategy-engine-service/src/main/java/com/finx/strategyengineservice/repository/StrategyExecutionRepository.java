@@ -21,14 +21,14 @@ public interface StrategyExecutionRepository extends JpaRepository<StrategyExecu
 
     Page<StrategyExecution> findByStrategyId(Long strategyId, Pageable pageable);
 
-    List<StrategyExecution> findByStatus(ExecutionStatus status);
+    List<StrategyExecution> findByExecutionStatus(ExecutionStatus executionStatus);
 
     Page<StrategyExecution> findAllByOrderByStartedAtDesc(Pageable pageable);
 
-    @Query("SELECT se FROM StrategyExecution se WHERE se.status = :status AND se.startedAt < :threshold")
-    List<StrategyExecution> findStuckExecutions(ExecutionStatus status, LocalDateTime threshold);
+    @Query("SELECT se FROM StrategyExecution se WHERE se.executionStatus = :executionStatus AND se.startedAt < :threshold")
+    List<StrategyExecution> findStuckExecutions(ExecutionStatus executionStatus, LocalDateTime threshold);
 
-    long countByStrategyIdAndStatus(Long strategyId, ExecutionStatus status);
+    long countByStrategyIdAndExecutionStatus(Long strategyId, ExecutionStatus executionStatus);
 
     @Query("SELECT COUNT(se) FROM StrategyExecution se WHERE se.strategyId = :strategyId " +
            "AND se.startedAt >= :startDate AND se.startedAt <= :endDate")

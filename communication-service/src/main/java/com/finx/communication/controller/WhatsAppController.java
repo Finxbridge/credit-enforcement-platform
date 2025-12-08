@@ -1,7 +1,7 @@
 package com.finx.communication.controller;
 
-import com.finx.common.dto.CommonResponse;
-import com.finx.common.util.ResponseWrapper;
+import com.finx.communication.domain.dto.CommonResponse;
+import com.finx.communication.util.ResponseWrapper;
 import com.finx.communication.domain.dto.whatsapp.*;
 import com.finx.communication.service.communication.WhatsAppService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -36,11 +36,39 @@ public class WhatsAppController {
     }
 
     @PostMapping("/templates")
-    @Operation(summary = "Create WhatsApp Template", description = "Create WhatsApp template in Msg91")
+    @Operation(summary = "Create WhatsApp Template", description = "Create WhatsApp template in Msg91. Supports TEXT/MEDIA/LOCATION headers with various button types")
     public ResponseEntity<CommonResponse<Map<String, Object>>> createTemplate(
-            @RequestBody Map<String, Object> templateRequest) {
-        log.info("Request to create WhatsApp template");
-        Map<String, Object> response = whatsAppService.createTemplate(templateRequest);
+            @Valid @RequestBody WhatsAppCreateTemplateRequest request) {
+        log.info("Request to create WhatsApp template: {}", request.getTemplateName());
+        Map<String, Object> response = whatsAppService.createTemplate(request);
         return ResponseWrapper.ok("Template created successfully", response);
+    }
+
+    @PutMapping("/templates/{templateId}")
+    @Operation(summary = "Edit WhatsApp Template", description = "Edit existing WhatsApp template in Msg91")
+    public ResponseEntity<CommonResponse<Map<String, Object>>> editTemplate(
+            @PathVariable String templateId,
+            @Valid @RequestBody WhatsAppEditTemplateRequest request) {
+        log.info("Request to edit WhatsApp template: {}", templateId);
+        Map<String, Object> response = whatsAppService.editTemplate(templateId, request);
+        return ResponseWrapper.ok("Template edited successfully", response);
+    }
+
+    @DeleteMapping("/templates")
+    @Operation(summary = "Delete WhatsApp Template", description = "Delete WhatsApp template from Msg91. integrated_number is read from database config")
+    public ResponseEntity<CommonResponse<Map<String, Object>>> deleteTemplate(
+            @RequestParam String templateName) {
+        log.info("Request to delete WhatsApp template: {}", templateName);
+        Map<String, Object> response = whatsAppService.deleteTemplate(templateName);
+        return ResponseWrapper.ok("Template deleted successfully", response);
+    }
+
+    @PostMapping("/payment-link")
+    @Operation(summary = "Send WhatsApp Payment Link", description = "Send payment link via WhatsApp")
+    public ResponseEntity<CommonResponse<WhatsAppResponse>> sendPaymentLink(
+            @Valid @RequestBody WhatsAppPaymentLinkRequest request) {
+        log.info("Request to send WhatsApp payment link to: {}", request.getRecipientNumber());
+        WhatsAppResponse response = whatsAppService.sendPaymentLink(request);
+        return ResponseWrapper.ok("Payment link sent successfully", response);
     }
 }

@@ -14,7 +14,6 @@
   <description>Credit Enforcement Platform - Microservices Architecture</description>
   <modules>
     <!-- Infrastructure Modules -->
-    <module>eureka-server</module>
     <module>api-gateway</module>
     <!-- Microservices -->
     <module>access-management-service</module>
@@ -22,8 +21,7 @@
     <module>communication-service</module>
     <module>case-sourcing-service</module>
     <module>allocation-reallocation-service</module>
-    <!--<module>strategy-engine-service</module>
-    <module>template-management-service</module>-->
+    <module>strategy-engine-service</module>
   </modules>
   <properties>
     <java.version>21</java.version>

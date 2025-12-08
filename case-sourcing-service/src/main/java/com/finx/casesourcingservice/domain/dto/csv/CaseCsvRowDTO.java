@@ -48,4 +48,11 @@ public class CaseCsvRowDTO {
 
     @CsvBindByName(column = "dpd", required = true)
     private String dpd; // String for CSV parsing, will convert to Integer
+
+    // Agent Information (optional - no validation, used for bulk allocation during upload)
+    @CsvBindByName(column = "primary_agent", required = false)
+    private String primaryAgent;
+
+    @CsvBindByName(column = "secondary_agent", required = false)
+    private String secondaryAgent;
 }

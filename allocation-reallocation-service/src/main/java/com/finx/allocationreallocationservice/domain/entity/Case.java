@@ -42,6 +42,9 @@ public class Case {
     @Column(name = "case_priority", length = 20)
     private String casePriority;
 
+    @Column(name = "status")
+    private Integer status;
+
     @Column(name = "case_opened_at")
     private LocalDateTime caseOpenedAt;
 

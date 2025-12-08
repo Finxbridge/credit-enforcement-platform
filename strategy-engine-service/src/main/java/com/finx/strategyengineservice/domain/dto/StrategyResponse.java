@@ -47,7 +47,7 @@ public class StrategyResponse {
     @AllArgsConstructor
     public static class Channel {
         private String type;
-        private Long templateId;
+        private String templateId;  // Provider template ID (MSG91 template ID)
         private String templateName;
     }
 

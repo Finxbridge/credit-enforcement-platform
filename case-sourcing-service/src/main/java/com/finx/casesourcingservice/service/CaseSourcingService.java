@@ -98,4 +98,15 @@ public interface CaseSourcingService {
      * @return Timeline with all events (calls, PTPs, payments, notes, communications)
      */
     CaseTimelineDTO getCaseTimeline(Long caseId);
+
+    /**
+     * Get all batches with optional status filter and pagination
+     *
+     * @param status   Optional batch status filter (PROCESSING, COMPLETED, FAILED, PARTIAL)
+     * @param pageable Pagination parameters
+     * @return Paginated list of batches
+     */
+    Page<RecentUploadDTO> getAllBatches(String status, Pageable pageable);
+
+    // NOTE: Case Closure operations moved to Collections Service (CycleClosureService)
 }

@@ -10,7 +10,6 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -84,18 +83,6 @@ public class AuthController {
     }
 
     /**
-     * POST /api/v1/auth/resend-otp
-     * Resend OTP
-     * FR-AM-1: Invalidate previous OTP and send new one
-     */
-    @PostMapping("/resend-otp")
-    @Operation(summary = "Resend OTP", description = "Resend OTP to registered email. Previous OTP will be invalidated.")
-    public ResponseEntity<CommonResponse<RequestOtpResponse>> resendOtp(@Valid @RequestBody ResendOtpRequest request) {
-        RequestOtpResponse response = authenticationService.resendOtp(request);
-        return ResponseWrapper.ok("OTP resent successfully", response);
-    }
-
-    /**
      * POST /api/v1/auth/reset-password
      * Reset password with OTP verification
      * FR-AM-1: Complete password reset flow
@@ -106,6 +93,19 @@ public class AuthController {
             @Valid @RequestBody ResetPasswordRequest request) {
         ResetPasswordResponse response = authenticationService.resetPassword(request);
         return ResponseWrapper.ok("Password reset successful", response);
+    }
+
+    /**
+     * POST /api/v1/auth/forget-password
+     * Forget password - Initiates password reset by sending OTP to email
+     * FR-AM-1: Simplified password reset initiation
+     */
+    @PostMapping("/forget-password")
+    @Operation(summary = "Forget password", description = "Initiate password reset by sending OTP to registered email address.")
+    public ResponseEntity<CommonResponse<ForgetPasswordResponse>> forgetPassword(
+            @Valid @RequestBody ForgetPasswordRequest request) {
+        ForgetPasswordResponse response = authenticationService.forgetPassword(request);
+        return ResponseWrapper.ok("Password reset initiated", response);
     }
 
     /**
@@ -121,52 +121,14 @@ public class AuthController {
 
     /**
      * POST /api/v1/auth/logout
-     * User logout - terminates all active sessions for the user
-     * FR-AM-4: Terminate all sessions
+     * User logout - terminates all active sessions for the user by username
+     * FR-AM-4: Terminate all sessions for the user
      */
     @PostMapping("/logout")
-    @Operation(summary = "Logout", description = "Logout user and terminate all active sessions across all devices.")
-    public ResponseEntity<CommonResponse<Void>> logout(@RequestParam String sessionId) {
-        authenticationService.logout(sessionId);
-        return ResponseWrapper.okMessage("Logout successful");
-    }
-
-    /**
-     * POST /api/v1/auth/validate-session
-     * Validate active session
-     * FR-AM-4: Check if session is still valid
-     */
-    @PostMapping("/validate-session")
-    @Operation(summary = "Validate session", description = "Check if session is valid and active.")
-    public ResponseEntity<CommonResponse<Boolean>> validateSession(@RequestParam String sessionId) {
-        boolean isValid = authenticationService.validateSession(sessionId);
-        return ResponseWrapper.ok(isValid ? "Session is valid" : "Session is invalid", isValid);
-    }
-
-    /**
-     * GET /api/v1/auth/session/active
-     * Get active sessions for user
-     * FR-AM-5: View active sessions
-     */
-    @GetMapping("/session/active")
-    @Operation(summary = "Get active sessions", description = "Get all active sessions for a user.")
-    public ResponseEntity<CommonResponse<ActiveSessionResponse>> getActiveSessions(@RequestParam Long userId) {
-        ActiveSessionResponse response = authenticationService.getActiveSessionsForUser(userId);
-        return ResponseWrapper.ok("Active sessions retrieved", response);
-    }
-
-    /**
-     * DELETE /api/v1/auth/session/terminate/{userId}
-     * Terminate duplicate session (Admin action)
-     * FR-AM-5: Terminate specific session
-     */
-    @DeleteMapping("/session/terminate/{userId}")
-    @Operation(summary = "Terminate session", description = "Terminate a specific session (Admin only).")
-    public ResponseEntity<CommonResponse<Void>> terminateSession(
-            @PathVariable Long userId,
-            @RequestParam String sessionId) {
-        authenticationService.terminateSession(userId, sessionId);
-        return ResponseWrapper.okMessage("Session terminated successfully");
+    @Operation(summary = "Logout", description = "Logout user by username and terminate all active sessions across all devices.")
+    public ResponseEntity<CommonResponse<Void>> logout(@RequestParam String username) {
+        authenticationService.logoutByUsername(username);
+        return ResponseWrapper.okMessage("Logout successful. All sessions terminated.");
     }
 
     /**
@@ -192,18 +154,6 @@ public class AuthController {
             @PathVariable String username) {
         AccountLockoutStatusResponse response = authenticationService.getAccountLockoutStatus(username);
         return ResponseWrapper.ok("Lockout status retrieved", response);
-    }
-
-    /**
-     * GET /api/v1/auth/permissions
-     * Get current user's permissions
-     * FR-AM-7: Role-based access control
-     */
-    @GetMapping("/permissions")
-    @Operation(summary = "Get user permissions", description = "Get current user's roles and permissions.")
-    public ResponseEntity<CommonResponse<UserPermissionsResponse>> getUserPermissions(@RequestParam Long userId) {
-        UserPermissionsResponse response = authenticationService.getUserPermissions(userId);
-        return ResponseWrapper.ok("Permissions retrieved", response);
     }
 
     /**

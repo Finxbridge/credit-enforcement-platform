@@ -11,7 +11,9 @@
 -- Purpose: Sample user groups for organizing users
 -- ===============================================
 INSERT INTO user_groups (group_name, group_code, group_type, parent_group_id, description, is_active) VALUES
-('Head Office', 'REGION_HO', 'REGION', NULL, 'Central administrative region', TRUE);
+('Head Office', 'REGION_HO', 'REGION', NULL, 'Central administrative region', TRUE),
+('Collections Team', 'TEAM_COLL', 'TEAM', 1, 'Internal collections management team', TRUE),
+('Agency Partners', 'TEAM_AGENCY', 'TEAM', 1, 'External collections agency partners', TRUE);
 
 -- ===============================================
 -- INSERT: role_groups (Minimal)
@@ -34,8 +36,9 @@ INSERT INTO roles (role_name, role_code, role_group_id, description, is_active) 
 -- INSERT: users (Only 4 required users)
 -- ===============================================
 INSERT INTO users (username, password_hash, email, first_name, last_name, status, is_first_login, assigned_geographies) VALUES
-('superadmin', '$2a$10$KAqljhNBfn0kawY8/eVDI.y9.9sUMZsYdFy3jDPrjhjQNZ1TpqJTW', 'naveen@finxbridge.com', 'Super', 'Admin', 'ACTIVE', TRUE, '["MUMBAI", "DELHI", "BANGALORE"]'::jsonb),
-('admin', '$2a$10$KAqljhNBfn0kawY8/eVDI.y9.9sUMZsYdFy3jDPrjhjQNZ1TpqJTW', 'shivani@finxbridge.com', 'Admin', 'User', 'ACTIVE', TRUE, '["MUMBAI", "DELHI", "BANGALORE"]'::jsonb);
+('naveen', '$2a$10$KAqljhNBfn0kawY8/eVDI.y9.9sUMZsYdFy3jDPrjhjQNZ1TpqJTW', 'naveen@finxbridge.com', 'Naveen', 'Manyam', 'ACTIVE', FALSE, '["BANGALORE"]'::jsonb),
+('admin', '$2a$10$KAqljhNBfn0kawY8/eVDI.y9.9sUMZsYdFy3jDPrjhjQNZ1TpqJTW', 'shivani@finxbridge.com', 'Admin', 'User', 'ACTIVE', FALSE, '["MUMBAI", "DELHI", "BANGALORE"]'::jsonb),
+('vaishnavi', '$2a$10$KAqljhNBfn0kawY8/eVDI.y9.9sUMZsYdFy3jDPrjhjQNZ1TpqJTW', 'vaishnavi.g@finxbridge.com', 'Vaishnavi', 'Gandla', 'ACTIVE', FALSE, '["HYDERABAD"]'::jsonb);
 
 -- ===============================================
 -- INSERT: permissions (Retain only essential ones)
@@ -67,7 +70,9 @@ INSERT INTO role_permissions (role_id, permission_id) VALUES
 (1, 1), (1, 2), (1, 3), (1, 4), (1, 5), (1, 6), (1, 7), (1, 8), (1, 9), (1, 10), (1, 11), (1, 12),
 
 -- Admin: all permissions
-(2, 1), (2, 2), (2, 3), (2, 4), (2, 5), (2, 6), (2, 7), (2, 8), (2, 9), (2, 10), (2, 11), (2, 12);
+(2, 1), (2, 2), (2, 3), (2, 4), (2, 5), (2, 6), (2, 7), (2, 8), (2, 9), (2, 10), (2, 11), (2, 12),
+
+(3, 1), (3, 2), (3, 3), (3, 4), (3, 5), (3, 6), (3, 7), (3, 8), (3, 9), (3, 10), (3, 11), (3, 12);
 
 -- ===============================================
 -- INSERT: user_roles
@@ -75,7 +80,8 @@ INSERT INTO role_permissions (role_id, permission_id) VALUES
 -- ===============================================
 INSERT INTO user_roles (user_id, role_id) VALUES
 (1, 1), -- superadmin -> Super Admin
-(2, 2); -- admin -> Admin
+(2, 2),
+(3, 1); -- admin -> Admin
 
 -- ===============================================
 -- INSERT: system_config
@@ -148,29 +154,45 @@ INSERT INTO system_config (config_key, config_value, data_type, description, is_
 -- ===============================================
 -- INSERT: third_party_integration_master
 -- ===============================================
--- SMS Providers
-INSERT INTO third_party_integration_master (integration_name, integration_type, api_endpoint,api_key_encrypted, config_json, is_active) VALUES
-('MSG91_SMS', 'SMS_PROVIDER', 'https://control.msg91.com/api/v5',
-    'BNO7wXg7GHI5KWOuJxqUAWFyq7Dm/ec2KJqZ5BSF1Z5GIuUzm3BuJsdjMG8hdHY8',
- '{"route": "TRANSACTIONAL", "dlt_registered": true, "daily_limit": 100000, "cost_per_sms": 0.15, "unicode_support": true}', TRUE),
+-- SMS Provider - All endpoints stored in config_json
+INSERT INTO third_party_integration_master (integration_name, integration_type, api_endpoint, api_key_encrypted, config_json, is_active) VALUES
+('MSG91_SMS', 'SMS_PROVIDER', 'https://control.msg91.com/api/v5/flow',
+    '469650An6LVQBk68d37c1dP1',
+ '{"route": "TRANSACTIONAL", "dlt_registered": true, "daily_limit": 100000, "cost_per_sms": 0.15, "unicode_support": true, "sms_type": "NORMAL", "sender_id": "SWSTIS", "add_template_url": "https://control.msg91.com/api/v5/sms/addTemplate", "get_template_versions_url": "https://control.msg91.com/api/v5/sms/getTemplateVersions", "add_template_version_url": "https://control.msg91.com/api/v5/sms/addTemplateVersion", "mark_active_url": "https://control.msg91.com/api/v5/sms/markActive", "logs_url": "https://control.msg91.com/api/v5/report/logs/p/sms", "analytics_url": "https://control.msg91.com/api/v5/report/analytics/p/sms"}', TRUE),
 
--- WhatsApp Providers
-('MSG91_WHATSAPP', 'WHATSAPP_PROVIDER', 'https://api.msg91.com/api/v5/whatsapp',
-    'BNO7wXg7GHI5KWOuJxqUAWFyq7Dm/ec2KJqZ5BSF1Z5GIuUzm3BuJsdjMG8hdHY8',
- '{"verified": true, "template_support": true, "media_support": true, "daily_limit": 100000, "cost_per_message": 0.40}', TRUE),
+-- WhatsApp Provider - All endpoints stored in config_json (namespace and integrated_number required)
+('MSG91_WHATSAPP', 'WHATSAPP_PROVIDER', 'https://api.msg91.com/api/v5/whatsapp/whatsapp-outbound-message/bulk/',
+    '469650An6LVQBk68d37c1dP1',
+ '{"verified": true, "template_support": true, "media_support": true, "daily_limit": 100000, "cost_per_message": 0.40, "namespace": "34f55069_1932_4d78_818a_ec1cdfda76c4", "integrated_number": "918143170546", "create_template_url": "https://api.msg91.com/api/v5/whatsapp/client-panel-template/", "single_message_url": "https://api.msg91.com/api/v5/whatsapp/whatsapp-outbound-message/"}', TRUE),
 
+-- Email Provider - All endpoints stored in config_json
 ('MSG91_EMAIL',
     'EMAIL_PROVIDER',
-    'https://control.msg91.com/api/v5/email',
-    'BNO7wXg7GHI5KWOuJxqUAWFyq7Dm/ec2KJqZ5BSF1Z5GIuUzm3BuJsdjMG8hdHY8',
-    '{"daily_limit": 100000, "template_support": true, "analytics": true, "cost_per_email": 0.02, "region": "INDIA"}', TRUE),
+    'https://control.msg91.com/api/v5/email/send',
+    '469650An6LVQBk68d37c1dP1',
+    '{"daily_limit": 100000, "template_support": true, "analytics": true, "cost_per_email": 0.02, "region": "INDIA", "create_template_url": "https://control.msg91.com/api/v5/email/templates"}', TRUE),
 
--- OTP Providers
+-- OTP Provider - Full endpoint for OTP API
 ('MSG91_OTP',
     'OTP_PROVIDER',
     'https://control.msg91.com/api/v5/otp',
-    'BNO7wXg7GHI5KWOuJxqUAWFyq7Dm/ec2KJqZ5BSF1Z5GIuUzm3BuJsdjMG8hdHY8',
-    '{"template_id": "68ee3e406f2cc106e130bf47", "sender_id": "FINXCO", "daily_limit": 100000, "cost_per_otp": 0.15}', TRUE);
+    '469650An6LVQBk68d37c1dP1',
+    '{"template_id": "68ee3e406f2cc106e130bf47", "sender_id": "FINXCO", "daily_limit": 100000, "cost_per_otp": 0.15, "resend_url": "https://control.msg91.com/api/v5/otp/retry", "verify_url": "https://control.msg91.com/api/v5/otp/verify"}', TRUE),
+
+-- Voice Provider - All endpoints stored in config_json
+('MSG91_VOICE',
+    'VOICE_PROVIDER',
+    'https://api.msg91.com/api/v5/voice/flow/',
+    '469650An6LVQBk68d37c1dP1',
+    '{"click_to_call_url": "https://api.msg91.com/api/v5/voice/call/ctc", "voice_sms_url": "https://api.msg91.com/api/v5/voice/call/", "logs_url": "https://api.msg91.com/api/v5/voice/call-logs/"}', TRUE),
+
+-- FinxBridge Payment Gateway Provider
+-- Endpoints: /api/v1/paymentLink/getPaymentLink, /api/v1/service/status, /api/v1/service/refund
+('FINXBRIDGE_PAYMENT_LINK',
+    'PAYMENT_PROVIDER',
+    'http://localhost:9000',
+    NULL,
+    '{"provider": "PHONEPE", "merchant_id": "FINXBRIDGE_MERCHANT", "store_id": "STORE001", "terminal_id": "TERM001", "service_type": "PAYMENT_LINK", "daily_limit": 10000, "cost_per_transaction": 2.00, "supported_methods": ["UPI", "CARD", "NETBANKING", "WALLET"], "currency": "INR"}', TRUE);
 
 -- ===============================================
 -- INSERT: cache_config
@@ -180,6 +202,77 @@ INSERT INTO third_party_integration_master (integration_name, integration_type, 
 -- Password: Admin@123 (hashed with BCrypt)
 INSERT INTO cache_config (username, password, is_active) VALUES
 ('admin', '$2a$10$7jKyJJ8qBIyYz9Azrj6EJ.2T/h5/apwWQhL4/4CRORtlvIIQtuZi.', TRUE);
+
+
+-- =============================================
+-- STRATEGY ENGINE SERVICE SEED DATA
+-- =============================================
+
+-- Default Filter Fields (using actual columns: field_code, field_key, field_type, display_name)
+INSERT INTO filter_fields (field_code, field_key, field_type, display_name, description, is_active, sort_order) VALUES
+-- Numeric Fields
+('DPD', 'dpd', 'NUMERIC', 'Days Past Due (DPD)', 'Number of days past due', true, 1),
+('POS', 'principalOutstanding', 'NUMERIC', 'Principal Outstanding', 'Principal amount outstanding', true, 2),
+('EMI', 'emiAmount', 'NUMERIC', 'EMI Amount', 'Monthly EMI amount', true, 3),
+('TOTAL_OS', 'totalOutstanding', 'NUMERIC', 'Total Outstanding', 'Total outstanding amount', true, 4),
+('LOAN_AMT', 'loanAmount', 'NUMERIC', 'Loan Amount', 'Original loan amount', true, 5),
+-- Text/Dropdown Fields
+('BUCKET', 'bucket', 'TEXT', 'Bucket', 'Delinquency bucket', true, 6),
+('PRODUCT', 'productType', 'TEXT', 'Product Type', 'Type of loan product', true, 7),
+('STATE', 'state', 'TEXT', 'State', 'Customer state', true, 8),
+('CITY', 'city', 'TEXT', 'City', 'Customer city', true, 9),
+('STATUS', 'status', 'TEXT', 'Case Status', 'Current case status', true, 10),
+-- Date Fields
+('DUE_DATE', 'nextDueDate', 'DATE', 'Due Date', 'Next payment due date', true, 11),
+('LAST_PAY_DATE', 'lastPaymentDate', 'DATE', 'Last Payment Date', 'Date of last payment', true, 12)
+ON CONFLICT (field_code) DO NOTHING;
+
+-- Default Filter Field Options for Dropdowns
+INSERT INTO filter_field_options (filter_field_id, option_value, option_label, sort_order, is_active)
+SELECT ff.id, 'CURRENT', 'Current (0 DPD)', 1, true FROM filter_fields ff WHERE ff.field_code = 'BUCKET'
+UNION ALL SELECT ff.id, 'X', 'Bucket X (1-30 DPD)', 2, true FROM filter_fields ff WHERE ff.field_code = 'BUCKET'
+UNION ALL SELECT ff.id, '1', 'Bucket 1 (31-60 DPD)', 3, true FROM filter_fields ff WHERE ff.field_code = 'BUCKET'
+UNION ALL SELECT ff.id, '2', 'Bucket 2 (61-90 DPD)', 4, true FROM filter_fields ff WHERE ff.field_code = 'BUCKET'
+UNION ALL SELECT ff.id, '3', 'Bucket 3 (91-120 DPD)', 5, true FROM filter_fields ff WHERE ff.field_code = 'BUCKET'
+UNION ALL SELECT ff.id, '4', 'Bucket 4 (121-150 DPD)', 6, true FROM filter_fields ff WHERE ff.field_code = 'BUCKET'
+UNION ALL SELECT ff.id, '5', 'Bucket 5 (151-180 DPD)', 7, true FROM filter_fields ff WHERE ff.field_code = 'BUCKET'
+UNION ALL SELECT ff.id, 'NPA', 'NPA (180+ DPD)', 8, true FROM filter_fields ff WHERE ff.field_code = 'BUCKET'
+ON CONFLICT ON CONSTRAINT unique_field_option DO NOTHING;
+
+INSERT INTO filter_field_options (filter_field_id, option_value, option_label, sort_order, is_active)
+SELECT ff.id, 'ACTIVE', 'Active', 1, true FROM filter_fields ff WHERE ff.field_code = 'STATUS'
+UNION ALL SELECT ff.id, 'CLOSED', 'Closed', 2, true FROM filter_fields ff WHERE ff.field_code = 'STATUS'
+UNION ALL SELECT ff.id, 'ON_HOLD', 'On Hold', 3, true FROM filter_fields ff WHERE ff.field_code = 'STATUS'
+UNION ALL SELECT ff.id, 'SETTLED', 'Settled', 4, true FROM filter_fields ff WHERE ff.field_code = 'STATUS'
+ON CONFLICT ON CONSTRAINT unique_field_option DO NOTHING;
+
+-- =============================================
+-- TEMPLATE MANAGEMENT SERVICE SEED DATA
+-- =============================================
+
+-- Default Variable Definitions (using actual columns: variable_key, display_name, entity_path, data_type)
+INSERT INTO variable_definitions (variable_key, display_name, entity_path, data_type, description, category, example_value, is_active) VALUES
+-- Customer Variables
+('customer_name', 'Customer Name', 'customer.name', 'STRING', 'Full name of the customer', 'CUSTOMER', 'John Doe', true),
+('customer_first_name', 'Customer First Name', 'customer.firstName', 'STRING', 'First name of the customer', 'CUSTOMER', 'John', true),
+('customer_email', 'Customer Email', 'customer.email', 'STRING', 'Email address of the customer', 'CUSTOMER', 'john@example.com', true),
+('customer_phone', 'Customer Phone', 'customer.phoneNumber', 'STRING', 'Phone number of the customer', 'CUSTOMER', '9876543210', true),
+-- Loan Variables
+('loan_account_number', 'Loan Account Number', 'loanDetails.loanAccountNumber', 'STRING', 'Loan account number', 'LOAN', 'LN123456', true),
+('outstanding_amount', 'Outstanding Amount', 'loanDetails.totalOutstanding', 'DECIMAL', 'Total outstanding amount', 'LOAN', '50000.00', true),
+('emi_amount', 'EMI Amount', 'loanDetails.emiAmount', 'DECIMAL', 'Monthly EMI amount', 'LOAN', '5000.00', true),
+('due_date', 'Due Date', 'loanDetails.nextDueDate', 'DATE', 'Next payment due date', 'LOAN', '2024-01-15', true),
+('dpd', 'Days Past Due', 'loanDetails.dpd', 'INTEGER', 'Number of days past due', 'LOAN', '30', true),
+('principal_outstanding', 'Principal Outstanding', 'loanDetails.principalOutstanding', 'DECIMAL', 'Principal amount outstanding', 'LOAN', '45000.00', true),
+-- Company Variables
+('company_name', 'Company Name', 'static.companyName', 'STRING', 'Name of the company', 'COMPANY', 'FinXBridge', true),
+('company_phone', 'Company Phone', 'static.companyPhone', 'STRING', 'Company contact number', 'COMPANY', '+91-XXXXXXXXXX', true),
+('company_email', 'Company Email', 'static.companyEmail', 'STRING', 'Company email address', 'COMPANY', 'support@finxbridge.com', true),
+-- Dynamic Variables
+('payment_link', 'Payment Link', 'generated.paymentLink', 'STRING', 'Payment link URL', 'DYNAMIC', 'https://pay.example.com/xyz', true),
+('current_date', 'Current Date', 'computed.currentDate', 'DATE', 'Current date', 'DYNAMIC', '2024-01-01', true),
+('agent_name', 'Agent Name', 'user.firstName', 'STRING', 'Assigned agent name', 'AGENT', 'Agent Name', true)
+ON CONFLICT (variable_key) DO NOTHING;
 
 -- =====================================================
 -- END OF SEED DATA

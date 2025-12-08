@@ -53,6 +53,8 @@ public class CsvExporter {
 
     /**
      * Export cases to CSV
+     * FORMAT: Compatible with allocation service upload
+     * User workflow: Download from case-sourcing → Edit (agents, status, remarks) → Upload to allocation
      */
     public byte[] exportCases(List<Case> cases) {
         log.info("Exporting {} cases to CSV", cases.size());
@@ -60,35 +62,65 @@ public class CsvExporter {
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         PrintWriter writer = new PrintWriter(outputStream, false, StandardCharsets.UTF_8);
 
-        // Write header
-        writer.write("Case Number,External Case ID,Customer Name,Mobile,Loan Account,");
-        writer.write("Total Outstanding,DPD,Bucket,Status,Allocated To User,Created At");
+        // Write header - MATCHES allocation upload format exactly
+        writer.write("loan_id,case_number,customer_name,outstanding,dpd,geography,bucket,");
+        writer.write("primary_agent_id,secondary_agent_id,allocation_type,allocation_percentage,priority,remarks");
         writer.write(LINE_SEPARATOR);
 
         // Write data rows
         for (Case caseEntity : cases) {
-            writer.write(escapeCsv(caseEntity.getCaseNumber()));
-            writer.write(CSV_DELIMITER);
-            writer.write(escapeCsv(caseEntity.getExternalCaseId()));
-            writer.write(CSV_DELIMITER);
-            writer.write(escapeCsv(caseEntity.getLoan().getPrimaryCustomer().getFullName()));
-            writer.write(CSV_DELIMITER);
-            writer.write(escapeCsv(caseEntity.getLoan().getPrimaryCustomer().getMobileNumber()));
-            writer.write(CSV_DELIMITER);
+            // loan_id (required for allocation)
             writer.write(escapeCsv(caseEntity.getLoan().getLoanAccountNumber()));
             writer.write(CSV_DELIMITER);
+
+            // case_number (reference for user)
+            writer.write(escapeCsv(caseEntity.getCaseNumber()));
+            writer.write(CSV_DELIMITER);
+
+            // customer_name (reference for user)
+            writer.write(escapeCsv(caseEntity.getLoan().getPrimaryCustomer().getFullName()));
+            writer.write(CSV_DELIMITER);
+
+            // outstanding (reference)
             writer.write(String.valueOf(caseEntity.getLoan().getTotalOutstanding()));
             writer.write(CSV_DELIMITER);
+
+            // dpd (reference)
             writer.write(String.valueOf(caseEntity.getLoan().getDpd()));
             writer.write(CSV_DELIMITER);
+
+            // geography (from case - user can edit)
+            writer.write(escapeCsv(caseEntity.getGeographyCode()));
+            writer.write(CSV_DELIMITER);
+
+            // bucket (from loan - user can edit)
             writer.write(escapeCsv(caseEntity.getLoan().getBucket()));
             writer.write(CSV_DELIMITER);
-            writer.write(escapeCsv(caseEntity.getCaseStatus()));
-            writer.write(CSV_DELIMITER);
+
+            // primary_agent_id (user will fill this)
             writer.write(caseEntity.getAllocatedToUserId() != null ?
                     String.valueOf(caseEntity.getAllocatedToUserId()) : "");
             writer.write(CSV_DELIMITER);
-            writer.write(String.valueOf(caseEntity.getCreatedAt()));
+
+            // secondary_agent_id (user will fill this)
+            writer.write("");
+            writer.write(CSV_DELIMITER);
+
+            // allocation_type (user can edit: PRIMARY, DUAL, etc.)
+            writer.write("PRIMARY");
+            writer.write(CSV_DELIMITER);
+
+            // allocation_percentage (user can edit)
+            writer.write("100");
+            writer.write(CSV_DELIMITER);
+
+            // priority (user can edit: HIGH, MEDIUM, LOW, CRITICAL)
+            writer.write(escapeCsv(caseEntity.getCasePriority() != null ?
+                    caseEntity.getCasePriority() : "MEDIUM"));
+            writer.write(CSV_DELIMITER);
+
+            // remarks (user can edit/add notes)
+            writer.write("");
             writer.write(LINE_SEPARATOR);
         }
 

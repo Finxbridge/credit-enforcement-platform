@@ -28,12 +28,12 @@ public interface CommunicationServiceClient {
     CommonResponse<Void> sendSMS(@RequestBody SMSRequest request);
 
     /**
-     * Send Email via Msg91
+     * Send Email via MSG91
      *
-     * @param request Email request with email, subject, body, templateId
+     * @param request Email request with toEmail, templateId, variables
      * @return CommonResponse indicating success/failure
      */
-    @PostMapping("/comm/email/send")
+    @PostMapping("/comm/email/msg91/send")
     CommonResponse<Void> sendEmail(@RequestBody EmailRequest request);
 
     /**

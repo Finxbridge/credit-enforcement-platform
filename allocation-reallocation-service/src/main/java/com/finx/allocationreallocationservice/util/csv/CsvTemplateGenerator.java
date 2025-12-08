@@ -69,6 +69,7 @@ public class CsvTemplateGenerator {
     /**
      * Generate contact update CSV template
      * Headers match ContactUpdateCsvRow.java annotations
+     * Uses loan_id for consistency with case sourcing and allocation CSVs
      */
     public byte[] generateContactUpdateTemplate(boolean includeSample, String updateType) {
         if (updateType == null || updateType.isEmpty()) {
@@ -81,7 +82,7 @@ public class CsvTemplateGenerator {
         switch (updateType.toUpperCase()) {
             case "MOBILE_UPDATE":
                 headers = List.of(
-                        "case_id",
+                        "loan_id",
                         "update_type",
                         "mobile_number",
                         "alternate_mobile",
@@ -89,15 +90,15 @@ public class CsvTemplateGenerator {
                 );
                 if (includeSample) {
                     sampleRows = List.of(
-                            List.of("1001", "MOBILE_UPDATE", "9999999999", "8888888888", "New mobile verified"),
-                            List.of("1002", "MOBILE_UPDATE", "7777777777", "", "Updated from bank")
+                            List.of("LA123456789", "MOBILE_UPDATE", "9999999999", "8888888888", "New mobile verified"),
+                            List.of("LA987654321", "MOBILE_UPDATE", "7777777777", "", "Updated from bank")
                     );
                 }
                 break;
 
             case "EMAIL_UPDATE":
                 headers = List.of(
-                        "case_id",
+                        "loan_id",
                         "update_type",
                         "email",
                         "alternate_email",
@@ -105,15 +106,15 @@ public class CsvTemplateGenerator {
                 );
                 if (includeSample) {
                     sampleRows = List.of(
-                            List.of("1001", "EMAIL_UPDATE", "newemail@example.com", "alt@example.com", "Email verified"),
-                            List.of("1002", "EMAIL_UPDATE", "updated@example.com", "", "Borrower provided")
+                            List.of("LA123456789", "EMAIL_UPDATE", "newemail@example.com", "alt@example.com", "Email verified"),
+                            List.of("LA987654321", "EMAIL_UPDATE", "updated@example.com", "", "Borrower provided")
                     );
                 }
                 break;
 
             case "ADDRESS_UPDATE":
                 headers = List.of(
-                        "case_id",
+                        "loan_id",
                         "update_type",
                         "address",
                         "city",
@@ -123,8 +124,8 @@ public class CsvTemplateGenerator {
                 );
                 if (includeSample) {
                     sampleRows = List.of(
-                            List.of("1001", "ADDRESS_UPDATE", "123 New Street", "Mumbai", "Maharashtra", "400001", "Verified address"),
-                            List.of("1002", "ADDRESS_UPDATE", "456 Updated Avenue", "Delhi", "Delhi", "110001", "Field visit confirmed")
+                            List.of("LA123456789", "ADDRESS_UPDATE", "123 New Street", "Mumbai", "Maharashtra", "400001", "Verified address"),
+                            List.of("LA987654321", "ADDRESS_UPDATE", "456 Updated Avenue", "Delhi", "Delhi", "110001", "Field visit confirmed")
                     );
                 }
                 break;
@@ -132,7 +133,7 @@ public class CsvTemplateGenerator {
             default:
                 // Full template with all fields
                 headers = List.of(
-                        "case_id",
+                        "loan_id",
                         "update_type",
                         "mobile_number",
                         "alternate_mobile",
@@ -146,9 +147,9 @@ public class CsvTemplateGenerator {
                 );
                 if (includeSample) {
                     sampleRows = List.of(
-                            List.of("1001", "MOBILE_UPDATE", "9999999999", "8888888888", "", "", "", "", "", "", "Mobile update"),
-                            List.of("1002", "EMAIL_UPDATE", "", "", "email@example.com", "", "", "", "", "", "Email update"),
-                            List.of("1003", "ADDRESS_UPDATE", "", "", "", "", "123 Street", "Mumbai", "MH", "400001", "Address update")
+                            List.of("LA123456789", "MOBILE_UPDATE", "9999999999", "8888888888", "", "", "", "", "", "", "Mobile update"),
+                            List.of("LA987654321", "EMAIL_UPDATE", "", "", "email@example.com", "", "", "", "", "", "Email update"),
+                            List.of("LA555555555", "ADDRESS_UPDATE", "", "", "", "", "123 Street", "Mumbai", "MH", "400001", "Address update")
                     );
                 }
         }

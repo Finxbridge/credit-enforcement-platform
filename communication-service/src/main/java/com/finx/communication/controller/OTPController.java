@@ -1,7 +1,7 @@
 package com.finx.communication.controller;
 
-import com.finx.common.dto.CommonResponse;
-import com.finx.common.util.ResponseWrapper;
+import com.finx.communication.domain.dto.CommonResponse;
+import com.finx.communication.util.ResponseWrapper;
 import com.finx.communication.domain.dto.otp.*;
 import com.finx.communication.service.communication.OTPService;
 import io.swagger.v3.oas.annotations.Operation;

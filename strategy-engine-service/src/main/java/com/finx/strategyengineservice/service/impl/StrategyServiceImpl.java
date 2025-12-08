@@ -2,6 +2,7 @@ package com.finx.strategyengineservice.service.impl;
 
 import com.finx.strategyengineservice.domain.dto.DashboardResponse;
 import com.finx.strategyengineservice.domain.dto.DashboardSummary;
+import com.finx.strategyengineservice.domain.dto.FilterDTO;
 import com.finx.strategyengineservice.domain.dto.StrategyDashboardItem;
 import com.finx.strategyengineservice.domain.dto.StrategyRequest;
 import com.finx.strategyengineservice.domain.dto.StrategyResponse;
@@ -19,6 +20,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.finx.strategyengineservice.domain.dto.SimulationResponse;
 
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -195,10 +197,9 @@ public class StrategyServiceImpl implements StrategyService {
         return getStrategy(strategyId);
     }
 
-    @SuppressWarnings("null")
     @Override
     @Transactional(readOnly = true)
-    public StrategyResponse simulateStrategy(Long strategyId) {
+    public SimulationResponse simulateStrategy(Long strategyId) {
         log.info("Simulating unified strategy: ID={}", strategyId);
 
         Strategy strategy = strategyRepository.findById(strategyId)
@@ -213,13 +214,10 @@ public class StrategyServiceImpl implements StrategyService {
         int estimatedCount = matchedCases.size();
         log.info("Strategy simulation complete: {} cases matched", estimatedCount);
 
-        StrategyAction action = actionRepository.findByStrategyIdOrderByActionOrderAsc(strategyId)
-                .stream().findFirst().orElse(null);
-        ScheduledJob scheduledJob = scheduledJobRepository
-                .findByJobReferenceTypeAndJobReferenceId(REFERENCE_TYPE, strategyId)
-                .orElse(null);
-
-        return buildResponse(strategy, rules, action, scheduledJob, estimatedCount);
+        return SimulationResponse.builder()
+                .matchedCasesCount(estimatedCount)
+                .matchedCases(matchedCases)
+                .build();
     }
 
     @SuppressWarnings("null")
@@ -349,62 +347,221 @@ public class StrategyServiceImpl implements StrategyService {
     }
 
     @SuppressWarnings("null")
-    private List<StrategyRule> createRulesFromFilters(Long strategyId, StrategyRequest.Filters filters) {
+    private List<StrategyRule> createRulesFromFilters(Long strategyId, List<FilterDTO> filters) {
         List<StrategyRule> rules = new ArrayList<>();
+
+        if (filters == null || filters.isEmpty()) {
+            return rules;
+        }
+
         int ruleOrder = 0;
 
         // Get strategy reference
         Strategy strategy = strategyRepository.findById(strategyId)
                 .orElseThrow(() -> new ResourceNotFoundException("Strategy not found: " + strategyId));
 
-        // DPD Range Filter (required)
-        rules.add(createDpdRangeRule(strategy, filters.getDpdRange(), ruleOrder++));
+        // Process each filter based on its type
+        for (FilterDTO filter : filters) {
+            String fieldName = mapFilterFieldToDbField(filter.getField());
 
-        // Outstanding Amount Filter (simplified)
-        if (filters.getOutstandingAmount() != null) {
-            // Simple filter: >= outstandingAmount
-            rules.add(createSimpleNumericRule(strategy, "loan.total_outstanding",
-                    filters.getOutstandingAmount(), "GREATER_THAN_OR_EQUAL", ruleOrder++));
-        } else if (filters.getOutstandingRange() != null) {
-            // Range filter: BETWEEN from and to
-            rules.add(createRangeNumericRule(strategy, "loan.total_outstanding",
-                    filters.getOutstandingRange().getFrom(), filters.getOutstandingRange().getTo(), ruleOrder++));
-        }
+            switch (filter.getFilterType().toUpperCase()) {
+                case "TEXT":
+                    if (filter.getValues() != null && !filter.getValues().isEmpty()) {
+                        rules.add(createTextRule(strategy, fieldName, filter.getValues(), ruleOrder++));
+                    }
+                    break;
 
-        // Text Filters (note: singular names now)
-        if (filters.getLanguage() != null && !filters.getLanguage().isEmpty()) {
-            rules.add(createTextRule(strategy, "case.language", filters.getLanguage(), ruleOrder++));
-        }
+                case "NUMERIC":
+                    StrategyRule numericRule = createNumericRule(strategy, fieldName, filter, ruleOrder++);
+                    if (numericRule != null) {
+                        rules.add(numericRule);
+                    }
+                    break;
 
-        if (filters.getProduct() != null && !filters.getProduct().isEmpty()) {
-            rules.add(createTextRule(strategy, "loan.product_code", filters.getProduct(), ruleOrder++));
-        }
+                case "DATE":
+                    StrategyRule dateRule = createDateRule(strategy, fieldName, filter, ruleOrder++);
+                    if (dateRule != null) {
+                        rules.add(dateRule);
+                    }
+                    break;
 
-        if (filters.getPincode() != null && !filters.getPincode().isEmpty()) {
-            rules.add(createTextRule(strategy, "customer.pincode", filters.getPincode(), ruleOrder++));
-        }
-
-        if (filters.getState() != null && !filters.getState().isEmpty()) {
-            rules.add(createTextRule(strategy, "customer.state", filters.getState(), ruleOrder++));
-        }
-
-        if (filters.getBucket() != null && !filters.getBucket().isEmpty()) {
-            rules.add(createTextRule(strategy, "loan.bucket", filters.getBucket(), ruleOrder++));
+                default:
+                    log.warn("Unknown filter type: {} for field: {}", filter.getFilterType(), filter.getField());
+            }
         }
 
         return rules;
     }
 
-    private StrategyRule createDpdRangeRule(Strategy strategy, StrategyRequest.DpdRange dpdRange, int order) {
-        String value = dpdRange.getFrom() + "," + dpdRange.getTo();
+    /**
+     * Maps filter field codes to database field names
+     */
+    private String mapFilterFieldToDbField(String filterField) {
+        return switch (filterField.toUpperCase()) {
+            // Text filters
+            case "CHANNEL" -> "channel";
+            case "STRATEGY" -> "strategy";
+            case "STATUS" -> "caseStatus";
+            case "SOURCE_TYPE" -> "sourceType";
+            case "OWNERSHIP" -> "ownership";
+            case "LANGUAGE" -> "language";
+            case "LOCATION" -> "customer.location";
+            case "CITY" -> "customer.city";
+            case "STATE" -> "customer.state";
+            case "PINCODE" -> "customer.pincode";
+
+            // Numeric filters
+            case "OVERDUE_AMOUNT", "OD_VAL" -> "loan.totalOutstanding";
+            case "POS" -> "loan.pos";
+            case "TOS" -> "loan.tos";
+            case "LOAN_AMOUNT", "LOAN_AMT" -> "loan.principalAmount";
+            case "EMI_AMOUNT", "EMI_AMT" -> "loan.emiAmount";
+            case "PAID_EMI", "PAIDEMI" -> "loan.paidEmi";
+            case "PENDING_EMI", "PENDINGEMI" -> "loan.pendingEmi";
+            case "PENALTY_AMOUNT", "AMT_PENALTY" -> "loan.penaltyAmount";
+            case "CHARGES" -> "loan.charges";
+            case "LATE_FEES", "LATEFEES" -> "loan.lateFees";
+            case "OD_INTEREST", "OD_INT", "ODINT" -> "loan.odInterest";
+            case "RESI_PHONE", "LANDLINE" -> "customer.alternateMobile";
+            case "MIN_DUE_AMT", "MINDUEAMT" -> "loan.minDueAmt";
+            case "CARD_OS", "CARDOS" -> "loan.cardOs";
+            case "CYCLE_DUE", "CYCLEDUE" -> "loan.cycleDue";
+            case "LAST_BILLED_AMT", "LASTBILLEDAMT" -> "loan.lastBilledAmt";
+            case "LAST_PAID_AMT", "LASTPAIDAMOUNT" -> "loan.lastPaidAmount";
+            case "DPD" -> "loan.dpd";
+            case "LAST_4_DIGITS", "LAST4DIGITS" -> "card.last4Digits";
+            case "SOM_DPD", "SOMDPD" -> "loan.somDpd";
+            case "BUREAU_SCORE", "BUREAUSCORE" -> "customer.bureauScore";
+            case "PRINCIPAL_OD", "PRINCIPALOVERDUE" -> "loan.principalOverdue";
+            case "INTEREST_OD", "INTERESTOVERDUE" -> "loan.interestOverdue";
+            case "FEES_OD", "FEESOVERDUE" -> "loan.feesOverdue";
+            case "PENALTY_OD", "PENALTYOVERDUE" -> "loan.penaltyOverdue";
+
+            // Date filters
+            case "EMI_START_DATE", "EMISTARTDATE" -> "loan.emiStartDate";
+            case "DISB_DATE", "LOANDISBDATE" -> "loan.loanDisbursementDate";
+            case "MATURITY_DATE", "MATURITYDATE" -> "loan.loanMaturityDate";
+            case "STATEMENT_DATE", "STATEMENTDATE" -> "loan.statementDate";
+            case "DUE_DATE", "DUEDATE" -> "loan.dueDate";
+            case "LAST_PAYMENT_DATE", "LASTPAYMENTDATE" -> "loan.lastPaymentDate";
+            case "BLOCK_1_DATE", "BLOCKCODE1DATE" -> "loan.blockCode1Date";
+            case "BLOCK_2_DATE", "BLOCKCODE2DATE" -> "loan.blockCode2Date";
+            case "EMI_OD_FROM", "EMIOVERDUEFROM" -> "loan.emiOverdueFrom";
+            case "NEXT_EMI_DATE", "NEXTEMIDATE" -> "loan.nextEmiDate";
+
+            default -> filterField.toLowerCase();
+        };
+    }
+
+    /**
+     * Creates a numeric rule based on the operator and values
+     */
+    private StrategyRule createNumericRule(Strategy strategy, String fieldName, FilterDTO filter, int order) {
+        if (filter.getNumericOperator() == null) {
+            log.warn("Numeric operator is null for filter: {}", filter.getField());
+            return null;
+        }
+
+        RuleOperator ruleOperator;
+        String fieldValue;
+
+        switch (filter.getNumericOperator()) {
+            case GREATER_THAN_EQUAL:
+                ruleOperator = RuleOperator.GREATER_THAN_OR_EQUAL;
+                fieldValue = String.valueOf(filter.getMinValue());
+                break;
+
+            case LESS_THAN_EQUAL:
+                ruleOperator = RuleOperator.LESS_THAN_OR_EQUAL;
+                fieldValue = String.valueOf(filter.getMaxValue());
+                break;
+
+            case EQUAL:
+                ruleOperator = RuleOperator.EQUALS;
+                fieldValue = String.valueOf(filter.getExactValue());
+                break;
+
+            case RANGE:
+                ruleOperator = RuleOperator.BETWEEN;
+                fieldValue = filter.getMinValue() + "," + filter.getMaxValue();
+                break;
+
+            default:
+                log.warn("Unknown numeric operator: {}", filter.getNumericOperator());
+                return null;
+        }
+
+        Map<String, Object> conditions = new HashMap<>();
+        conditions.put("field", filter.getField());
+        conditions.put("filterType", filter.getFilterType());
+        conditions.put("numericOperator", filter.getNumericOperator());
+        conditions.put("minValue", filter.getMinValue());
+        conditions.put("maxValue", filter.getMaxValue());
+        conditions.put("exactValue", filter.getExactValue());
 
         return StrategyRule.builder()
                 .strategy(strategy)
-                .ruleName("DPD Range Filter")
+                .ruleName(filter.getField() + " Filter")
                 .ruleOrder(order)
-                .fieldName("loan.dpd")
-                .operator(RuleOperator.BETWEEN)
-                .fieldValue(value)
+                .fieldName(fieldName)
+                .operator(ruleOperator)
+                .fieldValue(fieldValue)
+                .conditions(conditions)
+                .logicalOperator("AND")
+                .isActive(true)
+                .createdAt(LocalDateTime.now())
+                .build();
+    }
+
+    /**
+     * Creates a date rule based on the operator and values
+     */
+    private StrategyRule createDateRule(Strategy strategy, String fieldName, FilterDTO filter, int order) {
+        if (filter.getDateOperator() == null) {
+            log.warn("Date operator is null for filter: {}", filter.getField());
+            return null;
+        }
+
+        RuleOperator ruleOperator;
+        String fieldValue;
+
+        switch (filter.getDateOperator()) {
+            case OLDER_THAN:
+                ruleOperator = RuleOperator.LESS_THAN;
+                fieldValue = String.valueOf(filter.getSpecificDate());
+                break;
+
+            case NEWER_THAN:
+                ruleOperator = RuleOperator.GREATER_THAN;
+                fieldValue = String.valueOf(filter.getSpecificDate());
+                break;
+
+            case INTERVAL:
+                ruleOperator = RuleOperator.BETWEEN;
+                fieldValue = filter.getFromDate() + "," + filter.getToDate();
+                break;
+
+            default:
+                log.warn("Unknown date operator: {}", filter.getDateOperator());
+                return null;
+        }
+
+        Map<String, Object> conditions = new HashMap<>();
+        conditions.put("field", filter.getField());
+        conditions.put("filterType", filter.getFilterType());
+        conditions.put("dateOperator", filter.getDateOperator());
+        conditions.put("fromDate", filter.getFromDate());
+        conditions.put("toDate", filter.getToDate());
+        conditions.put("specificDate", filter.getSpecificDate());
+
+        return StrategyRule.builder()
+                .strategy(strategy)
+                .ruleName(filter.getField() + " Filter")
+                .ruleOrder(order)
+                .fieldName(fieldName)
+                .operator(ruleOperator)
+                .fieldValue(fieldValue)
+                .conditions(conditions)
                 .logicalOperator("AND")
                 .isActive(true)
                 .createdAt(LocalDateTime.now())
@@ -448,6 +605,11 @@ public class StrategyServiceImpl implements StrategyService {
     private StrategyRule createTextRule(Strategy strategy, String fieldName, List<String> values, int order) {
         String value = String.join(",", values);
 
+        Map<String, Object> conditions = new HashMap<>();
+        conditions.put("field", fieldName);
+        conditions.put("filterType", "TEXT");
+        conditions.put("values", values);
+
         return StrategyRule.builder()
                 .strategy(strategy)
                 .ruleName(fieldName + " Filter")
@@ -455,6 +617,7 @@ public class StrategyServiceImpl implements StrategyService {
                 .fieldName(fieldName)
                 .operator(RuleOperator.IN)
                 .fieldValue(value)
+                .conditions(conditions)
                 .logicalOperator("AND")
                 .isActive(true)
                 .createdAt(LocalDateTime.now())
@@ -467,14 +630,17 @@ public class StrategyServiceImpl implements StrategyService {
                 .orElseThrow(() -> new ResourceNotFoundException("Strategy not found: " + strategyId));
         ActionType actionType = mapChannelTypeToActionType(channel.getType());
 
-        // Determine templateId - use provided or lookup from templateName
-        Long templateId = channel.getTemplateId();
-        if (templateId == null) {
-            // TODO: Implement template lookup service to get templateId by templateName
-            log.warn("Template ID not provided, templateName lookup not yet implemented: {}",
-                     channel.getTemplateName());
-            templateId = 0L; // Placeholder
+        // Use provider template ID directly (MSG91 template ID like "691c17bde616b476516180c8")
+        String templateId = channel.getTemplateId();
+        if (templateId == null || templateId.isBlank()) {
+            log.warn("Template ID not provided for channel: {}, templateName: {}",
+                    channel.getType(), channel.getTemplateName());
         }
+
+        Map<String, Object> actionConfig = new HashMap<>();
+        actionConfig.put("type", channel.getType());
+        actionConfig.put("templateName", channel.getTemplateName());
+        actionConfig.put("templateId", templateId);
 
         return StrategyAction.builder()
                 .strategy(strategy)
@@ -483,6 +649,7 @@ public class StrategyServiceImpl implements StrategyService {
                 .templateId(templateId)
                 .channel(channel.getType())
                 .priority(0)
+                .actionConfig(actionConfig)
                 .isActive(true)
                 .createdAt(LocalDateTime.now())
                 .build();

@@ -2,6 +2,7 @@ package com.finx.strategyengineservice.controller;
 
 import com.finx.strategyengineservice.domain.dto.CommonResponse;
 import com.finx.strategyengineservice.domain.dto.DashboardResponse;
+import com.finx.strategyengineservice.domain.dto.SimulationResponse;
 import com.finx.strategyengineservice.domain.dto.StrategyRequest;
 import com.finx.strategyengineservice.domain.dto.StrategyResponse;
 import com.finx.strategyengineservice.service.StrategyService;
@@ -27,7 +28,7 @@ import java.util.List;
  * - StrategyTriggerController (schedule)
  */
 @RestController
-@RequestMapping("/strategies/v2")
+@RequestMapping("/strategies")
 @RequiredArgsConstructor
 @Slf4j
 @Tag(name = "Unified Strategy Management", description = "Single API for complete strategy configuration")
@@ -161,12 +162,12 @@ public class StrategyController {
         summary = "Simulate strategy execution",
         description = "See how many cases match the filter criteria without actually executing"
     )
-    public ResponseEntity<CommonResponse<StrategyResponse>> simulateStrategy(
+    public ResponseEntity<CommonResponse<SimulationResponse>> simulateStrategy(
             @PathVariable Long strategyId) {
 
         log.info("POST /api/v1/strategies/v2/{}/simulate - Simulate strategy", strategyId);
 
-        StrategyResponse response = strategyService.simulateStrategy(strategyId);
+        SimulationResponse response = strategyService.simulateStrategy(strategyId);
 
         return ResponseEntity.ok(CommonResponse.success("Strategy simulation completed.", response));
     }

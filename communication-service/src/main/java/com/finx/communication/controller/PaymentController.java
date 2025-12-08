@@ -1,7 +1,7 @@
 package com.finx.communication.controller;
 
-import com.finx.common.dto.CommonResponse;
-import com.finx.common.util.ResponseWrapper;
+import com.finx.communication.domain.dto.CommonResponse;
+import com.finx.communication.util.ResponseWrapper;
 import com.finx.communication.domain.dto.payment.*;
 import com.finx.communication.service.payment.PaymentGatewayService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -16,25 +16,59 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/integrations/payment")
 @RequiredArgsConstructor
-@Tag(name = "Payment Gateway", description = "Payment gateway integration APIs (PhonePe/Razorpay)")
+@Tag(name = "Payment Gateway", description = "Payment gateway integration APIs for Payment Link generation, status check, and refunds")
 public class PaymentController {
 
     private final PaymentGatewayService paymentGatewayService;
 
-    @PostMapping("/initiate")
-    @Operation(summary = "Initiate Payment", description = "Initiate payment/generate payment link")
-    public ResponseEntity<CommonResponse<PaymentResponse>> initiatePayment(
+    @PostMapping("/link")
+    @Operation(summary = "Generate Payment Link",
+               description = "Generate a payment link for repayment collection. Only amount and mobileNumber are required; other fields are fetched from third_party_integration_master.")
+    public ResponseEntity<CommonResponse<PaymentResponse>> generatePaymentLink(
             @Valid @RequestBody PaymentInitiateRequest request) {
-        log.info("Request to initiate payment for amount: {}", request.getAmount());
-        PaymentResponse response = paymentGatewayService.initiatePayment(request);
-        return ResponseWrapper.ok("Payment initiated successfully", response);
+        log.info("Request to generate payment link for amount: {} to mobile: {}",
+                request.getAmount(), request.getMobileNumber());
+        PaymentResponse response = paymentGatewayService.generatePaymentLink(request);
+        return ResponseWrapper.created("Payment link generated successfully", response);
     }
 
-    @GetMapping("/status/{transactionId}")
-    @Operation(summary = "Get Payment Status", description = "Check payment status")
-    public ResponseEntity<CommonResponse<PaymentResponse>> getPaymentStatus(@PathVariable String transactionId) {
-        log.info("Request to get payment status for: {}", transactionId);
-        PaymentResponse response = paymentGatewayService.getPaymentStatus(transactionId);
-        return ResponseWrapper.ok("Payment status retrieved", response);
+    @PostMapping("/status")
+    @Operation(summary = "Check Payment Status",
+               description = "Check the status of a payment transaction using transaction ID")
+    public ResponseEntity<CommonResponse<PaymentResponse>> checkPaymentStatus(
+            @Valid @RequestBody PaymentStatusRequest request) {
+        log.info("Request to check payment status for transaction: {}", request.getTransactionId());
+        PaymentResponse response = paymentGatewayService.checkPaymentStatus(request);
+        return ResponseWrapper.ok("Payment status retrieved successfully", response);
+    }
+
+    @PostMapping("/refund")
+    @Operation(summary = "Process Refund",
+               description = "Process a refund for a completed payment. Only transactionId is required; if amount is not provided, full refund will be processed.")
+    public ResponseEntity<CommonResponse<PaymentResponse>> processRefund(
+            @Valid @RequestBody PaymentRefundRequest request) {
+        log.info("Request to process refund for transaction: {}", request.getTransactionId());
+        PaymentResponse response = paymentGatewayService.processRefund(request);
+        return ResponseWrapper.ok("Refund processed successfully", response);
+    }
+
+    @GetMapping("/transaction/{transactionId}")
+    @Operation(summary = "Get Transaction Details",
+               description = "Get complete transaction details from database by transaction ID")
+    public ResponseEntity<CommonResponse<PaymentResponse>> getTransactionDetails(
+            @PathVariable String transactionId) {
+        log.info("Request to get transaction details for: {}", transactionId);
+        PaymentResponse response = paymentGatewayService.getTransactionDetails(transactionId);
+        return ResponseWrapper.ok("Transaction details retrieved", response);
+    }
+
+    @GetMapping("/case/{caseId}")
+    @Operation(summary = "Get Transactions by Case",
+               description = "Get all payment transactions for a specific case")
+    public ResponseEntity<CommonResponse<java.util.List<PaymentResponse>>> getTransactionsByCase(
+            @PathVariable Long caseId) {
+        log.info("Request to get transactions for case: {}", caseId);
+        java.util.List<PaymentResponse> response = paymentGatewayService.getTransactionsByCase(caseId);
+        return ResponseWrapper.ok("Transactions retrieved", response);
     }
 }

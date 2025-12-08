@@ -53,9 +53,11 @@ public class AuthenticationService {
     private final PasswordPolicyService passwordPolicyService;
     private final SessionManagementService sessionManagementService;
     private final OtpManagementService otpManagementService;
+    private final TokenBlacklistService tokenBlacklistService;
     private final JwtUtil jwtUtil;
     private final CommunicationServiceClient communicationServiceClient;
     private final ConfigCacheService configCacheService;
+    private final UserSessionRepository userSessionRepository;
 
     // Configuration Keys
 
@@ -106,6 +108,21 @@ public class AuthenticationService {
 
         // Reset failed login attempts on successful login
         passwordPolicyService.resetFailedLoginAttempts(user);
+
+        // Check for active sessions before proceeding with login
+        List<UserSession> activeSessions = userSessionRepository.findActiveSessionsByUserId(user.getId());
+        if (!activeSessions.isEmpty()) {
+            log.warn("User {} has {} active session(s), denying new login", user.getUsername(), activeSessions.size());
+            return LoginResponse.builder()
+                    .userId(user.getId())
+                    .username(user.getUsername())
+                    .email(user.getEmail())
+                    .firstName(user.getFirstName())
+                    .lastName(user.getLastName())
+                    .hasActiveSession(true)
+                    .message("Active session exists in another browser. Please logout first or wait for session to expire.")
+                    .build();
+        }
 
         // FR-AM-1: Check if first login (must change password)
         if (user.isFirstLogin()) {
@@ -401,6 +418,51 @@ public class AuthenticationService {
     }
 
     /**
+     * Forget Password - Initiates password reset by sending OTP to registered email
+     * Simpler endpoint that wraps request OTP logic
+     */
+    @Transactional
+    public ForgetPasswordResponse forgetPassword(ForgetPasswordRequest request) {
+        log.info("Forget password request for email: {}", maskEmail(request.getEmail()));
+
+        int otpExpiryMinutes = configCacheService.getIntConfig(CacheConstants.OTP_EXPIRY_MINUTES,
+                DEFAULT_OTP_EXPIRY_MINUTES);
+
+        // Find user by email - Security: Always return success to prevent email enumeration
+        Optional<User> userOptional = authUserRepository.findByEmail(request.getEmail());
+
+        // If user not found, return generic success response without sending OTP
+        if (userOptional.isEmpty()) {
+            log.warn("Forget password requested for non-existent email (security: not revealing this to client): {}",
+                    maskEmail(request.getEmail()));
+            return ForgetPasswordResponse.builder()
+                    .requestId("FP-" + UUID.randomUUID().toString())
+                    .email(maskEmail(request.getEmail()))
+                    .message("If this email is registered, a password reset OTP has been sent to your email")
+                    .otpSent(true)
+                    .otpExpiryMinutes(otpExpiryMinutes)
+                    .build();
+        }
+
+        User user = userOptional.get();
+
+        // Use the existing requestOtp method logic
+        RequestOtpRequest otpRequest = RequestOtpRequest.builder()
+                .username(request.getEmail())
+                .build();
+
+        RequestOtpResponse otpResponse = requestOtp(otpRequest);
+
+        return ForgetPasswordResponse.builder()
+                .requestId(otpResponse.getRequestId())
+                .email(maskEmail(request.getEmail()))
+                .message("Password reset OTP has been sent to your email. Please check your inbox.")
+                .otpSent(true)
+                .otpExpiryMinutes(otpExpiryMinutes)
+                .build();
+    }
+
+    /**
      * Refresh access token using refresh token
      */
     @SuppressWarnings("null")
@@ -451,18 +513,47 @@ public class AuthenticationService {
     }
 
     /**
-     * Logout - terminates all sessions for the user
+     * Logout by username - terminates all sessions and blacklists all tokens for the user
+     * @param username The username of the user to logout
      */
     @Transactional
-    public void logout(String sessionId) {
-        // Get the session to find the userId
-        UserSession session = sessionManagementService.getSessionById(sessionId);
-        Long userId = session.getUserId();
+    public void logoutByUsername(String username) {
+        log.info("Logout request for user: {}", username);
+
+        // Find user by username
+        User user = authUserRepository.findByUsername(username)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + username));
+
+        Long userId = user.getId();
+
+        // Get all active sessions to blacklist their tokens
+        List<UserSession> activeSessions = userSessionRepository.findActiveSessionsByUserId(userId);
+
+        if (activeSessions.isEmpty()) {
+            log.info("No active sessions found for user: {}", username);
+            return;
+        }
+
+        // Blacklist all access and refresh tokens from all sessions
+        int tokensBlacklisted = 0;
+        for (UserSession userSession : activeSessions) {
+            if (userSession.getAccessToken() != null && !userSession.getAccessToken().isEmpty()) {
+                tokenBlacklistService.blacklistToken(userSession.getAccessToken());
+                tokensBlacklisted++;
+                log.debug("Blacklisted access token for session: {}", userSession.getSessionId());
+            }
+            if (userSession.getRefreshToken() != null && !userSession.getRefreshToken().isEmpty()) {
+                tokenBlacklistService.blacklistToken(userSession.getRefreshToken());
+                tokensBlacklisted++;
+                log.debug("Blacklisted refresh token for session: {}", userSession.getSessionId());
+            }
+        }
 
         // Terminate all active sessions for this user
         sessionManagementService.terminateAllSessionsForUser(userId, "LOGOUT");
 
-        log.info("User logged out - all sessions terminated for user ID: {}", userId);
+        log.info("User '{}' logged out - {} sessions terminated and {} tokens blacklisted",
+                username, activeSessions.size(), tokensBlacklisted);
     }
 
     /**

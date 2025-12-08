@@ -1,11 +1,11 @@
 package com.finx.communication.service.communication;
 
-import com.finx.common.service.IntegrationCacheService;
+import com.finx.communication.service.IntegrationCacheService;
 import com.finx.communication.domain.dto.email.*;
 import com.finx.communication.domain.entity.EmailMessage;
-import com.finx.common.model.ThirdPartyIntegrationMaster;
-import com.finx.common.exception.ApiCallException;
-import com.finx.common.exception.ConfigurationNotFoundException;
+import com.finx.communication.domain.model.ThirdPartyIntegrationMaster;
+import com.finx.communication.exception.ApiCallException;
+import com.finx.communication.exception.ConfigurationNotFoundException;
 import com.finx.communication.repository.EmailMessageRepository;
 import com.finx.communication.util.TemplateVariableReplacer;
 import com.sendgrid.*;

@@ -2,14 +2,13 @@ package com.finx.communication.service.communication;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.finx.common.service.IntegrationCacheService;
+import com.finx.communication.service.IntegrationCacheService;
 import com.finx.communication.domain.dto.sms.*;
 import com.finx.communication.domain.entity.SmsMessage;
-import com.finx.common.model.ThirdPartyIntegrationMaster;
+import com.finx.communication.domain.model.ThirdPartyIntegrationMaster;
 import com.finx.communication.exception.ApiCallException;
 import com.finx.communication.exception.ConfigurationNotFoundException;
 import com.finx.communication.repository.SmsMessageRepository;
-import com.finx.common.util.EncryptionUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
@@ -35,7 +34,6 @@ public class SMSService {
     private final IntegrationCacheService integrationCacheService;
     private final SmsMessageRepository smsMessageRepository;
     private final ObjectMapper objectMapper;
-    private final EncryptionUtil encryptionUtil;
 
     private static final String INTEGRATION_NAME = "MSG91_SMS";
     private static final String AUTH_KEY = "authkey";
@@ -48,22 +46,43 @@ public class SMSService {
      * Supports multiple recipients with different variable values
      */
     public SmsResponse sendSms(SmsSendRequest request) {
+        log.info("========== SMS SEND REQUEST START ==========");
         log.info("Sending SMS to {} recipients", request.getRecipients().size());
+        log.info("Incoming Request - TemplateId: {}, ShortUrl: {}, RealTimeResponse: {}",
+                request.getTemplateId(), request.getShortUrl(), request.getRealTimeResponse());
+
+        // Log each recipient with their variables
+        for (int i = 0; i < request.getRecipients().size(); i++) {
+            SmsRecipient recipient = request.getRecipients().get(i);
+            log.info("Recipient[{}] - Mobile: {}, Variables: {}", i, recipient.getMobile(), recipient.getVariables());
+        }
 
         // 1. Get configuration from cache
         ThirdPartyIntegrationMaster config = getIntegrationConfig();
+        log.info("Config - Endpoint: {}", config.getApiEndpoint());
 
         // 2. Build request body with dynamic variables
         Map<String, Object> requestBody = buildSmsRequestBody(request);
 
-        // 3. Build URL
-        String url = config.getApiEndpoint() + "/api/v5/flow";
+        // Log the exact JSON being sent to MSG91
+        try {
+            String jsonPayload = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(requestBody);
+            log.info("========== MSG91 REQUEST PAYLOAD ==========\n{}", jsonPayload);
+        } catch (Exception e) {
+            log.warn("Could not serialize request body for logging", e);
+        }
+
+        // 3. Use URL directly from database (full endpoint)
+        String url = config.getApiEndpoint();
 
         // 4. Call Msg91 API
         String response = callMsg91Api(url, requestBody, config);
+        log.info("========== MSG91 RESPONSE ==========\n{}", response);
 
         // 5. Save to database
         List<String> messageIds = saveSmsMessages(request, response);
+
+        log.info("========== SMS SEND REQUEST END ==========");
 
         // 6. Return response
         return SmsResponse.builder()
@@ -76,6 +95,7 @@ public class SMSService {
 
     /**
      * Create SMS template
+     * smsType and senderId are read from database config_json
      */
     @SuppressWarnings("null")
     public Map<String, Object> createTemplate(SmsCreateTemplateRequest request) {
@@ -84,21 +104,27 @@ public class SMSService {
         // 1. Get configuration from cache
         ThirdPartyIntegrationMaster config = getIntegrationConfig();
 
-        // 2. Build URL
-        String url = config.getApiEndpoint() + "/api/v5/sms/addTemplate";
+        // 2. Get URL from config_json
+        String url = config.getConfigValueAsString("add_template_url");
 
-        // 3. Build multipart form data
+        // 3. Get smsType and senderId from config_json
+        String smsType = config.getConfigValueAsString("sms_type");
+        String senderId = config.getConfigValueAsString("sender_id");
+
+        log.info("Using smsType: {}, senderId: {} (from config_json)", smsType, senderId);
+
+        // 4. Build multipart form data
         MultipartBodyBuilder builder = new MultipartBodyBuilder();
         builder.part("template", request.getTemplate());
-        builder.part("sender_id", request.getSenderId());
+        builder.part("sender_id", senderId);
         builder.part("template_name", request.getTemplateName());
         builder.part("dlt_template_id", request.getDltTemplateId());
-        builder.part("smsType", request.getSmsType() != null ? request.getSmsType() : "NORMAL");
+        builder.part("smsType", smsType);
 
-        // 4. Call Msg91 API
+        // 5. Call Msg91 API (use API key directly - no encryption)
         String response = webClient.post()
                 .uri(url)
-                .header(AUTH_KEY, encryptionUtil.decrypt(config.getApiKeyEncrypted()))
+                .header(AUTH_KEY, config.getApiKeyEncrypted())
                 .header(ACCEPT, ACCEPT_TYPE)
                 .contentType(MediaType.MULTIPART_FORM_DATA)
                 .body(BodyInserters.fromMultipartData(builder.build()))
@@ -128,13 +154,13 @@ public class SMSService {
         // 1. Get configuration from cache
         ThirdPartyIntegrationMaster config = getIntegrationConfig();
 
-        // 2. Build URL
-        String url = config.getApiEndpoint() + "/api/v5/sms/getTemplateVersions";
+        // 2. Get URL from config_json
+        String url = config.getConfigValueAsString("get_template_versions_url");
 
-        // 3. Call Msg91 API with JSON body
+        // 3. Call Msg91 API with JSON body (use API key directly - no encryption)
         String response = webClient.post()
                 .uri(url)
-                .header(AUTH_KEY, encryptionUtil.decrypt(config.getApiKeyEncrypted()))
+                .header(AUTH_KEY, config.getApiKeyEncrypted())
                 .header(ACCEPT, ACCEPT_TYPE)
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(request)
@@ -163,15 +189,14 @@ public class SMSService {
         // 1. Get configuration from cache
         ThirdPartyIntegrationMaster config = getIntegrationConfig();
 
-        // 2. Build URL with query parameters
-        String url = config.getApiEndpoint() + "/api/v5/report/logs/p/sms" +
-                "?startDate=" + startDate +
-                "&endDate=" + endDate;
+        // 2. Get URL from config_json and append query parameters
+        String baseUrl = config.getConfigValueAsString("logs_url");
+        String url = baseUrl + "?startDate=" + startDate + "&endDate=" + endDate;
 
-        // 3. Call Msg91 API
+        // 3. Call Msg91 API (use API key directly - no encryption)
         String response = webClient.post()
                 .uri(url)
-                .header(AUTH_KEY, encryptionUtil.decrypt(config.getApiKeyEncrypted()))
+                .header(AUTH_KEY, config.getApiKeyEncrypted())
                 .header(ACCEPT, ACCEPT_TYPE)
                 .retrieve()
                 .bodyToMono(String.class)
@@ -189,6 +214,7 @@ public class SMSService {
 
     /**
      * Add a new version to an existing SMS template
+     * senderId is read from database config_json
      */
     @SuppressWarnings("null")
     public Map<String, Object> addTemplateVersion(SmsAddTemplateVersionRequest request) {
@@ -197,20 +223,25 @@ public class SMSService {
         // 1. Get configuration from cache
         ThirdPartyIntegrationMaster config = getIntegrationConfig();
 
-        // 2. Build URL
-        String url = config.getApiEndpoint() + "/api/v5/sms/addTemplateVersion";
+        // 2. Get URL from config_json
+        String url = config.getConfigValueAsString("add_template_version_url");
 
-        // 3. Build multipart form data
+        // 3. Get senderId from config_json
+        String senderId = config.getConfigValueAsString("sender_id");
+
+        log.info("Using senderId: {} (from config_json)", senderId);
+
+        // 4. Build multipart form data
         MultipartBodyBuilder builder = new MultipartBodyBuilder();
         builder.part("template_id", request.getTemplateId());
-        builder.part("sender_id", request.getSenderId());
+        builder.part("sender_id", senderId);
         builder.part("template", request.getTemplate());
         builder.part("dlt_template_id", request.getDltTemplateId());
 
-        // 4. Call Msg91 API
+        // 5. Call Msg91 API (use API key directly - no encryption)
         String response = webClient.post()
                 .uri(url)
-                .header(AUTH_KEY, encryptionUtil.decrypt(config.getApiKeyEncrypted()))
+                .header(AUTH_KEY, config.getApiKeyEncrypted())
                 .header(ACCEPT, ACCEPT_TYPE)
                 .contentType(MediaType.MULTIPART_FORM_DATA)
                 .body(BodyInserters.fromMultipartData(builder.build()))
@@ -240,15 +271,14 @@ public class SMSService {
         // 1. Get configuration from cache
         ThirdPartyIntegrationMaster config = getIntegrationConfig();
 
-        // 2. Build URL with query parameters
-        String url = config.getApiEndpoint() + "/api/v5/report/analytics/p/sms" +
-                "?startDate=" + startDate +
-                "&endDate=" + endDate;
+        // 2. Get URL from config_json and append query parameters
+        String baseUrl = config.getConfigValueAsString("analytics_url");
+        String url = baseUrl + "?startDate=" + startDate + "&endDate=" + endDate;
 
-        // 3. Call Msg91 API
+        // 3. Call Msg91 API (use API key directly - no encryption)
         String response = webClient.get()
                 .uri(url)
-                .header(AUTH_KEY, encryptionUtil.decrypt(config.getApiKeyEncrypted()))
+                .header(AUTH_KEY, config.getApiKeyEncrypted())
                 .header(ACCEPT, ACCEPT_TYPE)
                 .retrieve()
                 .bodyToMono(String.class)
@@ -276,15 +306,14 @@ public class SMSService {
         // 1. Get configuration from cache
         ThirdPartyIntegrationMaster config = getIntegrationConfig();
 
-        // 2. Build URL with query parameters
-        String url = config.getApiEndpoint() + "/api/v5/sms/markActive" +
-                "?id=" + id +
-                "&template_id=" + templateId;
+        // 2. Get URL from config_json and append query parameters
+        String baseUrl = config.getConfigValueAsString("mark_active_url");
+        String url = baseUrl + "?id=" + id + "&template_id=" + templateId;
 
-        // 3. Call Msg91 API
+        // 3. Call Msg91 API (use API key directly - no encryption)
         String response = webClient.get()
                 .uri(url)
-                .header(AUTH_KEY, encryptionUtil.decrypt(config.getApiKeyEncrypted()))
+                .header(AUTH_KEY, config.getApiKeyEncrypted())
                 .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
                 .retrieve()
                 .bodyToMono(String.class)
@@ -311,8 +340,10 @@ public class SMSService {
 
     /**
      * Build SMS request body with dynamic variables for each recipient
+     * MSG91 Flow API format: variables must be at recipient level (not nested)
      */
     private Map<String, Object> buildSmsRequestBody(SmsSendRequest request) {
+        log.info("Building SMS request body for MSG91 Flow API...");
         Map<String, Object> body = new HashMap<>();
 
         body.put("template_id", request.getTemplateId());
@@ -335,11 +366,24 @@ public class SMSService {
             Map<String, Object> recipientData = new HashMap<>();
             recipientData.put("mobiles", recipient.getMobile());
 
-            // Add dynamic variables (VAR1, VAR2, VAR3, etc.)
-            if (recipient.getVariables() != null) {
-                recipientData.putAll(recipient.getVariables());
+            // Add dynamic variables (VAR1, VAR2, VAR3, etc.) - convert all to String for MSG91 compatibility
+            if (recipient.getVariables() != null && !recipient.getVariables().isEmpty()) {
+                log.info("Raw variables from request for mobile {}: {}", recipient.getMobile(), recipient.getVariables());
+
+                for (Map.Entry<String, Object> entry : recipient.getVariables().entrySet()) {
+                    String key = entry.getKey();
+                    Object value = entry.getValue();
+                    // Convert all values to String for MSG91
+                    String stringValue = value != null ? String.valueOf(value) : "";
+                    recipientData.put(key, stringValue);
+                    log.info("Added variable: {} = {} (type: {})", key, stringValue,
+                            value != null ? value.getClass().getSimpleName() : "null");
+                }
+            } else {
+                log.warn("WARNING: No variables found for mobile: {} - SMS may have empty placeholders!", recipient.getMobile());
             }
 
+            log.info("Final recipientData for MSG91: {}", recipientData);
             recipientsList.add(recipientData);
         }
 
@@ -353,7 +397,7 @@ public class SMSService {
         try {
             return webClient.post()
                     .uri(url)
-                    .header(AUTH_KEY, encryptionUtil.decrypt(config.getApiKeyEncrypted()))
+                    .header(AUTH_KEY, config.getApiKeyEncrypted())
                     .header(ACCEPT, ACCEPT_TYPE)
                     .contentType(MediaType.APPLICATION_JSON)
                     .bodyValue(body)

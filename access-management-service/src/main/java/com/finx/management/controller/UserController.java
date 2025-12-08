@@ -3,6 +3,7 @@ package com.finx.management.controller;
 import com.finx.management.domain.dto.CreateUserRequest;
 import com.finx.management.domain.dto.UpdateUserRequest;
 import com.finx.management.domain.dto.UserDTO;
+import com.finx.management.domain.dto.UserListDTO;
 import com.finx.management.domain.dto.UserPermissionDTO;
 import com.finx.management.service.UserService;
 import com.finx.common.domain.dto.CommonResponse;
@@ -29,7 +30,7 @@ public class UserController {
     @SuppressWarnings("null")
     @PreAuthorize("hasAuthority('USER_READ')")
     @GetMapping
-    public ResponseEntity<CommonResponse<Page<UserDTO>>> getAllUsers(
+    public ResponseEntity<CommonResponse<Page<UserListDTO>>> getAllUsers(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(required = false) String search,
@@ -38,7 +39,7 @@ public class UserController {
 
         Sort sorting = Sort.by(Sort.Direction.fromString(sort[1]), sort[0]);
         Pageable pageable = PageRequest.of(page, size, sorting);
-        Page<UserDTO> users = userService.getAllUsers(pageable, search, status);
+        Page<UserListDTO> users = userService.getAllUsers(pageable, search, status);
         return ResponseWrapper.ok("Users retrieved successfully.", users);
     }
 

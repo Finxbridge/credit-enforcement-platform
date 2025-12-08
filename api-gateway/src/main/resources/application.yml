@@ -5,7 +5,7 @@ spring:
     active: ${SPRING_PROFILES_ACTIVE:dev}
 
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/staging_db}
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/development_db}
     username: ${SPRING_DATASOURCE_USERNAME:admin}
     password: ${SPRING_DATASOURCE_PASSWORD:password}
     driver-class-name: org.postgresql.Driver
@@ -30,14 +30,13 @@ spring:
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
+      username: ${REDIS_USERNAME:}
+      password: ${REDIS_PASSWORD:}
+      ssl:
+        enabled: ${REDIS_SSL_ENABLED:false}
 
   cloud:
     gateway:
-      discovery:
-        locator:
-          enabled: true
-          lower-case-service-id: true
-
       globalcors:
         corsConfigurations:
           '[/**]':
@@ -48,51 +47,85 @@ spring:
             maxAge: 3600
 
       routes:
+        # =====================================================
+        # ACCESS MANAGEMENT SERVICE (Port: 8081)
+        # =====================================================
         - id: access-management-auth
-          uri: lb://access-management-service
+          uri: ${ACCESS_MANAGEMENT_SERVICE_URL:http://localhost:8081}
           predicates:
             - Path=/api/v1/access/auth/**
           filters:
             - StripPrefix=2
 
         - id: access-management-management
-          uri: lb://access-management-service
+          uri: ${ACCESS_MANAGEMENT_SERVICE_URL:http://localhost:8081}
           predicates:
             - Path=/api/v1/access/management/**
           filters:
             - StripPrefix=2
             - Authentication
 
+        # =====================================================
+        # MASTER DATA SERVICE (Port: 8082)
+        # =====================================================
         - id: master-data-service
-          uri: lb://master-data-service
+          uri: ${MASTER_DATA_SERVICE_URL:http://localhost:8082}
           predicates:
             - Path=/api/v1/master-data/**
           filters:
             - StripPrefix=2
             - Authentication
 
+        # =====================================================
+        # CASE SOURCING SERVICE (Port: 8083)
+        # =====================================================
         - id: case-sourcing-service
-          uri: lb://case-sourcing-service
+          uri: ${CASE_SOURCING_SERVICE_URL:http://localhost:8083}
           predicates:
             - Path=/api/v1/case/**
           filters:
             - StripPrefix=2
             - Authentication
 
-        - id: allocation-reallocation-service
-          uri: lb://allocation-reallocation-service
+        # =====================================================
+        # ALLOCATION REALLOCATION SERVICE (Port: 8084)
+        # =====================================================
+        - id: allocation-service
+          uri: ${ALLOCATION_REALLOCATION_SERVICE_URL:http://localhost:8084}
           predicates:
-            - Path=/api/v1/allocations/**, /api/v1/reallocations/**
+            - Path=/api/v1/allocations/**
           filters:
             - StripPrefix=2
             - Authentication
 
-        - id: communication-service
-          uri: lb://communication-service
+        - id: reallocation-service
+          uri: ${ALLOCATION_REALLOCATION_SERVICE_URL:http://localhost:8084}
           predicates:
-            - Path=/api/v1/communication/**
+            - Path=/api/v1/reallocations/**
           filters:
-            - StripPrefix=0
+            - StripPrefix=2
+            - Authentication
+
+        # =====================================================
+        # COMMUNICATION SERVICE (Port: 8085)
+        # =====================================================
+        - id: communication-service
+          uri: ${COMMUNICATION_SERVICE_URL:http://localhost:8085}
+          predicates:
+            - Path=/api/v1/comm/**
+          filters:
+            - StripPrefix=2
+            - Authentication
+
+        # =====================================================
+        # STRATEGY ENGINE SERVICE (Port: 8086)
+        # =====================================================
+        - id: strategy-engine-service
+          uri: ${STRATEGY_ENGINE_SERVICE_URL:http://localhost:8086}
+          predicates:
+            - Path=/api/v1/strategies/**
+          filters:
+            - StripPrefix=2
             - Authentication
 
       default-filters:
@@ -100,16 +133,6 @@ spring:
 
 server:
   port: ${SERVER_PORT:8080}
-
-eureka:
-  client:
-    service-url:
-      defaultZone: ${EUREKA_SERVER_URL:http://localhost:8761/eureka/}
-    fetch-registry: true
-    register-with-eureka: true
-  instance:
-    hostname: ${EUREKA_INSTANCE_HOSTNAME:localhost}
-    prefer-ip-address: ${EUREKA_INSTANCE_PREFER_IP_ADDRESS:false}
 
 management:
   endpoints:

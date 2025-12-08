@@ -14,18 +14,20 @@ import java.math.BigDecimal;
 @AllArgsConstructor
 public class PaymentInitiateRequest {
 
-    private String merchantId;
-
     @NotNull(message = "Amount is required")
     private BigDecimal amount;
 
-    private String storeId;
-    private String terminalId;
-    private String provider; // PHONEPE, RAZORPAY
+    @NotNull(message = "Mobile number is required")
+    private String mobileNumber;
 
-    private String customerMobile;
-    private String customerEmail;
+    private String message;
 
+    // Optional - will be fetched from third_party_integration_master if not provided
+    private String gatewayName; // FINXBRIDGE, PHONEPE, RAZORPAY
+
+    // For internal tracking
     private Long caseId;
     private String loanAccountNumber;
+    private String customerName;
+    private String customerEmail;
 }

@@ -15,8 +15,18 @@ public class AllocationCsvRow {
     @CsvBindByName(column = "loan_id", required = true)
     private String loanId;
 
+    // Reference fields (from case-sourcing export) - not used in processing but allow seamless CSV flow
+    @CsvBindByName(column = "case_number")
+    private String caseNumber;
+
     @CsvBindByName(column = "customer_name")
     private String customerName;
+
+    @CsvBindByName(column = "outstanding")
+    private String outstanding;
+
+    @CsvBindByName(column = "dpd")
+    private String dpd;
 
     @CsvBindByName(column = "primary_agent_id", required = true)
     private String primaryAgentId;

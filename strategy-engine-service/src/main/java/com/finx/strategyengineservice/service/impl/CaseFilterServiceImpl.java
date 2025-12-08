@@ -50,17 +50,19 @@ public class CaseFilterServiceImpl implements CaseFilterService {
         root.fetch("loan", JoinType.LEFT);
 
         // Build predicates for all rules
-        List<Predicate> predicates = new ArrayList<>();
-
-        // Always filter only ALLOCATED cases
-        predicates.add(cb.equal(root.get("caseStatus"), "ALLOCATED"));
+        List<Predicate> filterPredicates = new ArrayList<>();
+        int validRulesCount = 0;
 
         // Add predicates for each rule
         for (StrategyRule rule : rules) {
             try {
                 Predicate predicate = buildPredicate(cb, root, rule);
                 if (predicate != null) {
-                    predicates.add(predicate);
+                    filterPredicates.add(predicate);
+                    validRulesCount++;
+                } else {
+                    log.warn("Rule {} produced null predicate, field: {}, operator: {}",
+                            rule.getId(), rule.getFieldName(), rule.getOperator());
                 }
             } catch (Exception e) {
                 log.error("Failed to build predicate for rule {}: {}", rule.getId(), e.getMessage());
@@ -68,27 +70,36 @@ public class CaseFilterServiceImpl implements CaseFilterService {
             }
         }
 
-        // Combine predicates with AND or OR based on logical operator
-        Predicate finalPredicate;
-        if (predicates.size() == 1) {
-            finalPredicate = predicates.get(0);
-        } else {
-            // Check if rule has logical operator (default is AND)
-            String logicalOp = rules.get(0).getLogicalOperator() != null
-                    ? rules.get(0).getLogicalOperator().toUpperCase()
-                    : "AND";
-
-            if ("OR".equals(logicalOp)) {
-                finalPredicate = cb.or(predicates.toArray(new Predicate[0]));
-            } else {
-                finalPredicate = cb.and(predicates.toArray(new Predicate[0]));
-            }
+        // If no valid filter predicates were created, return empty list
+        // This prevents returning all cases when filters are invalid or don't match
+        if (filterPredicates.isEmpty()) {
+            log.warn("No valid filter predicates created from {} rules, returning empty list", rules.size());
+            return new ArrayList<>();
         }
+
+        log.info("Created {} valid predicates from {} rules", validRulesCount, rules.size());
+
+        // Combine filter predicates with AND (intersection of all filters)
+        Predicate filterPredicate;
+        if (filterPredicates.size() == 1) {
+            filterPredicate = filterPredicates.get(0);
+        } else {
+            // Always use AND to get intersection of all filter conditions
+            filterPredicate = cb.and(filterPredicates.toArray(new Predicate[0]));
+        }
+
+        // Combine with base conditions:
+        // 1. caseStatus = 'ALLOCATED' (workflow status)
+        // 2. status = 200 (ACTIVE cases only, not closed)
+        Predicate allocatedPredicate = cb.equal(root.get("caseStatus"), "ALLOCATED");
+        Predicate activePredicate = cb.equal(root.get("status"), 200);
+        Predicate basePredicate = cb.and(allocatedPredicate, activePredicate);
+        Predicate finalPredicate = cb.and(basePredicate, filterPredicate);
 
         query.where(finalPredicate);
 
         List<Case> results = entityManager.createQuery(query).getResultList();
-        log.info("Found {} cases matching {} rules", results.size(), rules.size());
+        log.info("Found {} ACTIVE cases matching {} filter rules (AND logic)", results.size(), validRulesCount);
 
         return results;
     }
@@ -106,17 +117,14 @@ public class CaseFilterServiceImpl implements CaseFilterService {
         query.select(cb.count(root));
 
         // Build predicates for all rules
-        List<Predicate> predicates = new ArrayList<>();
-
-        // Always filter only ALLOCATED cases
-        predicates.add(cb.equal(root.get("caseStatus"), "ALLOCATED"));
+        List<Predicate> filterPredicates = new ArrayList<>();
 
         // Add predicates for each rule
         for (StrategyRule rule : rules) {
             try {
                 Predicate predicate = buildPredicate(cb, root, rule);
                 if (predicate != null) {
-                    predicates.add(predicate);
+                    filterPredicates.add(predicate);
                 }
             } catch (Exception e) {
                 log.error("Failed to build predicate for rule {}: {}", rule.getId(), e.getMessage());
@@ -124,21 +132,28 @@ public class CaseFilterServiceImpl implements CaseFilterService {
             }
         }
 
-        // Combine predicates
-        Predicate finalPredicate;
-        if (predicates.size() == 1) {
-            finalPredicate = predicates.get(0);
-        } else {
-            String logicalOp = rules.get(0).getLogicalOperator() != null
-                    ? rules.get(0).getLogicalOperator().toUpperCase()
-                    : "AND";
-
-            if ("OR".equals(logicalOp)) {
-                finalPredicate = cb.or(predicates.toArray(new Predicate[0]));
-            } else {
-                finalPredicate = cb.and(predicates.toArray(new Predicate[0]));
-            }
+        // If no valid filter predicates were created, return 0
+        if (filterPredicates.isEmpty()) {
+            log.warn("No valid filter predicates created from {} rules, returning 0", rules.size());
+            return 0L;
         }
+
+        // Combine filter predicates with AND (intersection of all filters)
+        Predicate filterPredicate;
+        if (filterPredicates.size() == 1) {
+            filterPredicate = filterPredicates.get(0);
+        } else {
+            // Always use AND to get intersection of all filter conditions
+            filterPredicate = cb.and(filterPredicates.toArray(new Predicate[0]));
+        }
+
+        // Combine with base conditions:
+        // 1. caseStatus = 'ALLOCATED' (workflow status)
+        // 2. status = 200 (ACTIVE cases only, not closed)
+        Predicate allocatedPredicate = cb.equal(root.get("caseStatus"), "ALLOCATED");
+        Predicate activePredicate = cb.equal(root.get("status"), 200);
+        Predicate basePredicate = cb.and(allocatedPredicate, activePredicate);
+        Predicate finalPredicate = cb.and(basePredicate, filterPredicate);
 
         query.where(finalPredicate);
 
@@ -168,6 +183,11 @@ public class CaseFilterServiceImpl implements CaseFilterService {
         // Get the path to the field (handles nested fields like "loan.dpd")
         Path<?> fieldPath = getFieldPath(root, fieldName);
 
+        if (fieldPath == null) {
+            log.warn("Invalid field name '{}' for rule {}. Skipping.", fieldName, rule.getId());
+            return null;
+        }
+
         // Build predicate based on operator
         return buildPredicateByOperator(cb, fieldPath, operator, fieldValue, fieldName);
     }
@@ -179,17 +199,31 @@ public class CaseFilterServiceImpl implements CaseFilterService {
      * "loan.bucket" -> root.get("loan").get("bucket")
      */
     private Path<?> getFieldPath(Root<Case> root, String fieldName) {
-        if (fieldName.contains(".")) {
-            String[] parts = fieldName.split("\\.");
-            Path<?> path = root;
+        try {
+            if (fieldName.contains(".")) {
+                String[] parts = fieldName.split("\\.");
+                Path<?> path = root;
 
-            for (String part : parts) {
-                path = path.get(part);
+                int startIndex = 0;
+                if (parts.length > 1 && "case".equalsIgnoreCase(parts[0])) {
+                    startIndex = 1;
+                }
+
+                for (int i = startIndex; i < parts.length; i++) {
+                    path = path.get(parts[i]);
+                }
+
+                return path;
+            } else {
+                if ("case".equalsIgnoreCase(fieldName)) {
+                    return null;
+                }
+                return root.get(fieldName);
             }
-
-            return path;
-        } else {
-            return root.get(fieldName);
+        } catch (IllegalArgumentException e) {
+            // This exception is thrown by JPA when the attribute is not found
+            log.warn("Invalid field name '{}': {}", fieldName, e.getMessage());
+            return null;
         }
     }
 
@@ -289,9 +323,9 @@ public class CaseFilterServiceImpl implements CaseFilterService {
             if (fieldType.equals(String.class)) {
                 return value;
             } else if (fieldType.equals(Integer.class) || fieldType.equals(int.class)) {
-                return Integer.parseInt(value);
+                return new BigDecimal(value).intValueExact();
             } else if (fieldType.equals(Long.class) || fieldType.equals(long.class)) {
-                return Long.parseLong(value);
+                return new BigDecimal(value).longValueExact();
             } else if (fieldType.equals(Double.class) || fieldType.equals(double.class)) {
                 return Double.parseDouble(value);
             } else if (fieldType.equals(BigDecimal.class)) {

@@ -30,4 +30,14 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
      */
     @Query("SELECT COUNT(u) FROM ManagementUser u JOIN u.roles r WHERE r.id = :roleId AND u.status = 'ACTIVE'")
     long countActiveUsersByRoleId(@Param("roleId") Long roleId);
+
+    /**
+     * Optimized query to fetch user with roles and permissions in single query
+     * Avoids N+1 and Cartesian product issues
+     */
+    @Query("SELECT DISTINCT u FROM ManagementUser u " +
+           "LEFT JOIN FETCH u.roles r " +
+           "LEFT JOIN FETCH r.permissions " +
+           "WHERE u.id = :userId")
+    Optional<User> findByIdWithRolesAndPermissions(@Param("userId") Long userId);
 }

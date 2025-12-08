@@ -17,5 +17,5 @@ public interface StrategyActionRepository extends JpaRepository<StrategyAction, 
 
     long countByStrategyId(Long strategyId);
 
-    List<StrategyAction> findByTemplateId(Long templateId);
+    List<StrategyAction> findByTemplateId(String templateId);
 }

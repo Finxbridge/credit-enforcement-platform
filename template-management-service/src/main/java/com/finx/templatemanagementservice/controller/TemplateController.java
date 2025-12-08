@@ -3,6 +3,8 @@ package com.finx.templatemanagementservice.controller;
 import com.finx.templatemanagementservice.domain.dto.*;
 import com.finx.templatemanagementservice.domain.enums.ChannelType;
 import com.finx.templatemanagementservice.service.TemplateService;
+import com.finx.templatemanagementservice.service.TemplateVariableResolverService;
+import com.finx.templatemanagementservice.service.TemplateRenderingService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -13,18 +15,21 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * REST Controller for Template Management
  */
 @Slf4j
 @RestController
-@RequestMapping("/api/v1/templates")
+@RequestMapping("/templates")
 @RequiredArgsConstructor
 @Tag(name = "Template Management", description = "APIs for managing communication templates")
 public class TemplateController {
 
     private final TemplateService templateService;
+    private final TemplateVariableResolverService variableResolverService;
+    private final TemplateRenderingService renderingService;
 
     @PostMapping
     @Operation(summary = "Create template", description = "Create a new communication template with variables")
@@ -113,5 +118,45 @@ public class TemplateController {
         log.info("POST /api/v1/templates/{}/sync - Syncing with provider", id);
         templateService.syncWithProvider(id);
         return ResponseEntity.ok(CommonResponse.successMessage("Template synced successfully"));
+    }
+
+    @PostMapping("/{id}/resolve")
+    @Operation(summary = "Resolve template variables", description = "Resolve template variables and render content for a specific case")
+    public ResponseEntity<CommonResponse<TemplateResolveResponse>> resolveTemplate(
+            @PathVariable Long id,
+            @Valid @RequestBody TemplateResolveRequest request) {
+        log.info("POST /api/v1/templates/{}/resolve - Resolving template for case: {}", id, request.getCaseId());
+
+        // Resolve variables from case data
+        Map<String, Object> resolvedVariables = variableResolverService.resolveVariablesForTemplate(
+                id, request.getCaseId(), request.getAdditionalContext()
+        );
+
+        // Render template content
+        String renderedContent = renderingService.renderTemplateForCase(
+                id, request.getCaseId(), request.getAdditionalContext()
+        );
+
+        // Get template for subject rendering
+        TemplateDetailDTO template = templateService.getTemplate(id);
+        String renderedSubject = null;
+
+        // Render subject if available (content is a single object, not a list)
+        if (template.getContent() != null) {
+            String subject = template.getContent().getSubject();
+            if (subject != null && !subject.isEmpty()) {
+                renderedSubject = renderingService.renderSubject(subject, resolvedVariables);
+            }
+        }
+
+        TemplateResolveResponse response = TemplateResolveResponse.builder()
+                .templateId(id)
+                .templateCode(template.getTemplateCode())
+                .resolvedVariables(resolvedVariables)
+                .renderedContent(renderedContent)
+                .subject(renderedSubject)
+                .build();
+
+        return ResponseEntity.ok(CommonResponse.success("Template resolved successfully", response));
     }
 }

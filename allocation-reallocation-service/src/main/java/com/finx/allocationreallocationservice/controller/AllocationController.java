@@ -89,6 +89,24 @@ public class AllocationController {
                 .body(csvData);
     }
 
+    @GetMapping("/{batchId}/export")
+    @Operation(summary = "Export all allocations for a batch",
+               description = "Download CSV with all successfully allocated cases including primary and secondary agent IDs")
+    public ResponseEntity<byte[]> exportAllocationBatch(@PathVariable String batchId) {
+        log.info("Exporting all allocations for batch: {}", batchId);
+
+        byte[] csvData = allocationService.exportAllocationBatch(batchId);
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.parseMediaType("text/csv"));
+        headers.setContentDispositionFormData("attachment",
+                "allocations_" + batchId + ".csv");
+
+        return ResponseEntity.ok()
+                .headers(headers)
+                .body(csvData);
+    }
+
     @GetMapping("/summary")
     @Operation(summary = "Get overall allocation stats")
     public ResponseEntity<CommonResponse<AllocationSummaryDTO>> getAllocationSummary() {
