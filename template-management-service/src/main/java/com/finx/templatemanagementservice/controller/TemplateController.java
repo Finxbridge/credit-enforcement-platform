@@ -11,8 +11,10 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 import java.util.Map;
@@ -127,36 +129,52 @@ public class TemplateController {
             @Valid @RequestBody TemplateResolveRequest request) {
         log.info("POST /api/v1/templates/{}/resolve - Resolving template for case: {}", id, request.getCaseId());
 
-        // Resolve variables from case data
-        Map<String, Object> resolvedVariables = variableResolverService.resolveVariablesForTemplate(
-                id, request.getCaseId(), request.getAdditionalContext()
-        );
-
-        // Render template content
-        String renderedContent = renderingService.renderTemplateForCase(
-                id, request.getCaseId(), request.getAdditionalContext()
-        );
-
-        // Get template for subject rendering
-        TemplateDetailDTO template = templateService.getTemplate(id);
-        String renderedSubject = null;
-
-        // Render subject if available (content is a single object, not a list)
-        if (template.getContent() != null) {
-            String subject = template.getContent().getSubject();
-            if (subject != null && !subject.isEmpty()) {
-                renderedSubject = renderingService.renderSubject(subject, resolvedVariables);
-            }
-        }
-
-        TemplateResolveResponse response = TemplateResolveResponse.builder()
-                .templateId(id)
-                .templateCode(template.getTemplateCode())
-                .resolvedVariables(resolvedVariables)
-                .renderedContent(renderedContent)
-                .subject(renderedSubject)
-                .build();
+        // Use the new unified resolve method that handles both content and document
+        TemplateResolveResponse response = templateService.resolveTemplateWithDocument(id, request);
 
         return ResponseEntity.ok(CommonResponse.success("Template resolved successfully", response));
+    }
+
+    // ==================== Document Upload Endpoints ====================
+
+    @PostMapping(value = "/with-document", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @Operation(summary = "Create template with document",
+            description = "Create a new template with an attached document (PDF/DOCX) containing placeholders")
+    public ResponseEntity<CommonResponse<TemplateDetailDTO>> createTemplateWithDocument(
+            @RequestPart("template") @Valid CreateTemplateRequest request,
+            @RequestPart("document") MultipartFile document) {
+        log.info("POST /api/v1/templates/with-document - Creating template with document: {}", request.getTemplateCode());
+        TemplateDetailDTO template = templateService.createTemplateWithDocument(request, document);
+        return ResponseEntity
+                .status(HttpStatus.CREATED)
+                .body(CommonResponse.success("Template with document created successfully", template));
+    }
+
+    @PostMapping(value = "/{id}/document", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @Operation(summary = "Upload document to template",
+            description = "Upload or replace document attachment for an existing template")
+    public ResponseEntity<CommonResponse<TemplateDetailDTO>> uploadTemplateDocument(
+            @PathVariable Long id,
+            @RequestPart("document") MultipartFile document) {
+        log.info("POST /api/v1/templates/{}/document - Uploading document", id);
+        TemplateDetailDTO template = templateService.uploadDocument(id, document);
+        return ResponseEntity.ok(CommonResponse.success("Document uploaded successfully", template));
+    }
+
+    @DeleteMapping("/{id}/document")
+    @Operation(summary = "Delete template document", description = "Remove document attachment from a template")
+    public ResponseEntity<CommonResponse<TemplateDetailDTO>> deleteTemplateDocument(@PathVariable Long id) {
+        log.info("DELETE /api/v1/templates/{}/document - Deleting document", id);
+        TemplateDetailDTO template = templateService.deleteDocument(id);
+        return ResponseEntity.ok(CommonResponse.success("Document deleted successfully", template));
+    }
+
+    @GetMapping("/{id}/document/placeholders")
+    @Operation(summary = "Get document placeholders",
+            description = "Extract and return all placeholders found in the template document")
+    public ResponseEntity<CommonResponse<List<String>>> getDocumentPlaceholders(@PathVariable Long id) {
+        log.info("GET /api/v1/templates/{}/document/placeholders - Extracting placeholders", id);
+        List<String> placeholders = templateService.getDocumentPlaceholders(id);
+        return ResponseEntity.ok(CommonResponse.success("Placeholders extracted successfully", placeholders));
     }
 }

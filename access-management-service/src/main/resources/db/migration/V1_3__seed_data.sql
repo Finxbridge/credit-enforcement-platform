@@ -192,7 +192,17 @@ INSERT INTO third_party_integration_master (integration_name, integration_type, 
     'PAYMENT_PROVIDER',
     'http://localhost:9000',
     NULL,
-    '{"provider": "PHONEPE", "merchant_id": "FINXBRIDGE_MERCHANT", "store_id": "STORE001", "terminal_id": "TERM001", "service_type": "PAYMENT_LINK", "daily_limit": 10000, "cost_per_transaction": 2.00, "supported_methods": ["UPI", "CARD", "NETBANKING", "WALLET"], "currency": "INR"}', TRUE);
+    '{"provider": "PHONEPE", "merchant_id": "FINXBRIDGE_MERCHANT", "store_id": "STORE001", "terminal_id": "TERM001", "service_type": "PAYMENT_LINK", "daily_limit": 10000, "cost_per_transaction": 2.00, "supported_methods": ["UPI", "CARD", "NETBANKING", "WALLET"], "currency": "INR"}', TRUE),
+
+-- OVH Cloud Object Storage (S3-compatible) for Document Management
+-- Reference: https://help.ovhcloud.com/csm/en-public-cloud-storage-s3-location
+-- Location: London (UK) - endpoint: s3.uk.io.cloud.ovh.net
+-- Bucket: wrathful-de-gennes
+('OVH_S3_STORAGE',
+    'STORAGE_PROVIDER',
+    'https://s3.uk.io.cloud.ovh.net',
+    '563d28e30a154fa3b964b67ff7e54b37',
+    '{"provider": "OVH", "region": "uk", "secret_key": "514dddebf3b54bfa84b2474c270922f5", "bucket_templates": "wrathful-de-gennes", "bucket_documents": "wrathful-de-gennes", "bucket_processed": "wrathful-de-gennes", "signature_version": "s3v4", "path_style_access": true, "max_file_size_mb": 50, "allowed_extensions": ["pdf", "doc", "docx", "png", "jpg", "jpeg", "gif"], "public_url_prefix": "https://s3.uk.io.cloud.ovh.net/wrathful-de-gennes"}', TRUE);
 
 -- ===============================================
 -- INSERT: cache_config

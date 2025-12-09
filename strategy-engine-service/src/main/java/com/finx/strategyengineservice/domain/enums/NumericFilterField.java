@@ -1,38 +1,70 @@
 package com.finx.strategyengineservice.domain.enums;
 
 /**
- * Available numeric filter fields
+ * Available numeric filter fields for strategy rules
+ * Maps to entity field paths (e.g., "loan.dpd" for DPD field in LoanDetails)
+ * Updated to match unified CSV format
  */
 public enum NumericFilterField {
-    OVERDUE_AMOUNT("Overdue Amount"),
-    LOAN_AMOUNT("Loan Amount or Limit"),
-    POS("POS (Principal Outstanding)"),
-    EMI_AMOUNT("EMI Amount"),
-    PAID_EMI_COUNT("Number of Paid EMI"),
-    PENDING_EMI_COUNT("Number of Pending EMI"),
-    PENALTY_AMOUNT("Penalty Amount"),
-    CHARGES("Charges"),
-    LATE_FEES("Late Fees"),
-    OD_INTEREST("OD Interest"),
-    MINIMUM_AMOUNT_DUE("Minimum Amount Due"),
-    CARD_OUTSTANDING("Card Outstanding"),
-    LAST_BILLED_AMOUNT("Last Billed Amount"),
-    LAST_PAID_AMOUNT("Last Paid Amount"),
-    DPD("DPD"),
-    BUREAU_SCORE("Bureau Score"),
-    PRINCIPAL_OVERDUE("Principal Overdue"),
-    INTEREST_OVERDUE("Interest Overdue"),
-    FEES_OVERDUE("Fees Overdue"),
-    PENALTY_OVERDUE("Penalty Overdue"),
-    DAYS_FROM_LAST_CYCLE("Days from Last Cycle");
+
+    // ==================== LOAN AMOUNTS ====================
+    OVERDUE_AMOUNT("Overdue Amount", "loan.totalOutstanding"),
+    LOAN_AMOUNT("Loan Amount or Limit", "loan.loanAmount"),
+    POS("POS (Principal Outstanding)", "loan.pos"),
+    TOS("TOS (Total Outstanding)", "loan.tos"),
+    EMI_AMOUNT("EMI Amount", "loan.emiAmount"),
+    PENALTY_AMOUNT("Penalty Amount", "loan.penaltyAmount"),
+    CHARGES("Charges", "loan.charges"),
+    OD_INTEREST("OD Interest", "loan.odInterest"),
+
+    // ==================== OVERDUE BREAKDOWN ====================
+    PRINCIPAL_OVERDUE("Principal Overdue", "loan.principalOverdue"),
+    INTEREST_OVERDUE("Interest Overdue", "loan.interestOverdue"),
+    FEES_OVERDUE("Fees Overdue", "loan.feesOverdue"),
+    PENALTY_OVERDUE("Penalty Overdue", "loan.penaltyOverdue"),
+
+    // ==================== EMI COUNTS ====================
+    PAID_EMI_COUNT("Number of Paid EMI", "loan.noOfPaidEmi"),
+    PENDING_EMI_COUNT("Number of Pending EMI", "loan.noOfPendingEmi"),
+
+    // ==================== DPD ====================
+    DPD("DPD", "loan.dpd"),
+    SOM_DPD("SOM DPD", "loan.somDpd"),
+
+    // ==================== CREDIT CARD ====================
+    MINIMUM_AMOUNT_DUE("Minimum Amount Due", "loan.minimumAmountDue"),
+    CARD_OUTSTANDING("Card Outstanding", "loan.cardOutstanding"),
+    LAST_BILLED_AMOUNT("Last Billed Amount", "loan.lastBilledAmount"),
+
+    // ==================== PAYMENT ====================
+    LAST_PAID_AMOUNT("Last Paid Amount", "loan.lastPaidAmount"),
+
+    // ==================== RATES ====================
+    ROI("Rate of Interest", "loan.roi"),
+    INTEREST_RATE("Interest Rate", "loan.interestRate"),
+    TENURE_MONTHS("Tenure in Months", "loan.tenureMonths"),
+
+    // ==================== PTP ====================
+    PTP_AMOUNT("PTP Amount", "ptpAmount");
 
     private final String displayName;
+    private final String fieldPath;
+
+    NumericFilterField(String displayName, String fieldPath) {
+        this.displayName = displayName;
+        this.fieldPath = fieldPath;
+    }
 
     NumericFilterField(String displayName) {
         this.displayName = displayName;
+        this.fieldPath = null;
     }
 
     public String getDisplayName() {
         return displayName;
+    }
+
+    public String getFieldPath() {
+        return fieldPath;
     }
 }

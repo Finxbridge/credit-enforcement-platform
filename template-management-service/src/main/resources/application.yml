@@ -21,6 +21,12 @@ spring:
   flyway:
     enabled: false
 
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 10MB
+      max-request-size: 15MB
+
   data:
     redis:
       host: ${REDIS_HOST:localhost}
@@ -44,3 +50,9 @@ logging:
     com.finx: ${LOGGING_LEVEL_FINX:DEBUG}
     org.hibernate.SQL: ${LOGGING_LEVEL_HIBERNATE_SQL:INFO}
     org.hibernate.type.descriptor.sql: ${LOGGING_LEVEL_HIBERNATE_TYPE:INFO}
+
+# File Storage Configuration
+file:
+  storage:
+    base-path: ${FILE_STORAGE_PATH:./uploads}
+    base-url: ${FILE_STORAGE_URL:http://localhost:8087/api/v1/files}

@@ -8,23 +8,28 @@ import com.finx.casesourcingservice.domain.enums.ErrorType;
 import com.finx.casesourcingservice.repository.*;
 import com.finx.casesourcingservice.service.CaseValidationService;
 import com.finx.casesourcingservice.util.csv.CsvParser;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
 /**
  * Async service for processing case upload batches
+ * Updated to use unified CSV format field names
  */
 @Slf4j
 @Service
@@ -38,6 +43,9 @@ public class BatchProcessingService {
     private final CustomerRepository customerRepository;
     private final LoanDetailsRepository loanDetailsRepository;
     private final CaseRepository caseRepository;
+    private final ObjectMapper objectMapper;
+
+    private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
     /**
      * Process batch asynchronously
@@ -87,10 +95,10 @@ public class BatchProcessingService {
                     log.error("Database constraint violation for row {}: {}", row.getRowNumber(), e.getMessage());
                     String errorMsg = "Database constraint violation: ";
                     if (e.getMessage().contains("loan_account_number")) {
-                        errorMsg += "Duplicate loan account number: " + row.getLoanAccountNumber();
+                        errorMsg += "Duplicate loan account number: " + row.getAccountNo();
                         duplicateCount++;
                     } else if (e.getMessage().contains("external_case_id")) {
-                        errorMsg += "Duplicate external case ID: " + row.getExternalCaseId();
+                        errorMsg += "Duplicate external case ID: " + row.getAccountNo();
                         duplicateCount++;
                     } else {
                         errorMsg += e.getMessage();
@@ -152,14 +160,30 @@ public class BatchProcessingService {
         // Create case
         Case caseEntity = Case.builder()
                 .caseNumber(generateCaseNumber())
-                .externalCaseId(row.getExternalCaseId())
+                .externalCaseId(row.getAccountNo()) // Use ACCOUNT NO as external case ID
                 .loan(loanDetails)
                 .caseStatus("UNALLOCATED")
                 .casePriority("MEDIUM")
                 .caseOpenedAt(LocalDateTime.now())
                 .sourceType("MANUAL")
                 .importBatchId(batchId)
-                .geographyCode(row.getGeographyCode() != null ? row.getGeographyCode().toUpperCase() : null)
+                .location(row.getLocation())
+                .zone(row.getZone())
+                .primaryAgent(row.getPrimaryAgent())
+                .secondaryAgent(row.getSecondaryAgent())
+                .agencyName(row.getAgencyName())
+                // Asset details
+                .assetDetails(row.getAssetDetails())
+                .vehicleRegistrationNumber(row.getVehicleRegistrationNumber())
+                .vehicleIdentificationNumber(row.getVehicleIdentificationNumber())
+                .chassisNumber(row.getChassisNumber())
+                .modelMake(row.getModelMake())
+                .batteryId(row.getBatteryId())
+                // Dealer info
+                .dealerName(row.getDealerName())
+                .dealerAddress(row.getDealerAddress())
+                // Flags
+                .reviewFlag(row.getReviewFlag())
                 .isArchived(false)
                 .build();
 
@@ -168,13 +192,36 @@ public class BatchProcessingService {
 
     @SuppressWarnings("null")
     private Customer createOrGetCustomer(CaseCsvRowDTO row) {
-        return customerRepository.findByCustomerCode(row.getCustomerCode())
+        // Use customerId or generate from mobile/name
+        String customerCode = row.getCustomerId();
+        if (customerCode == null || customerCode.trim().isEmpty()) {
+            customerCode = "CUST_" + row.getMobileNo();
+        }
+
+        final String finalCustomerCode = customerCode;
+        return customerRepository.findByCustomerCode(finalCustomerCode)
                 .orElseGet(() -> {
                     // Customer not found, create a new one
                     Customer newCustomer = Customer.builder()
-                            .customerCode(row.getCustomerCode())
-                            .fullName(row.getFullName())
-                            .mobileNumber(row.getMobileNumber())
+                            .customerCode(finalCustomerCode)
+                            .customerId(row.getCustomerId())
+                            .fullName(row.getCustomerName())
+                            .mobileNumber(row.getMobileNo())
+                            .secondaryMobileNumber(row.getSecondaryMobileNumber())
+                            .resiPhone(row.getResiPhone())
+                            .additionalPhone2(row.getAdditionalPhone2())
+                            .email(row.getEmail())
+                            .primaryAddress(row.getPrimaryAddress())
+                            .secondaryAddress(row.getSecondaryAddress())
+                            .city(row.getCity())
+                            .state(row.getState())
+                            .pincode(row.getPincode())
+                            .fatherSpouseName(row.getFatherSpouseName())
+                            .employerOrBusinessEntity(row.getEmployerOrBusinessEntity())
+                            .reference1Name(row.getReference1Name())
+                            .reference1Number(row.getReference1Number())
+                            .reference2Name(row.getReference2Name())
+                            .reference2Number(row.getReference2Number())
                             .languagePreference(row.getLanguage() != null ? row.getLanguage().toLowerCase() : "en")
                             .customerType("INDIVIDUAL")
                             .isActive(true)
@@ -186,14 +233,75 @@ public class BatchProcessingService {
     @SuppressWarnings("null")
     private LoanDetails createLoanDetails(CaseCsvRowDTO row, Customer customer) {
         return loanDetailsRepository.save(LoanDetails.builder()
-                .loanAccountNumber(row.getLoanAccountNumber())
+                // Account identification
+                .loanAccountNumber(row.getAccountNo())
+                .lender(row.getLender())
+                .coLender(row.getCoLender())
+                .referenceLender(row.getReferenceLender())
+                .productType(row.getProduct())
+                .schemeCode(row.getSchemeCode())
+                .productSourcingType(row.getProductSourcingType())
+                // Customer
                 .primaryCustomer(customer)
-                .productCode(null) // Not available in CSV
-                .interestAmount(null) // Not available in CSV
-                .penaltyAmount(null) // Not available in CSV
-                .totalOutstanding(parseBigDecimal(row.getTotalOutstanding()))
-                .emiAmount(null) // Not available in CSV
+                // Amounts
+                .loanAmount(parseBigDecimal(row.getLoanAmountOrLimit()))
+                .totalOutstanding(parseBigDecimal(row.getOverdueAmount()))
+                .pos(parseBigDecimal(row.getPos()))
+                .tos(parseBigDecimal(row.getTos()))
+                .emiAmount(parseBigDecimal(row.getEmiAmount()))
+                .penaltyAmount(parseBigDecimal(row.getPenaltyAmount()))
+                .charges(parseBigDecimal(row.getCharges()))
+                .odInterest(parseBigDecimal(row.getOdInterest()))
+                // Overdue breakdown
+                .principalOverdue(parseBigDecimal(row.getPrincipalOverdue()))
+                .interestOverdue(parseBigDecimal(row.getInterestOverdue()))
+                .feesOverdue(parseBigDecimal(row.getFeesOverdue()))
+                .penaltyOverdue(parseBigDecimal(row.getPenaltyOverdue()))
+                // EMI details
+                .emiStartDate(parseDate(row.getEmiStartDate()))
+                .noOfPaidEmi(parseInteger(row.getNoOfPaidEmi()))
+                .noOfPendingEmi(parseInteger(row.getNoOfPendingEmi()))
+                .emiOverdueFrom(parseDate(row.getEmiOverdueFrom()))
+                .nextEmiDate(parseDate(row.getNextEmiDate()))
+                // DPD & Bucket
                 .dpd(parseInteger(row.getDpd()))
+                .riskBucket(row.getRiskBucket())
+                .somBucket(row.getSomBucket())
+                .somDpd(parseInteger(row.getSomDpd()))
+                .cycleDue(row.getCycleDue())
+                // Rates
+                .roi(parseBigDecimal(row.getRoi()))
+                .loanDuration(row.getLoanDuration())
+                // Dates
+                .loanDisbursementDate(parseDate(row.getDateOfDisbursement()))
+                .loanMaturityDate(parseDate(row.getMaturityDate()))
+                .dueDate(parseDate(row.getDueDate()))
+                .writeoffDate(parseDate(row.getWriteoffDate()))
+                // Credit card
+                .minimumAmountDue(parseBigDecimal(row.getMinimumAmountDue()))
+                .cardOutstanding(parseBigDecimal(row.getCardOutstanding()))
+                .statementDate(parseDate(row.getStatementDate()))
+                .statementMonth(row.getStatementMonth())
+                .cardStatus(row.getCardStatus())
+                .lastBilledAmount(parseBigDecimal(row.getLastBilledAmount()))
+                .last4Digits(row.getLast4Digits())
+                // Payment info
+                .lastPaymentDate(parseDate(row.getLastPaymentDate()))
+                .lastPaymentMode(row.getLastPaymentMode())
+                .lastPaidAmount(parseBigDecimal(row.getLastPaidAmount()))
+                // Bank details
+                .beneficiaryAccountNumber(row.getBeneficiaryAccountNumber())
+                .beneficiaryAccountName(row.getBeneficiaryAccountName())
+                .repaymentBankName(row.getRepaymentBankName())
+                .repaymentIfscCode(row.getRepaymentIfscCode())
+                .referenceUrl(row.getReferenceUrl())
+                // Block status
+                .block1(row.getBlock1())
+                .block1Date(parseDate(row.getBlock1Date()))
+                .block2(row.getBlock2())
+                .block2Date(parseDate(row.getBlock2Date()))
+                // Sourcing
+                .sourcingRmName(row.getSourcingRmName())
                 .sourceSystem("CSV_UPLOAD")
                 .build());
     }
@@ -222,21 +330,50 @@ public class BatchProcessingService {
         }
     }
 
+    private LocalDate parseDate(String value) {
+        if (value == null || value.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            return LocalDate.parse(value.trim(), DATE_FORMATTER);
+        } catch (DateTimeParseException e) {
+            log.warn("Failed to parse date: {}", value);
+            return null;
+        }
+    }
+
     /**
      * Log batch error in a new transaction
+     * Stores original row data as JSON for export
      */
     @SuppressWarnings("null")
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void logBatchErrorInNewTransaction(String batchId, CaseCsvRowDTO row, String errorMessage) {
         ErrorType errorType = determineErrorType(errorMessage);
 
+        // Convert row to JSON for storing original data
+        String originalRowData = convertRowToJson(row);
+
         batchErrorRepository.save(BatchError.builder()
                 .batchId(batchId)
                 .rowNumber(row.getRowNumber())
-                .externalCaseId(row.getExternalCaseId())
+                .externalCaseId(row.getAccountNo()) // Use ACCOUNT NO as external case ID
                 .errorType(errorType)
                 .errorMessage(errorMessage)
+                .originalRowData(originalRowData)
                 .build());
+    }
+
+    /**
+     * Convert CaseCsvRowDTO to JSON string for storage
+     */
+    private String convertRowToJson(CaseCsvRowDTO row) {
+        try {
+            return objectMapper.writeValueAsString(row);
+        } catch (JsonProcessingException e) {
+            log.warn("Failed to convert row to JSON: {}", e.getMessage());
+            return null;
+        }
     }
 
     @SuppressWarnings("null")

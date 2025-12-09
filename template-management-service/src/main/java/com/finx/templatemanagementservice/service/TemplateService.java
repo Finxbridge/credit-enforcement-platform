@@ -59,4 +59,32 @@ public interface TemplateService {
      * Sync template with communication service (MSG91)
      */
     void syncWithProvider(Long templateId);
+
+    // ==================== Document Management Methods ====================
+
+    /**
+     * Create a template with an attached document
+     */
+    TemplateDetailDTO createTemplateWithDocument(CreateTemplateRequest request, org.springframework.web.multipart.MultipartFile document);
+
+    /**
+     * Upload or replace document for an existing template
+     */
+    TemplateDetailDTO uploadDocument(Long templateId, org.springframework.web.multipart.MultipartFile document);
+
+    /**
+     * Delete document from a template
+     */
+    TemplateDetailDTO deleteDocument(Long templateId);
+
+    /**
+     * Get placeholders from template document
+     */
+    java.util.List<String> getDocumentPlaceholders(Long templateId);
+
+    /**
+     * Resolve template with document processing
+     * Resolves variables and processes document placeholders if document exists
+     */
+    TemplateResolveResponse resolveTemplateWithDocument(Long templateId, TemplateResolveRequest request);
 }

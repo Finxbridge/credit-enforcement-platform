@@ -18,12 +18,19 @@ public class CsvTemplateGenerator {
 
     /**
      * Generate allocation CSV template
-     * Headers match AllocationCsvRow.java annotations
+     * Headers match AllocationCsvRow.java annotations exactly
      * NOTE: loan_id is REQUIRED (not case_id) - users know loan IDs from case upload, not database IDs
      */
     public byte[] generateAllocationTemplate(boolean includeSample) {
+        // All columns matching AllocationCsvRow.java in exact order
         List<String> headers = List.of(
+                "case_id",
+                "external_case_id",
                 "loan_id",
+                "case_number",
+                "customer_name",
+                "outstanding",
+                "dpd",
                 "primary_agent_id",
                 "secondary_agent_id",
                 "allocation_type",
@@ -40,18 +47,30 @@ public class CsvTemplateGenerator {
 
         List<List<String>> sampleRows = List.of(
                 List.of(
-                        "LA123456789",
-                        "101",
-                        "102",
-                        "PRIMARY",
-                        "100",
-                        "MUMBAI_WEST",
-                        "X",
-                        "HIGH",
-                        "High value case"
+                        "",                     // case_id (optional, system will lookup)
+                        "",                     // external_case_id (optional)
+                        "LA123456789",          // loan_id (REQUIRED)
+                        "",                     // case_number (reference only)
+                        "Naveen Kumar",         // customer_name (reference only)
+                        "125000",               // outstanding (reference only)
+                        "45",                   // dpd (reference only)
+                        "101",                  // primary_agent_id (REQUIRED)
+                        "102",                  // secondary_agent_id (optional)
+                        "PRIMARY",              // allocation_type
+                        "100",                  // allocation_percentage
+                        "MUMBAI_WEST",          // geography
+                        "X",                    // bucket
+                        "HIGH",                 // priority
+                        "High value case"       // remarks
                 ),
                 List.of(
+                        "",
+                        "",
                         "LA987654321",
+                        "",
+                        "Priya Sharma",
+                        "180000",
+                        "32",
                         "103",
                         "",
                         "PRIMARY",
@@ -223,7 +242,11 @@ public class CsvTemplateGenerator {
             // Write sample rows if provided
             if (sampleRows != null && !sampleRows.isEmpty()) {
                 for (List<String> row : sampleRows) {
-                    writer.write(String.join(",", row));
+                    // Escape each value properly for CSV format
+                    List<String> escapedRow = row.stream()
+                            .map(this::escapeCsvValue)
+                            .toList();
+                    writer.write(String.join(",", escapedRow));
                     writer.write("\n");
                 }
             }
@@ -235,5 +258,21 @@ public class CsvTemplateGenerator {
             log.error("Error generating CSV template", e);
             throw new RuntimeException("Failed to generate CSV template", e);
         }
+    }
+
+    /**
+     * Escape CSV value (handle commas, quotes, newlines)
+     */
+    private String escapeCsvValue(String value) {
+        if (value == null) {
+            return "";
+        }
+
+        // If value contains comma, quote, or newline, wrap in quotes and escape existing quotes
+        if (value.contains(",") || value.contains("\"") || value.contains("\n")) {
+            return "\"" + value.replace("\"", "\"\"") + "\"";
+        }
+
+        return value;
     }
 }

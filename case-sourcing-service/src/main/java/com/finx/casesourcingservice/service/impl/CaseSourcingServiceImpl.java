@@ -1,5 +1,6 @@
 package com.finx.casesourcingservice.service.impl;
 
+import com.finx.casesourcingservice.config.RestPage;
 import com.finx.casesourcingservice.domain.dto.*;
 import com.finx.casesourcingservice.domain.entity.CaseBatch;
 import com.finx.casesourcingservice.domain.entity.Case;
@@ -254,7 +255,11 @@ public class CaseSourcingServiceImpl implements CaseSourcingService {
                 // Use findByCaseStatusAndActive to get only ACTIVE (status=200) unallocated cases
                 Page<Case> cases = caseRepository.findByCaseStatusAndActive("UNALLOCATED", pageable);
 
-                return cases.map(this::mapToUnallocatedCaseDTO);
+                // Map to DTOs
+                Page<UnallocatedCaseDTO> mappedPage = cases.map(this::mapToUnallocatedCaseDTO);
+
+                // Wrap in RestPage for proper Redis serialization/deserialization
+                return new RestPage<>(mappedPage.getContent(), pageable, mappedPage.getTotalElements());
         }
 
         @SuppressWarnings("null")
@@ -350,18 +355,31 @@ public class CaseSourcingServiceImpl implements CaseSourcingService {
         @Override
         @Transactional(readOnly = true)
         public byte[] exportBatchCases(String batchId) {
-                log.info("Exporting ACTIVE cases for batch: {}", batchId);
+                log.info("Exporting ALL cases (success + failure) for batch: {}", batchId);
 
-                // Find all ACTIVE cases for this batch (status=200)
-                List<Case> cases = caseRepository.findAll().stream()
+                // Verify batch exists
+                if (!caseBatchRepository.existsByBatchId(batchId)) {
+                        throw new BusinessException("Batch not found: " + batchId);
+                }
+
+                // Find all ACTIVE/SUCCESS cases for this batch (status=200)
+                List<Case> successCases = caseRepository.findAll().stream()
                                 .filter(c -> batchId.equals(c.getImportBatchId()) && Integer.valueOf(200).equals(c.getStatus()))
                                 .collect(Collectors.toList());
 
-                if (cases.isEmpty()) {
-                        throw new BusinessException("No active cases found for batch: " + batchId);
+                // Find all errors for this batch
+                List<BatchError> errors = batchErrorRepository.findByBatchId(batchId);
+
+                // Check if there's anything to export
+                if (successCases.isEmpty() && errors.isEmpty()) {
+                        throw new BusinessException("No records found for batch: " + batchId);
                 }
 
-                return csvExporter.exportCases(cases);
+                log.info("Exporting batch {}: {} success cases, {} failure records",
+                         batchId, successCases.size(), errors.size());
+
+                // Export all data - success cases with STATUS="SUCCESS", errors with STATUS="FAILURE"
+                return csvExporter.exportAllBatchData(successCases, errors);
         }
 
         @Override

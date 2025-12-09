@@ -4,8 +4,11 @@ import com.finx.strategyengineservice.domain.dto.ExecutionDTO;
 import com.finx.strategyengineservice.domain.dto.ExecutionDetailDTO;
 import com.finx.strategyengineservice.domain.dto.ExecutionInitiatedDTO;
 import com.finx.strategyengineservice.domain.dto.ExecutionRunDetailsDTO;
+import com.finx.strategyengineservice.domain.entity.CommunicationHistory;
 import com.finx.strategyengineservice.domain.entity.Strategy;
 import com.finx.strategyengineservice.domain.entity.StrategyExecution;
+import com.finx.strategyengineservice.domain.enums.CommunicationChannel;
+import com.finx.strategyengineservice.domain.enums.CommunicationStatus;
 import com.finx.strategyengineservice.domain.enums.ExecutionStatus;
 import com.finx.strategyengineservice.domain.enums.ExecutionType;
 import com.finx.strategyengineservice.exception.BusinessException;
@@ -37,7 +40,10 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
     private final com.finx.strategyengineservice.repository.StrategyActionRepository strategyActionRepository;
     private final com.finx.strategyengineservice.client.CommunicationServiceClient communicationClient;
     private final com.finx.strategyengineservice.client.TemplateServiceClient templateServiceClient;
+    private final com.finx.strategyengineservice.client.DmsServiceClient dmsServiceClient;
+    private final com.finx.strategyengineservice.client.NoticeServiceClient noticeServiceClient;
     private final com.finx.strategyengineservice.repository.CaseRepository caseRepository;
+    private final com.finx.strategyengineservice.repository.CommunicationHistoryRepository communicationHistoryRepository;
 
     @SuppressWarnings("null")
     @Override
@@ -453,12 +459,137 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
     }
 
     /**
-     * Create notice (placeholder - implement based on requirements)
+     * Create notice with document attachment from DMS if available
      */
     private void createNotice(com.finx.strategyengineservice.domain.entity.Case caseEntity,
             com.finx.strategyengineservice.domain.entity.StrategyAction action) {
-        log.info("Creating notice for case: {} (Not yet implemented)", caseEntity.getId());
-        // TODO: Implement notice creation logic
+        createNoticeWithTracking(caseEntity, action, null, null);
+    }
+
+    /**
+     * Create notice with document attachment and track in communication history
+     */
+    private void createNoticeWithTracking(com.finx.strategyengineservice.domain.entity.Case caseEntity,
+            com.finx.strategyengineservice.domain.entity.StrategyAction action,
+            Long executionId, Long strategyId) {
+        log.info("Creating notice for case: {}", caseEntity.getId());
+
+        String communicationId = "NOTICE_" + System.currentTimeMillis() + "_" + caseEntity.getId();
+
+        if (action.getTemplateId() != null) {
+            try {
+                Long templateId = Long.parseLong(action.getTemplateId());
+
+                // Call template resolution API to get resolved content and document info
+                com.finx.strategyengineservice.client.dto.TemplateResolveRequest resolveRequest =
+                    com.finx.strategyengineservice.client.dto.TemplateResolveRequest.builder()
+                        .caseId(caseEntity.getId())
+                        .additionalContext(null)
+                        .build();
+
+                com.finx.strategyengineservice.client.dto.TemplateResolveResponse resolveResponse =
+                    templateServiceClient.resolveTemplate(templateId, resolveRequest).getPayload();
+
+                if (resolveResponse != null) {
+                    log.info("Template resolved for notice - templateId: {}, hasDocument: {}",
+                            templateId, resolveResponse.getHasDocument());
+
+                    // Build create notice request
+                    com.finx.strategyengineservice.client.dto.CreateNoticeRequest noticeRequest =
+                        com.finx.strategyengineservice.client.dto.CreateNoticeRequest.builder()
+                            .caseId(caseEntity.getId())
+                            .loanAccountNumber(caseEntity.getLoan() != null ? caseEntity.getLoan().getLoanAccountNumber() : null)
+                            .customerName(caseEntity.getLoan() != null && caseEntity.getLoan().getPrimaryCustomer() != null
+                                ? caseEntity.getLoan().getPrimaryCustomer().getFullName() : null)
+                            .noticeType("DEMAND")  // Default, can be configured in action
+                            .templateId(templateId)
+                            .renderedContent(resolveResponse.getRenderedContent())
+                            .build();
+
+                    // Set recipient info from customer
+                    if (caseEntity.getLoan() != null && caseEntity.getLoan().getPrimaryCustomer() != null) {
+                        var customer = caseEntity.getLoan().getPrimaryCustomer();
+                        noticeRequest.setRecipientName(customer.getFullName());
+                        noticeRequest.setRecipientAddress(customer.getAddress());
+                        noticeRequest.setRecipientCity(customer.getCity());
+                        noticeRequest.setRecipientState(customer.getState());
+                        noticeRequest.setRecipientPincode(customer.getPincode());
+                    }
+
+                    // Add document info if template has document attachment
+                    if (Boolean.TRUE.equals(resolveResponse.getHasDocument()) &&
+                            resolveResponse.getDmsDocumentId() != null) {
+
+                        noticeRequest.setDmsDocumentId(resolveResponse.getDmsDocumentId());
+                        noticeRequest.setOriginalDocumentUrl(resolveResponse.getOriginalDocumentUrl());
+                        noticeRequest.setProcessedDocumentUrl(resolveResponse.getProcessedDocumentUrl());
+                        noticeRequest.setDocumentType(resolveResponse.getDocumentType());
+                        noticeRequest.setDocumentOriginalName(resolveResponse.getDocumentOriginalName());
+
+                        log.info("Notice document attached - DMS ID: {}, Type: {}, Name: {}",
+                                resolveResponse.getDmsDocumentId(),
+                                resolveResponse.getDocumentType(),
+                                resolveResponse.getDocumentOriginalName());
+                    }
+
+                    // Create notice via notice-management-service
+                    var noticeResponse = noticeServiceClient.createNotice(noticeRequest);
+
+                    if (noticeResponse != null && noticeResponse.getPayload() != null) {
+                        var noticeDTO = noticeResponse.getPayload();
+                        log.info("Notice created successfully - Notice Number: {}, Status: {}",
+                                noticeDTO.getNoticeNumber(), noticeDTO.getNoticeStatus());
+
+                        // Save communication history
+                        CommunicationHistory history = CommunicationHistory.builder()
+                                .communicationId(communicationId)
+                                .caseId(caseEntity.getId())
+                                .executionId(executionId)
+                                .strategyId(strategyId)
+                                .actionId(action.getId())
+                                .channel(CommunicationChannel.NOTICE)
+                                .templateId(templateId)
+                                .templateCode(resolveResponse.getTemplateCode())
+                                .recipientName(noticeRequest.getRecipientName())
+                                .recipientAddress(noticeRequest.getRecipientAddress())
+                                .content(resolveResponse.getRenderedContent())
+                                .hasDocument(Boolean.TRUE.equals(resolveResponse.getHasDocument()))
+                                .dmsDocumentId(resolveResponse.getDmsDocumentId())
+                                .originalDocumentUrl(resolveResponse.getOriginalDocumentUrl())
+                                .processedDocumentUrl(resolveResponse.getProcessedDocumentUrl())
+                                .documentType(resolveResponse.getDocumentType())
+                                .documentOriginalName(resolveResponse.getDocumentOriginalName())
+                                .status(CommunicationStatus.GENERATED)
+                                .noticeId(noticeDTO.getId())
+                                .noticeNumber(noticeDTO.getNoticeNumber())
+                                .sentAt(LocalDateTime.now())
+                                .build();
+
+                        communicationHistoryRepository.save(history);
+                        log.info("Communication history saved for notice: {}", noticeDTO.getNoticeNumber());
+                    }
+                }
+
+            } catch (Exception e) {
+                log.error("Error creating notice for case {}: {}", caseEntity.getId(), e.getMessage());
+
+                // Save failed communication history
+                CommunicationHistory failedHistory = CommunicationHistory.builder()
+                        .communicationId(communicationId)
+                        .caseId(caseEntity.getId())
+                        .executionId(executionId)
+                        .strategyId(strategyId)
+                        .actionId(action.getId())
+                        .channel(CommunicationChannel.NOTICE)
+                        .templateId(action.getTemplateId() != null ? Long.parseLong(action.getTemplateId()) : null)
+                        .status(CommunicationStatus.FAILED)
+                        .failureReason(e.getMessage())
+                        .failedAt(LocalDateTime.now())
+                        .build();
+
+                communicationHistoryRepository.save(failedHistory);
+            }
+        }
     }
 
     /**

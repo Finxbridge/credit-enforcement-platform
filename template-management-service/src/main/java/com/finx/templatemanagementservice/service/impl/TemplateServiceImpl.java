@@ -1,6 +1,9 @@
 package com.finx.templatemanagementservice.service.impl;
 
 import com.finx.templatemanagementservice.client.CommunicationServiceClient;
+import com.finx.templatemanagementservice.client.DmsServiceClient;
+import com.finx.templatemanagementservice.client.dto.DmsDocumentDTO;
+import com.finx.templatemanagementservice.client.dto.DmsUploadRequest;
 import com.finx.templatemanagementservice.domain.dto.*;
 import com.finx.templatemanagementservice.domain.dto.comm.SmsCreateTemplateRequest;
 import com.finx.templatemanagementservice.domain.dto.comm.WhatsAppCreateTemplateRequest;
@@ -14,15 +17,21 @@ import com.finx.templatemanagementservice.exception.TemplateNotFoundException;
 import com.finx.templatemanagementservice.repository.TemplateContentRepository;
 import com.finx.templatemanagementservice.repository.TemplateRepository;
 import com.finx.templatemanagementservice.repository.TemplateVariableRepository;
+import com.finx.templatemanagementservice.service.DocumentProcessingService;
+import com.finx.templatemanagementservice.service.FileStorageService;
 import com.finx.templatemanagementservice.service.TemplateService;
+import com.finx.templatemanagementservice.service.TemplateVariableResolverService;
+import com.finx.templatemanagementservice.service.TemplateRenderingService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -39,6 +48,11 @@ public class TemplateServiceImpl implements TemplateService {
     private final TemplateVariableRepository templateVariableRepository;
     private final TemplateContentRepository templateContentRepository;
     private final CommunicationServiceClient communicationServiceClient;
+    private final DmsServiceClient dmsServiceClient;
+    private final FileStorageService fileStorageService;
+    private final DocumentProcessingService documentProcessingService;
+    private final TemplateVariableResolverService variableResolverService;
+    private final TemplateRenderingService renderingService;
 
     @Override
     @Transactional
@@ -330,6 +344,252 @@ public class TemplateServiceImpl implements TemplateService {
         }
     }
 
+    // ==================== Document Management Methods ====================
+
+    @Override
+    @Transactional
+    @CacheEvict(value = {"templates", "templatesByChannel"}, allEntries = true)
+    public TemplateDetailDTO createTemplateWithDocument(CreateTemplateRequest request, MultipartFile document) {
+        log.info("Creating template with document: {}", request.getTemplateCode());
+
+        // First create the template
+        TemplateDetailDTO createdTemplate = createTemplate(request);
+
+        // Then upload the document
+        return uploadDocument(createdTemplate.getId(), document);
+    }
+
+    @Override
+    @Transactional
+    @CacheEvict(value = {"templates", "templatesByChannel"}, allEntries = true)
+    public TemplateDetailDTO uploadDocument(Long templateId, MultipartFile document) {
+        log.info("Uploading document for template: {}", templateId);
+
+        Template template = templateRepository.findById(templateId)
+                .orElseThrow(() -> new TemplateNotFoundException(templateId));
+
+        // Validate document
+        validateDocument(document);
+
+        // Delete existing document from DMS if present
+        if (template.getDmsDocumentId() != null) {
+            try {
+                CommonResponse<DmsDocumentDTO> existingDoc = dmsServiceClient.getDocumentByDocumentId(template.getDmsDocumentId());
+                if (existingDoc != null && existingDoc.getData() != null) {
+                    dmsServiceClient.permanentlyDeleteDocument(existingDoc.getData().getId());
+                    log.info("Deleted existing document from DMS: {}", template.getDmsDocumentId());
+                }
+            } catch (Exception e) {
+                log.warn("Failed to delete existing document from DMS: {}", e.getMessage());
+            }
+        }
+
+        // Upload document to DMS (OVH S3 storage)
+        DmsUploadRequest uploadRequest = DmsUploadRequest.builder()
+                .documentType("TEMPLATE_DOC")
+                .documentSubtype(getDocumentType(document.getOriginalFilename()))
+                .entityType("TEMPLATE")
+                .entityId(templateId)
+                .documentName(template.getTemplateName() + " - Document")
+                .description("Document attachment for template: " + template.getTemplateCode())
+                .build();
+
+        CommonResponse<DmsDocumentDTO> dmsResponse = dmsServiceClient.uploadDocument(uploadRequest, document);
+
+        if (dmsResponse == null || dmsResponse.getData() == null) {
+            throw new BusinessException("Failed to upload document to DMS");
+        }
+
+        DmsDocumentDTO dmsDoc = dmsResponse.getData();
+
+        // Update template with DMS document info
+        template.setDmsDocumentId(dmsDoc.getDocumentId());
+        template.setDocumentUrl(dmsDoc.getFileUrl());
+        template.setDocumentOriginalName(dmsDoc.getFileName());
+        template.setDocumentType(getDocumentType(dmsDoc.getFileName()));
+        template.setDocumentSizeBytes(dmsDoc.getFileSizeBytes());
+
+        // Check if document has placeholders (download content from DMS first)
+        try {
+            byte[] docContent = dmsServiceClient.getDocumentContent(dmsDoc.getId(), null);
+            // Store temporarily for placeholder checking
+            String tempPath = fileStorageService.uploadFile(document, "temp/" + templateId);
+            boolean hasPlaceholders = documentProcessingService.hasPlaceholders(tempPath);
+            template.setHasDocumentVariables(hasPlaceholders);
+            // Clean up temp file
+            try {
+                fileStorageService.deleteFile(tempPath);
+            } catch (Exception e) {
+                log.warn("Failed to delete temp file: {}", e.getMessage());
+            }
+        } catch (Exception e) {
+            log.warn("Failed to check document placeholders: {}", e.getMessage());
+            template.setHasDocumentVariables(false);
+        }
+
+        template = templateRepository.save(template);
+        log.info("Document uploaded successfully to DMS for template: {}, DMS ID: {}", templateId, dmsDoc.getDocumentId());
+
+        return mapToDetailDTO(template);
+    }
+
+    @Override
+    @Transactional
+    @CacheEvict(value = {"templates", "templatesByChannel"}, allEntries = true)
+    public TemplateDetailDTO deleteDocument(Long templateId) {
+        log.info("Deleting document for template: {}", templateId);
+
+        Template template = templateRepository.findById(templateId)
+                .orElseThrow(() -> new TemplateNotFoundException(templateId));
+
+        // Delete from DMS if document exists
+        if (template.getDmsDocumentId() != null) {
+            try {
+                CommonResponse<DmsDocumentDTO> existingDoc = dmsServiceClient.getDocumentByDocumentId(template.getDmsDocumentId());
+                if (existingDoc != null && existingDoc.getData() != null) {
+                    dmsServiceClient.permanentlyDeleteDocument(existingDoc.getData().getId());
+                    log.info("Deleted document from DMS: {}", template.getDmsDocumentId());
+                }
+            } catch (Exception e) {
+                log.warn("Failed to delete document from DMS: {}", e.getMessage());
+            }
+
+            template.setDmsDocumentId(null);
+            template.setDocumentUrl(null);
+            template.setDocumentOriginalName(null);
+            template.setDocumentType(null);
+            template.setDocumentSizeBytes(null);
+            template.setHasDocumentVariables(false);
+
+            template = templateRepository.save(template);
+        }
+
+        log.info("Document deleted for template: {}", templateId);
+        return mapToDetailDTO(template);
+    }
+
+    @Override
+    public List<String> getDocumentPlaceholders(Long templateId) {
+        log.info("Getting document placeholders for template: {}", templateId);
+
+        Template template = templateRepository.findById(templateId)
+                .orElseThrow(() -> new TemplateNotFoundException(templateId));
+
+        if (template.getDocumentUrl() == null) {
+            return Collections.emptyList();
+        }
+
+        return documentProcessingService.extractPlaceholders(template.getDocumentUrl());
+    }
+
+    @Override
+    public TemplateResolveResponse resolveTemplateWithDocument(Long templateId, TemplateResolveRequest request) {
+        log.info("Resolving template with document for template: {} and case: {}", templateId, request.getCaseId());
+
+        // Resolve variables from case data
+        Map<String, Object> resolvedVariables = variableResolverService.resolveVariablesForTemplate(
+                templateId, request.getCaseId(), request.getAdditionalContext()
+        );
+
+        // Render template content
+        String renderedContent = renderingService.renderTemplateForCase(
+                templateId, request.getCaseId(), request.getAdditionalContext()
+        );
+
+        // Get template for details
+        Template template = templateRepository.findByIdWithDetails(templateId)
+                .orElseThrow(() -> new TemplateNotFoundException(templateId));
+
+        String renderedSubject = null;
+
+        // Render subject if available
+        if (template.getContents() != null && !template.getContents().isEmpty()) {
+            String subject = template.getContents().get(0).getSubject();
+            if (subject != null && !subject.isEmpty()) {
+                renderedSubject = renderingService.renderSubject(subject, resolvedVariables);
+            }
+        }
+
+        // Build response
+        TemplateResolveResponse.TemplateResolveResponseBuilder responseBuilder = TemplateResolveResponse.builder()
+                .templateId(templateId)
+                .templateCode(template.getTemplateCode())
+                .resolvedVariables(resolvedVariables)
+                .renderedContent(renderedContent)
+                .subject(renderedSubject);
+
+        // Process document if exists (only templates with documents hit DMS/S3)
+        if (template.getDmsDocumentId() != null && template.getDocumentUrl() != null) {
+            responseBuilder
+                    .hasDocument(true)
+                    .dmsDocumentId(template.getDmsDocumentId())
+                    .originalDocumentUrl(template.getDocumentUrl())
+                    .documentType(template.getDocumentType())
+                    .documentOriginalName(template.getDocumentOriginalName());
+
+            if (Boolean.TRUE.equals(template.getHasDocumentVariables())) {
+                try {
+                    // Process document and replace placeholders
+                    String processedDocumentUrl = documentProcessingService.processDocument(
+                            template.getDocumentUrl(),
+                            resolvedVariables,
+                            request.getCaseId()
+                    );
+                    responseBuilder.processedDocumentUrl(processedDocumentUrl);
+                    log.info("Document processed successfully for case: {}", request.getCaseId());
+                } catch (Exception e) {
+                    log.error("Failed to process document: {}", e.getMessage());
+                    // Continue without processed document - original is still available
+                }
+            }
+        } else {
+            responseBuilder.hasDocument(false);
+        }
+
+        return responseBuilder.build();
+    }
+
+    // ==================== Helper Methods ====================
+
+    private void validateDocument(MultipartFile document) {
+        if (document == null || document.isEmpty()) {
+            throw new BusinessException("Document file is required");
+        }
+
+        String filename = document.getOriginalFilename();
+        String extension = getFileExtension(filename);
+
+        if (!isAllowedDocumentType(extension)) {
+            throw new BusinessException("Invalid document type. Allowed types: PDF, DOC, DOCX");
+        }
+
+        // Max size: 10MB
+        long maxSize = 10 * 1024 * 1024;
+        if (document.getSize() > maxSize) {
+            throw new BusinessException("Document size exceeds maximum allowed (10MB)");
+        }
+    }
+
+    private boolean isAllowedDocumentType(String extension) {
+        return extension != null &&
+               (extension.equalsIgnoreCase("pdf") ||
+                extension.equalsIgnoreCase("doc") ||
+                extension.equalsIgnoreCase("docx"));
+    }
+
+    private String getDocumentType(String filename) {
+        String extension = getFileExtension(filename);
+        if (extension == null) return null;
+        return extension.toUpperCase();
+    }
+
+    private String getFileExtension(String filename) {
+        if (filename == null || !filename.contains(".")) {
+            return null;
+        }
+        return filename.substring(filename.lastIndexOf('.') + 1);
+    }
+
     // ==================== Mapping Methods ====================
 
     private TemplateDTO mapToDTO(Template template) {
@@ -367,6 +627,16 @@ public class TemplateServiceImpl implements TemplateService {
                     .build();
         }
 
+        // Get document placeholders if document exists
+        List<String> documentPlaceholders = null;
+        if (template.getDocumentUrl() != null && Boolean.TRUE.equals(template.getHasDocumentVariables())) {
+            try {
+                documentPlaceholders = documentProcessingService.extractPlaceholders(template.getDocumentUrl());
+            } catch (Exception e) {
+                log.warn("Failed to extract document placeholders: {}", e.getMessage());
+            }
+        }
+
         return TemplateDetailDTO.builder()
                 .id(template.getId())
                 .templateName(template.getTemplateName())
@@ -378,6 +648,14 @@ public class TemplateServiceImpl implements TemplateService {
                 .isActive(template.getIsActive())
                 .variables(variableDTOs)
                 .content(contentDTO)
+                // Document fields (stored in DMS)
+                .dmsDocumentId(template.getDmsDocumentId())
+                .documentUrl(template.getDocumentUrl())
+                .documentOriginalName(template.getDocumentOriginalName())
+                .documentType(template.getDocumentType())
+                .documentSizeBytes(template.getDocumentSizeBytes())
+                .hasDocumentVariables(template.getHasDocumentVariables())
+                .documentPlaceholders(documentPlaceholders)
                 .createdAt(template.getCreatedAt())
                 .updatedAt(template.getUpdatedAt())
                 .build();

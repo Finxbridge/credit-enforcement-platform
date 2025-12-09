@@ -50,6 +50,25 @@ public class Template {
     @Column(name = "is_active")
     private Boolean isActive = true;
 
+    // Document attachment fields - stored in DMS service
+    @Column(name = "dms_document_id", length = 50)
+    private String dmsDocumentId; // Reference to DMS service document
+
+    @Column(name = "document_url", length = 500)
+    private String documentUrl;
+
+    @Column(name = "document_original_name", length = 255)
+    private String documentOriginalName;
+
+    @Column(name = "document_type", length = 50)
+    private String documentType; // PDF, DOC, DOCX
+
+    @Column(name = "document_size_bytes")
+    private Long documentSizeBytes;
+
+    @Column(name = "has_document_variables")
+    private Boolean hasDocumentVariables = false;
+
     @Column(name = "created_by")
     private Long createdBy;
 

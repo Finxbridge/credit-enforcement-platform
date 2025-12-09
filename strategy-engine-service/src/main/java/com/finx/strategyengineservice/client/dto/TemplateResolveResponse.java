@@ -45,4 +45,35 @@ public class TemplateResolveResponse {
      * Rendered subject (for email templates)
      */
     private String subject;
+
+    // Document attachment fields (stored in DMS - OVH S3)
+    /**
+     * DMS document reference ID - use this to fetch document from DMS service
+     */
+    private String dmsDocumentId;
+
+    /**
+     * Original document URL from DMS (template document)
+     */
+    private String originalDocumentUrl;
+
+    /**
+     * Processed document URL with replaced placeholders
+     */
+    private String processedDocumentUrl;
+
+    /**
+     * Document type (PDF, DOC, DOCX)
+     */
+    private String documentType;
+
+    /**
+     * Original filename of the document
+     */
+    private String documentOriginalName;
+
+    /**
+     * Flag indicating if template has a document attachment
+     */
+    private Boolean hasDocument;
 }

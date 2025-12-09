@@ -16,6 +16,11 @@ import com.finx.allocationreallocationservice.repository.AllocationBatchReposito
 import com.finx.allocationreallocationservice.repository.AllocationHistoryRepository;
 import com.finx.allocationreallocationservice.repository.BatchErrorRepository;
 import com.finx.allocationreallocationservice.repository.CaseAllocationRepository;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.opencsv.CSVParserBuilder;
+import com.opencsv.CSVReader;
+import com.opencsv.CSVReaderBuilder;
 import com.opencsv.bean.CsvToBean;
 import com.opencsv.bean.CsvToBeanBuilder;
 import lombok.RequiredArgsConstructor;
@@ -54,6 +59,7 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
     private final com.finx.allocationreallocationservice.repository.CaseReadRepository caseReadRepository;
     private final com.finx.allocationreallocationservice.repository.CustomerRepository customerRepository;
     private final org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
+    private final ObjectMapper objectMapper;
 
     private static final Pattern EMAIL_PATTERN = Pattern.compile("^[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,6}$",
             Pattern.CASE_INSENSITIVE);
@@ -74,12 +80,33 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
         java.util.Map<Long, Integer> agentCaseCount = new java.util.HashMap<>(); // Track cases allocated to each agent
 
         try (BufferedReader reader = Files.newBufferedReader(path)) {
-            CsvToBean<AllocationCsvRow> csvToBean = new CsvToBeanBuilder<AllocationCsvRow>(reader)
+            // Configure CSV parser to properly handle quoted fields with commas
+            var csvParser = new CSVParserBuilder()
+                    .withSeparator(',')
+                    .withQuoteChar('"')
+                    .withIgnoreQuotations(false)
+                    .withStrictQuotes(false)
+                    .build();
+
+            CSVReader csvReader = new CSVReaderBuilder(reader)
+                    .withCSVParser(csvParser)
+                    .build();
+
+            CsvToBean<AllocationCsvRow> csvToBean = new CsvToBeanBuilder<AllocationCsvRow>(csvReader)
                     .withType(AllocationCsvRow.class)
                     .withIgnoreLeadingWhiteSpace(true)
+                    .withThrowExceptions(false)
                     .build();
 
             List<AllocationCsvRow> rows = csvToBean.parse();
+
+            // Log any captured exceptions for debugging
+            var exceptions = csvToBean.getCapturedExceptions();
+            if (!exceptions.isEmpty()) {
+                log.warn("Allocation CSV parsing completed with {} warnings/errors", exceptions.size());
+                exceptions.forEach(ex -> log.warn("CSV parsing issue at line {}: {}",
+                        ex.getLineNumber(), ex.getMessage()));
+            }
             batch.setTotalCases(rows.size());
 
             AtomicInteger successfulAllocations = new AtomicInteger(0);
@@ -136,13 +163,7 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
                     successfulAllocations.incrementAndGet();
                 } else {
                     log.error("Validation failed for row {}: {}", rowNumber[0], validationError);
-                    errors.add(BatchError.builder()
-                            .batchId(batchId)
-                            .rowNumber(rowNumber[0])
-                            .errorType(ErrorType.VALIDATION)
-                            .errorMessage(validationError)
-                            .externalCaseId(row.getCaseId())
-                            .build());
+                    errors.add(buildErrorWithData(batchId, rowNumber[0], validationError, row));
                     failedAllocations.incrementAndGet();
                 }
                 rowNumber[0]++;
@@ -251,12 +272,33 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
         java.util.Map<Long, Integer> agentIncrements = new java.util.HashMap<>(); // Track cases added to agents
 
         try (BufferedReader reader = Files.newBufferedReader(path)) {
-            CsvToBean<ReallocationCsvRow> csvToBean = new CsvToBeanBuilder<ReallocationCsvRow>(reader)
+            // Configure CSV parser to properly handle quoted fields with commas
+            var csvParser = new CSVParserBuilder()
+                    .withSeparator(',')
+                    .withQuoteChar('"')
+                    .withIgnoreQuotations(false)
+                    .withStrictQuotes(false)
+                    .build();
+
+            CSVReader csvReader = new CSVReaderBuilder(reader)
+                    .withCSVParser(csvParser)
+                    .build();
+
+            CsvToBean<ReallocationCsvRow> csvToBean = new CsvToBeanBuilder<ReallocationCsvRow>(csvReader)
                     .withType(ReallocationCsvRow.class)
                     .withIgnoreLeadingWhiteSpace(true)
+                    .withThrowExceptions(false)
                     .build();
 
             List<ReallocationCsvRow> rows = csvToBean.parse();
+
+            // Log any captured exceptions for debugging
+            var exceptions = csvToBean.getCapturedExceptions();
+            if (!exceptions.isEmpty()) {
+                log.warn("Reallocation CSV parsing completed with {} warnings/errors", exceptions.size());
+                exceptions.forEach(ex -> log.warn("CSV parsing issue at line {}: {}",
+                        ex.getLineNumber(), ex.getMessage()));
+            }
             batch.setTotalCases(rows.size());
 
             AtomicInteger successfulAllocations = new AtomicInteger(0);
@@ -316,16 +358,15 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
                                     .build());
                             successfulAllocations.incrementAndGet();
                         } else {
-                            errors.add(buildError(batchId, rowNumber[0], "Case not allocated to current_agent_id",
-                                    row.getCaseId()));
+                            errors.add(buildErrorWithData(batchId, rowNumber[0], "Case not allocated to current_agent_id", row));
                             failedAllocations.incrementAndGet();
                         }
                     } else {
-                        errors.add(buildError(batchId, rowNumber[0], "Case allocation not found", row.getCaseId()));
+                        errors.add(buildErrorWithData(batchId, rowNumber[0], "Case allocation not found", row));
                         failedAllocations.incrementAndGet();
                     }
                 } else {
-                    errors.add(buildError(batchId, rowNumber[0], validationError, row.getCaseId()));
+                    errors.add(buildErrorWithData(batchId, rowNumber[0], validationError, row));
                     failedAllocations.incrementAndGet();
                 }
                 rowNumber[0]++;
@@ -424,12 +465,33 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
         List<BatchError> errors = new ArrayList<>();
 
         try (BufferedReader reader = Files.newBufferedReader(path)) {
-            CsvToBean<ContactUpdateCsvRow> csvToBean = new CsvToBeanBuilder<ContactUpdateCsvRow>(reader)
+            // Configure CSV parser to properly handle quoted fields with commas
+            var csvParser = new CSVParserBuilder()
+                    .withSeparator(',')
+                    .withQuoteChar('"')
+                    .withIgnoreQuotations(false)
+                    .withStrictQuotes(false)
+                    .build();
+
+            CSVReader csvReader = new CSVReaderBuilder(reader)
+                    .withCSVParser(csvParser)
+                    .build();
+
+            CsvToBean<ContactUpdateCsvRow> csvToBean = new CsvToBeanBuilder<ContactUpdateCsvRow>(csvReader)
                     .withType(ContactUpdateCsvRow.class)
                     .withIgnoreLeadingWhiteSpace(true)
+                    .withThrowExceptions(false)
                     .build();
 
             List<ContactUpdateCsvRow> rows = csvToBean.parse();
+
+            // Log any captured exceptions for debugging
+            var exceptions = csvToBean.getCapturedExceptions();
+            if (!exceptions.isEmpty()) {
+                log.warn("Contact update CSV parsing completed with {} warnings/errors", exceptions.size());
+                exceptions.forEach(ex -> log.warn("CSV parsing issue at line {}: {}",
+                        ex.getLineNumber(), ex.getMessage()));
+            }
             batch.setTotalRecords(rows.size());
 
             AtomicInteger successfulUpdates = new AtomicInteger(0);
@@ -507,20 +569,18 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
                                     row.getUpdateType());
                             successfulUpdates.incrementAndGet();
                         } else {
-                            errors.add(buildError(batchId, rowNumber[0],
-                                    "No contact information provided for update type: " + row.getUpdateType(),
-                                    row.getLoanId()));
+                            errors.add(buildErrorWithData(batchId, rowNumber[0],
+                                    "No contact information provided for update type: " + row.getUpdateType(), row));
                             failedUpdates.incrementAndGet();
                         }
 
                     } catch (Exception e) {
                         log.error("Failed to update contact for loan {}: {}", row.getLoanId(), e.getMessage());
-                        errors.add(
-                                buildError(batchId, rowNumber[0], "Service error: " + e.getMessage(), row.getLoanId()));
+                        errors.add(buildErrorWithData(batchId, rowNumber[0], "Service error: " + e.getMessage(), row));
                         failedUpdates.incrementAndGet();
                     }
                 } else {
-                    errors.add(buildError(batchId, rowNumber[0], validationError, row.getLoanId()));
+                    errors.add(buildErrorWithData(batchId, rowNumber[0], validationError, row));
                     failedUpdates.incrementAndGet();
                 }
                 rowNumber[0]++;
@@ -856,5 +916,59 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
                 .errorMessage(message)
                 .externalCaseId(caseId)
                 .build();
+    }
+
+    /**
+     * Build error with original row data for allocation rows
+     */
+    private BatchError buildErrorWithData(String batchId, int rowNumber, String message, AllocationCsvRow row) {
+        return BatchError.builder()
+                .batchId(batchId)
+                .rowNumber(rowNumber)
+                .errorType(ErrorType.VALIDATION)
+                .errorMessage(message)
+                .externalCaseId(row.getCaseId())
+                .originalRowData(convertToJson(row))
+                .build();
+    }
+
+    /**
+     * Build error with original row data for reallocation rows
+     */
+    private BatchError buildErrorWithData(String batchId, int rowNumber, String message, ReallocationCsvRow row) {
+        return BatchError.builder()
+                .batchId(batchId)
+                .rowNumber(rowNumber)
+                .errorType(ErrorType.VALIDATION)
+                .errorMessage(message)
+                .externalCaseId(row.getCaseId())
+                .originalRowData(convertToJson(row))
+                .build();
+    }
+
+    /**
+     * Build error with original row data for contact update rows
+     */
+    private BatchError buildErrorWithData(String batchId, int rowNumber, String message, ContactUpdateCsvRow row) {
+        return BatchError.builder()
+                .batchId(batchId)
+                .rowNumber(rowNumber)
+                .errorType(ErrorType.VALIDATION)
+                .errorMessage(message)
+                .externalCaseId(row.getLoanId())
+                .originalRowData(convertToJson(row))
+                .build();
+    }
+
+    /**
+     * Convert object to JSON string for storage
+     */
+    private String convertToJson(Object row) {
+        try {
+            return objectMapper.writeValueAsString(row);
+        } catch (JsonProcessingException e) {
+            log.warn("Failed to convert row to JSON: {}", e.getMessage());
+            return null;
+        }
     }
 }

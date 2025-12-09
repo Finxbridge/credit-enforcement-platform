@@ -25,4 +25,12 @@ public class TemplateResolveResponse {
     private String subject; // For email templates
     private Integer variableCount;
     private Integer resolvedCount;
+
+    // Document attachment fields (stored in DMS - OVH S3)
+    private String dmsDocumentId;         // DMS document reference ID
+    private String originalDocumentUrl;   // Original document URL from DMS
+    private String processedDocumentUrl;  // URL of document with replaced placeholders
+    private String documentType;          // PDF, DOC, DOCX
+    private String documentOriginalName;  // Original filename
+    private Boolean hasDocument;
 }

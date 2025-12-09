@@ -163,19 +163,28 @@ public class AllocationServiceImpl implements AllocationService {
 
     @Override
     public byte[] exportAllocationBatch(String batchId) {
-        log.info("Exporting all allocations for batch: {}", batchId);
+        log.info("Exporting ALL allocations (success + failure) for batch: {}", batchId);
 
         if (!allocationBatchRepository.existsByBatchId(batchId)) {
             throw new ResourceNotFoundException("Allocation batch not found: " + batchId);
         }
 
+        // Find all successful allocations for this batch
         List<CaseAllocation> allocations = caseAllocationRepository.findByBatchId(batchId);
 
-        if (allocations.isEmpty()) {
-            throw new BusinessException("No allocations found for batch: " + batchId);
+        // Find all errors for this batch
+        List<BatchError> errors = batchErrorRepository.findByBatchId(batchId);
+
+        // Check if there's anything to export
+        if (allocations.isEmpty() && errors.isEmpty()) {
+            throw new BusinessException("No records found for batch: " + batchId);
         }
 
-        return csvExporter.exportAllocations(allocations);
+        log.info("Exporting batch {}: {} success allocations, {} failure records",
+                 batchId, allocations.size(), errors.size());
+
+        // Export all data - success allocations with STATUS="SUCCESS", errors with STATUS="FAILURE"
+        return csvExporter.exportAllBatchData(allocations, errors);
     }
 
     @Override

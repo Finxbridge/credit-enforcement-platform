@@ -49,6 +49,13 @@ public class BatchError {
     @Column(name = "module")
     private String module;
 
+    /**
+     * Stores the original CSV row data as JSON for error export
+     * This allows exporting the exact data that was uploaded with STATUS and REMARKS
+     */
+    @Column(name = "original_row_data", columnDefinition = "TEXT")
+    private String originalRowData;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
