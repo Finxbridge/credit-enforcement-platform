@@ -8,20 +8,23 @@ import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
 
+/**
+ * Unified refund request
+ */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class PaymentRefundRequest {
+public class UnifiedRefundRequest {
+
+    @NotBlank(message = "Service type is required (DYNAMIC_QR, PAYMENT_LINK, COLLECT_CALL)")
+    private String serviceType;
 
     @NotBlank(message = "Transaction ID is required")
     private String transactionId;
 
-    // Optional - if not provided, full refund will be processed
+    // Optional - if not provided, full refund
     private BigDecimal amount;
 
     private String reason;
-
-    // Optional - will be fetched from third_party_integration_master if not provided
-    private String gatewayName;
 }

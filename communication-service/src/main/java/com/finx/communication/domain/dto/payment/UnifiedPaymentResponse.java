@@ -1,6 +1,5 @@
 package com.finx.communication.domain.dto.payment;
 
-import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -10,25 +9,43 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Map;
 
+/**
+ * Unified payment response for all service types
+ */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@JsonInclude(JsonInclude.Include.NON_NULL)
-public class PaymentResponse {
+public class UnifiedPaymentResponse {
 
+    private String serviceType;
     private String transactionId;
     private String gatewayOrderId;
     private String gatewayTransactionId;
-    private String paymentLink;
-    private String qrCodeUrl;
+    private String providerReferenceId;
+
+    private BigDecimal amount;
+    private String currency;
     private String status;
     private String message;
-    private BigDecimal amount;
+
+    // PAYMENT_LINK specific
+    private String paymentLink;
+
+    // DYNAMIC_QR specific
+    private String qrCodeBase64;
+    private String qrCodeUrl;
+
+    // Refund info
     private BigDecimal refundAmount;
-    private String gatewayName;
+    private String failureReason;
+
+    // Timestamps
     private LocalDateTime createdAt;
     private LocalDateTime paidAt;
     private LocalDateTime refundedAt;
+    private LocalDateTime expiresAt;
+
+    // Raw gateway response
     private Map<String, Object> gatewayResponse;
 }

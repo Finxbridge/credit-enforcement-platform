@@ -627,4 +627,10 @@ public class CaseSourcingServiceImpl implements CaseSourcingService {
         }
 
         // NOTE: Case Closure operations moved to Collections Service (CycleClosureService)
+
+        @Override
+        @CacheEvict(value = { "unallocatedCases", "unallocatedCaseDetails", "unallocatedCasesReport", "dashboardSummary" }, allEntries = true)
+        public void evictUnallocatedCasesCache() {
+                log.info("Evicting unallocated cases cache - triggered by allocation service");
+        }
 }

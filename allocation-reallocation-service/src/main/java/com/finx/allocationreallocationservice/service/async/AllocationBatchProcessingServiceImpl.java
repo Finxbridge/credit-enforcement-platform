@@ -114,31 +114,33 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
             final int[] rowNumber = { 1 };
 
             rows.forEach(row -> {
+                row.setRowNumber(rowNumber[0]);
                 String validationError = getValidationError(row);
                 if (validationError == null) {
-                    // Lookup case_id by loan_id (user-friendly identifier)
-                    Case caseEntity = caseReadRepository.findByLoanId(row.getLoanId())
-                            .orElseThrow(() -> new RuntimeException("Case not found for loan_id: " + row.getLoanId()));
+                    // Lookup case by ACCOUNT NO (loan account number)
+                    Case caseEntity = caseReadRepository.findByLoanAccountNumber(row.getAccountNo())
+                            .orElseThrow(() -> new RuntimeException("Case not found for ACCOUNT NO: " + row.getAccountNo()));
                     Long caseId = caseEntity.getId();
-                    Long primaryAgentId = Long.parseLong(row.getPrimaryAgentId());
+
+                    // Resolve primary agent (can be ID or username)
+                    Long primaryAgentId = resolveAgentId(row.getPrimaryAgent());
+
+                    // Resolve secondary agent if provided
+                    Long secondaryAgentId = null;
+                    if (row.getSecondaryAgent() != null && !row.getSecondaryAgent().trim().isEmpty()) {
+                        secondaryAgentId = resolveAgentId(row.getSecondaryAgent());
+                    }
 
                     allocations.add(CaseAllocation.builder()
                             .caseId(caseId)
                             .externalCaseId(caseEntity.getExternalCaseId())
                             .primaryAgentId(primaryAgentId)
-                            .secondaryAgentId(row.getSecondaryAgentId() != null && !row.getSecondaryAgentId().isEmpty()
-                                    ? Long.parseLong(row.getSecondaryAgentId())
-                                    : null)
+                            .secondaryAgentId(secondaryAgentId)
                             .allocatedToType("USER")
-                            .allocationType(row.getAllocationType() != null && !row.getAllocationType().isEmpty()
-                                    ? row.getAllocationType().toUpperCase()
-                                    : "PRIMARY")
-                            .workloadPercentage(
-                                    row.getAllocationPercentage() != null && !row.getAllocationPercentage().isEmpty()
-                                            ? new java.math.BigDecimal(row.getAllocationPercentage())
-                                            : null)
-                            .geographyCode(row.getGeography() != null && !row.getGeography().isEmpty()
-                                    ? row.getGeography().toUpperCase()
+                            .allocationType("PRIMARY")
+                            .workloadPercentage(new java.math.BigDecimal("100.00"))
+                            .geographyCode(row.getLocation() != null && !row.getLocation().isEmpty()
+                                    ? row.getLocation().toUpperCase()
                                     : null)
                             .status(AllocationStatus.ALLOCATED)
                             .batchId(batchId)
@@ -203,53 +205,81 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
     }
 
     private String getValidationError(AllocationCsvRow row) {
-        // Validate loan_id is provided
-        if (row.getLoanId() == null || row.getLoanId().trim().isEmpty()) {
-            return "loan_id is required";
+        // Validate ACCOUNT NO is provided
+        if (row.getAccountNo() == null || row.getAccountNo().trim().isEmpty()) {
+            return "ACCOUNT NO is required";
         }
 
-        // CRITICAL: Validate case exists in cases table by loan_id
-        Optional<Case> caseOpt = caseReadRepository.findByLoanId(row.getLoanId());
+        // CRITICAL: Validate case exists in cases table by loan account number
+        Optional<Case> caseOpt = caseReadRepository.findByLoanAccountNumber(row.getAccountNo());
         if (!caseOpt.isPresent()) {
-            return "Case not found for loan_id: " + row.getLoanId() +
-                   ". Please ensure case with this loan ID exists in cases table before allocation.";
+            return "Case not found for ACCOUNT NO: " + row.getAccountNo() +
+                   ". Please ensure case with this account number exists in cases table before allocation.";
         }
 
-        // Validate primary_agent_id format
-        Long primaryAgentId;
+        // Validate PRIMARY AGENT is provided
+        if (row.getPrimaryAgent() == null || row.getPrimaryAgent().trim().isEmpty()) {
+            return "PRIMARY AGENT is required";
+        }
+
+        // Validate PRIMARY AGENT exists (can be ID or username)
         try {
-            primaryAgentId = Long.parseLong(row.getPrimaryAgentId());
-        } catch (NumberFormatException e) {
-            return "Invalid primary_agent_id: " + row.getPrimaryAgentId();
+            Long agentId = resolveAgentId(row.getPrimaryAgent());
+            if (agentId == null) {
+                return "User not found for PRIMARY AGENT: " + row.getPrimaryAgent();
+            }
+        } catch (Exception e) {
+            return "Invalid PRIMARY AGENT: " + row.getPrimaryAgent() + ". " + e.getMessage();
         }
 
-        // Validate primary_agent_id exists in users table
-        if (!userRepository.existsById(primaryAgentId)) {
-            return "User not found for primary_agent_id: " + row.getPrimaryAgentId();
-        }
-
-        // Validate secondary_agent_id format and existence (if provided)
-        if (row.getSecondaryAgentId() != null && !row.getSecondaryAgentId().isEmpty()) {
-            Long secondaryAgentId;
+        // Validate SECONDARY AGENT if provided
+        if (row.getSecondaryAgent() != null && !row.getSecondaryAgent().trim().isEmpty()) {
             try {
-                secondaryAgentId = Long.parseLong(row.getSecondaryAgentId());
-            } catch (NumberFormatException e) {
-                return "Invalid secondary_agent_id: " + row.getSecondaryAgentId();
-            }
-
-            // Validate secondary_agent_id exists in users table
-            if (!userRepository.existsById(secondaryAgentId)) {
-                return "User not found for secondary_agent_id: " + row.getSecondaryAgentId();
+                Long agentId = resolveAgentId(row.getSecondaryAgent());
+                if (agentId == null) {
+                    return "User not found for SECONDARY AGENT: " + row.getSecondaryAgent();
+                }
+            } catch (Exception e) {
+                return "Invalid SECONDARY AGENT: " + row.getSecondaryAgent() + ". " + e.getMessage();
             }
         }
 
-        // Validate allocation_percentage format (if provided)
-        if (row.getAllocationPercentage() != null && !row.getAllocationPercentage().isEmpty()) {
-            try {
-                Double.parseDouble(row.getAllocationPercentage());
-            } catch (NumberFormatException e) {
-                return "Invalid allocation_percentage: " + row.getAllocationPercentage();
+        return null;
+    }
+
+    /**
+     * Resolve agent ID from either numeric ID or username
+     * @param agentIdentifier Either a numeric ID or username
+     * @return The agent's user ID, or null if not found
+     */
+    private Long resolveAgentId(String agentIdentifier) {
+        if (agentIdentifier == null || agentIdentifier.trim().isEmpty()) {
+            return null;
+        }
+
+        String trimmed = agentIdentifier.trim();
+
+        // First, try to parse as numeric ID
+        try {
+            Long id = Long.parseLong(trimmed);
+            if (userRepository.existsById(id)) {
+                return id;
             }
+        } catch (NumberFormatException ignored) {
+            // Not a numeric ID, try as username
+        }
+
+        // Try to find by username
+        Optional<com.finx.allocationreallocationservice.domain.entity.User> userOpt =
+                userRepository.findByUsername(trimmed);
+        if (userOpt.isPresent()) {
+            return userOpt.get().getId();
+        }
+
+        // Try case-insensitive username search
+        userOpt = userRepository.findByUsernameIgnoreCase(trimmed);
+        if (userOpt.isPresent()) {
+            return userOpt.get().getId();
         }
 
         return null;
@@ -927,7 +957,7 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
                 .rowNumber(rowNumber)
                 .errorType(ErrorType.VALIDATION)
                 .errorMessage(message)
-                .externalCaseId(row.getCaseId())
+                .externalCaseId(row.getAccountNo())
                 .originalRowData(convertToJson(row))
                 .build();
     }

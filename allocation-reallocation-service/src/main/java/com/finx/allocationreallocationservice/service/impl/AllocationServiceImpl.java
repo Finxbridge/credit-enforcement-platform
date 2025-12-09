@@ -14,6 +14,7 @@ import com.finx.allocationreallocationservice.exception.ValidationException;
 import com.finx.allocationreallocationservice.repository.*;
 import com.finx.allocationreallocationservice.service.AllocationService;
 import com.finx.allocationreallocationservice.util.csv.CsvExporter;
+import com.finx.allocationreallocationservice.client.CaseSourcingServiceClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;
@@ -57,6 +58,7 @@ public class AllocationServiceImpl implements AllocationService {
     private final AuditLogRepository auditLogRepository;
     private final CaseReadRepository caseReadRepository;
     private final UserRepository userRepository;
+    private final CaseSourcingServiceClient caseSourcingServiceClient;
 
     @SuppressWarnings("null")
     @Override
@@ -1430,6 +1432,9 @@ public class AllocationServiceImpl implements AllocationService {
                 Map.of("previousStatus", "READY_FOR_APPLY"),
                 Map.of("status", "ACTIVE", "totalCasesAllocated", totalAllocated));
 
+        // Evict unallocated cases cache in case-sourcing-service
+        evictCaseSourcingCache();
+
         return AllocationRuleExecutionResponseDTO.builder()
                 .ruleId(ruleId)
                 .totalCasesAllocated(totalAllocated)
@@ -1482,6 +1487,11 @@ public class AllocationServiceImpl implements AllocationService {
                 log.error("Failed to deallocate case {}: {}", caseId, e.getMessage());
                 failed++;
             }
+        }
+
+        // Evict unallocated cases cache after bulk deallocation
+        if (successful > 0) {
+            evictCaseSourcingCache();
         }
 
         return BulkDeallocationResponseDTO.builder()
@@ -1564,5 +1574,19 @@ public class AllocationServiceImpl implements AllocationService {
                 .uploadedAt(batch.getUploadedAt())
                 .completedAt(batch.getCompletedAt())
                 .build();
+    }
+
+    /**
+     * Evict unallocated cases cache in case-sourcing-service.
+     * Called after allocation/deallocation to ensure the unallocated cases list is refreshed.
+     */
+    private void evictCaseSourcingCache() {
+        try {
+            caseSourcingServiceClient.evictUnallocatedCasesCache();
+            log.info("Successfully evicted unallocated cases cache in case-sourcing-service");
+        } catch (Exception e) {
+            // Log error but don't fail the allocation - cache will eventually be refreshed by TTL
+            log.warn("Failed to evict unallocated cases cache in case-sourcing-service: {}", e.getMessage());
+        }
     }
 }

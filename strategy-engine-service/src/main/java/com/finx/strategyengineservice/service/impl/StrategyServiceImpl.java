@@ -467,23 +467,39 @@ public class StrategyServiceImpl implements StrategyService {
 
         switch (filter.getNumericOperator()) {
             case GREATER_THAN_EQUAL:
+                if (filter.getMinValue() == null) {
+                    log.warn("minValue is required for GREATER_THAN_EQUAL operator on field: {}", filter.getField());
+                    return null;
+                }
                 ruleOperator = RuleOperator.GREATER_THAN_OR_EQUAL;
-                fieldValue = String.valueOf(filter.getMinValue());
+                fieldValue = String.valueOf(filter.getMinValue().intValue());
                 break;
 
             case LESS_THAN_EQUAL:
+                if (filter.getMaxValue() == null) {
+                    log.warn("maxValue is required for LESS_THAN_EQUAL operator on field: {}", filter.getField());
+                    return null;
+                }
                 ruleOperator = RuleOperator.LESS_THAN_OR_EQUAL;
-                fieldValue = String.valueOf(filter.getMaxValue());
+                fieldValue = String.valueOf(filter.getMaxValue().intValue());
                 break;
 
             case EQUAL:
+                if (filter.getExactValue() == null) {
+                    log.warn("exactValue is required for EQUAL operator on field: {}", filter.getField());
+                    return null;
+                }
                 ruleOperator = RuleOperator.EQUALS;
-                fieldValue = String.valueOf(filter.getExactValue());
+                fieldValue = String.valueOf(filter.getExactValue().intValue());
                 break;
 
             case RANGE:
+                if (filter.getMinValue() == null || filter.getMaxValue() == null) {
+                    log.warn("minValue and maxValue are required for RANGE operator on field: {}", filter.getField());
+                    return null;
+                }
                 ruleOperator = RuleOperator.BETWEEN;
-                fieldValue = filter.getMinValue() + "," + filter.getMaxValue();
+                fieldValue = filter.getMinValue().intValue() + "," + filter.getMaxValue().intValue();
                 break;
 
             default:
@@ -732,6 +748,11 @@ public class StrategyServiceImpl implements StrategyService {
         String code = ruleName.toUpperCase()
                 .replaceAll("[^A-Z0-9]", "_")
                 .replaceAll("_+", "_");
+        // Truncate code to ensure total length <= 50 (code + "_" + 13-digit timestamp)
+        int maxCodeLength = 50 - 1 - 13; // 36 chars max for the name part
+        if (code.length() > maxCodeLength) {
+            code = code.substring(0, maxCodeLength);
+        }
         return code + "_" + System.currentTimeMillis();
     }
 

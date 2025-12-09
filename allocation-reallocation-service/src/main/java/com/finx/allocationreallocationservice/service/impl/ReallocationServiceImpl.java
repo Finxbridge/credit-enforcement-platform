@@ -22,6 +22,7 @@ import com.finx.allocationreallocationservice.repository.CaseAllocationRepositor
 import com.finx.allocationreallocationservice.service.ReallocationService;
 import com.finx.allocationreallocationservice.service.async.AllocationBatchProcessingService;
 import com.finx.allocationreallocationservice.util.csv.CsvExporter;
+import com.finx.allocationreallocationservice.client.CaseSourcingServiceClient;
 import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -57,6 +58,7 @@ public class ReallocationServiceImpl implements ReallocationService {
     private final ObjectMapper objectMapper;
     private final com.finx.allocationreallocationservice.repository.UserRepository userRepository;
     private final com.finx.allocationreallocationservice.repository.CaseReadRepository caseReadRepository;
+    private final CaseSourcingServiceClient caseSourcingServiceClient;
 
     @SuppressWarnings("null")
     @Override
@@ -175,6 +177,9 @@ public class ReallocationServiceImpl implements ReallocationService {
         increments.put(request.getToUserId(), casesReallocated);
         updateUserStatisticsForReallocation(decrements, increments);
 
+        // Evict unallocated cases cache in case-sourcing-service
+        evictCaseSourcingCache();
+
         return ReallocationResponseDTO.builder()
                 .jobId(jobId)
                 .status("COMPLETED")
@@ -274,6 +279,9 @@ public class ReallocationServiceImpl implements ReallocationService {
 
         // Update user statistics
         updateUserStatisticsForReallocation(decrements, increments);
+
+        // Evict unallocated cases cache in case-sourcing-service
+        evictCaseSourcingCache();
 
         return ReallocationResponseDTO.builder()
                 .jobId(jobId)
@@ -426,6 +434,20 @@ public class ReallocationServiceImpl implements ReallocationService {
             auditLogRepository.save(auditLog);
         } catch (Exception e) {
             log.error("Error creating audit log", e);
+        }
+    }
+
+    /**
+     * Evict unallocated cases cache in case-sourcing-service.
+     * Called after reallocation to ensure the unallocated cases list is refreshed.
+     */
+    private void evictCaseSourcingCache() {
+        try {
+            caseSourcingServiceClient.evictUnallocatedCasesCache();
+            log.info("Successfully evicted unallocated cases cache in case-sourcing-service");
+        } catch (Exception e) {
+            // Log error but don't fail the reallocation - cache will eventually be refreshed by TTL
+            log.warn("Failed to evict unallocated cases cache in case-sourcing-service: {}", e.getMessage());
         }
     }
 }

@@ -4,6 +4,8 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.jsontype.BasicPolymorphicTypeValidator;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import io.lettuce.core.ClientOptions;
+import io.lettuce.core.protocol.ProtocolVersion;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.CacheManager;
@@ -66,17 +68,24 @@ public class RedisConfig {
             config.setPassword(redisPassword);
         }
 
+        // Disable CLIENT SETINFO command for older Redis versions (< 7.2)
+        ClientOptions clientOptions = ClientOptions.builder()
+                .protocolVersion(ProtocolVersion.RESP2)
+                .build();
+
         LettuceClientConfiguration clientConfig;
 
         if (sslEnabled) {
             log.info("Configuring SSL/TLS for Redis connection");
             clientConfig = LettuceClientConfiguration.builder()
                 .commandTimeout(Duration.ofSeconds(10))
+                .clientOptions(clientOptions)
                 .useSsl()
                 .build();
         } else {
             clientConfig = LettuceClientConfiguration.builder()
                 .commandTimeout(Duration.ofSeconds(10))
+                .clientOptions(clientOptions)
                 .build();
         }
 

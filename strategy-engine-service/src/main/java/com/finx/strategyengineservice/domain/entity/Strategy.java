@@ -43,7 +43,7 @@ public class Strategy {
     @Column(name = "trigger_time")
     private LocalTime triggerTime;
 
-    @Column(name = "trigger_days", length = 50)
+    @Column(name = "trigger_days", length = 255)
     private String triggerDays;
 
     @Column(name = "schedule_expression", length = 100)

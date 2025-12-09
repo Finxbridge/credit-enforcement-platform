@@ -108,5 +108,11 @@ public interface CaseSourcingService {
      */
     Page<RecentUploadDTO> getAllBatches(String status, Pageable pageable);
 
+    /**
+     * Evict unallocated cases cache.
+     * Called by allocation-reallocation service after case allocation to ensure fresh data.
+     */
+    void evictUnallocatedCasesCache();
+
     // NOTE: Case Closure operations moved to Collections Service (CycleClosureService)
 }

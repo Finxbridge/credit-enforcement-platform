@@ -357,5 +357,23 @@ public class CaseSourcingController {
         return ResponseWrapper.ok("Case timeline retrieved successfully.", timeline);
     }
 
+    // ===================================================
+    // CACHE MANAGEMENT ENDPOINTS (Internal use)
+    // ===================================================
+
+    /**
+     * Evict unallocated cases cache
+     * POST /api/v1/case/source/cache/evict/unallocated
+     * Called by allocation-reallocation service after case allocation
+     */
+    @PostMapping("/source/cache/evict/unallocated")
+    @Operation(summary = "Evict unallocated cases cache",
+               description = "Clears the unallocated cases cache. Called after case allocation to ensure fresh data.")
+    public ResponseEntity<CommonResponse<Void>> evictUnallocatedCasesCache() {
+        log.info("POST /case/source/cache/evict/unallocated - Evicting unallocated cases cache");
+        caseSourcingService.evictUnallocatedCasesCache();
+        return ResponseWrapper.ok("Unallocated cases cache evicted successfully.", null);
+    }
+
     // NOTE: PTP (Promise to Pay) Management APIs are now in Collections Service (/ptp/*)
 }

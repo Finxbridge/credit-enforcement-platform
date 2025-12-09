@@ -6,15 +6,18 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+/**
+ * Unified status check request
+ */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class PaymentStatusRequest {
+public class UnifiedStatusRequest {
+
+    @NotBlank(message = "Service type is required (DYNAMIC_QR, PAYMENT_LINK, COLLECT_CALL)")
+    private String serviceType;
 
     @NotBlank(message = "Transaction ID is required")
     private String transactionId;
-
-    // Optional - will be fetched from third_party_integration_master if not provided
-    private String gatewayName;
 }
