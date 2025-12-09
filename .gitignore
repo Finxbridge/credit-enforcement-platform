@@ -54,11 +54,3 @@ spring-boot-devtools.properties
 
 # Markdown files
 *.md
-*.json
-*.csv
-**/collections-service/
-**/dms-service/
-**/my-workflow-service/
-**/notice-management-service/
-**/agency-management-service/
-**/configurations-service/
