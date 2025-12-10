@@ -56,3 +56,5 @@ spring-boot-devtools.properties
 
 # Markdown files
 *.md
+
+k8s\base\secrets-actual.yaml

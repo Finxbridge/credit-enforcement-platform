@@ -1,0 +1,175 @@
+# ============================================
+# MASTER DATA SERVICE
+# ============================================
+# Manages static and dynamic master data (countries, currencies, product types, etc.)
+# Deploy after: Eureka, Access Management
+# ============================================
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: master-data-service
+  namespace: credit-enforcement-v2
+  labels:
+    app: master-data-service
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8085
+      targetPort: 8085
+      protocol: TCP
+      name: http
+  selector:
+    app: master-data-service
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: master-data-service
+  namespace: credit-enforcement-v2
+  labels:
+    app: master-data-service
+spec:
+  replicas: 2
+
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+
+  selector:
+    matchLabels:
+      app: master-data-service
+
+  template:
+    metadata:
+      labels:
+        app: master-data-service
+    spec:
+      imagePullSecrets:
+        - name: ovh-registry-secret
+
+      containers:
+      - name: master-data-service
+        image: qvwy18uw.c1.de1.container-registry.ovh.net/fincolreg/master-data-service:5.0.0
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8085
+          name: http
+
+        envFrom:
+        - configMapRef:
+            name: app-config
+
+        env:
+        - name: SERVER_PORT
+          value: "8085"
+        - name: EUREKA_SERVER_URL
+          value: "http://eureka-server:8761/eureka/"
+        - name: EUREKA_INSTANCE_HOSTNAME
+          value: "master-data-service"
+        - name: EUREKA_INSTANCE_PREFER_IP_ADDRESS
+          value: "true"
+        - name: POSTGRES_HOST
+          valueFrom:
+            secretKeyRef:
+              name: postgres-credentials
+              key: postgres-host
+        - name: POSTGRES_PORT
+          valueFrom:
+            secretKeyRef:
+              name: postgres-credentials
+              key: postgres-port
+        - name: POSTGRES_DB
+          valueFrom:
+            secretKeyRef:
+              name: postgres-credentials
+              key: postgres-database
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: postgres-credentials
+              key: postgres-username
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-credentials
+              key: postgres-password
+        - name: SPRING_DATASOURCE_URL
+          value: "jdbc:postgresql://$(POSTGRES_HOST):$(POSTGRES_PORT)/$(POSTGRES_DB)"
+        - name: SPRING_DATASOURCE_USERNAME
+          value: "$(POSTGRES_USER)"
+        - name: SPRING_DATASOURCE_PASSWORD
+          value: "$(POSTGRES_PASSWORD)"
+        # - name: REDIS_HOST
+        #   value: "redis-service"
+        # - name: REDIS_PORT
+        #   value: "6379"
+        # Redis Configuration
+                # Redis Configuration - External Redis (OVH Managed)
+        - name: REDIS_HOST
+          valueFrom:
+            secretKeyRef:
+              name: redis-credentials
+              key: redis-host
+
+        - name: REDIS_PORT
+          valueFrom:
+            secretKeyRef:
+              name: redis-credentials
+              key: redis-port
+
+        - name: REDIS_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: redis-credentials
+              key: redis-username
+
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: redis-credentials
+              key: redis-password
+
+        - name: REDIS_SSL_ENABLED
+          valueFrom:
+            secretKeyRef:
+              name: redis-credentials
+              key: redis-ssl-enabled
+
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+
+        startupProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8085
+          initialDelaySeconds: 40
+          periodSeconds: 10
+          failureThreshold: 15
+
+        livenessProbe:
+          httpGet:
+            path: /actuator/health/liveness
+            port: 8085
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+
+        readinessProbe:
+          httpGet:
+            path: /actuator/health/readiness
+            port: 8085
+          initialDelaySeconds: 40
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3

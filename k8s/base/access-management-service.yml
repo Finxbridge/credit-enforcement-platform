@@ -1,0 +1,327 @@
+# ============================================
+# ACCESS MANAGEMENT SERVICE - AUTHENTICATION
+# ============================================
+#
+# WHY DEPLOY SECOND (after Eureka)?
+# - Handles user authentication and JWT token generation
+# - Other services depend on this for auth validation
+# - Must register with Eureka before accepting requests
+#
+# DEPENDENCIES:
+# - Eureka Server (service discovery)
+# - PostgreSQL (user data, credentials)
+# - Redis (session management, token caching) - EXTERNAL OVH MANAGED REDIS
+#
+# KUBERNETES CONFIGURATION CHANGES FROM DOCKER-COMPOSE:
+# Docker: eureka-server:8761, external Redis via env vars
+# K8s: eureka-server.credit-enforcement.svc.cluster.local:8761
+#      External Redis connection (host/port/credentials from secrets)
+#
+# ============================================
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: access-management-service
+  namespace: credit-enforcement-v2
+  labels:
+    app: access-management-service
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8081
+      targetPort: 8081
+      protocol: TCP
+      name: http
+  selector:
+    app: access-management-service
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: access-management-service
+  namespace: credit-enforcement-v2
+  labels:
+    app: access-management-service
+spec:
+  replicas: 2  # 2+ for high availability
+
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+
+  selector:
+    matchLabels:
+      app: access-management-service
+
+  template:
+    metadata:
+      labels:
+        app: access-management-service
+    spec:
+      imagePullSecrets:
+        - name: ovh-registry-secret
+
+      containers:
+      - name: access-management-service
+        image: qvwy18uw.c1.de1.container-registry.ovh.net/fincolreg/access-management-service:5.0.0
+        imagePullPolicy: Always
+
+        ports:
+        - containerPort: 8081
+          name: http
+
+        env:
+        # Spring Configuration
+        - name: SPRING_PROFILES_ACTIVE
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: SPRING_PROFILES_ACTIVE
+
+        - name: SERVER_PORT
+          value: "8081"
+
+        # Eureka Configuration - Updated for Kubernetes DNS
+        - name: EUREKA_SERVER_URL
+          value: "http://eureka-server:8761/eureka/"
+
+        # Use service name instead of pod name for routing
+        - name: EUREKA_INSTANCE_HOSTNAME
+          value: "access-management-service"
+
+        # Use hostname (service name) for stable routing in Kubernetes
+        - name: EUREKA_INSTANCE_PREFER_IP_ADDRESS
+          value: "false"
+
+        # JWT Configuration - FROM SECRETS (SECURE!)
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: jwt-secret
+              key: jwt-secret
+
+        - name: JWT_ISSUER
+          valueFrom:
+            secretKeyRef:
+              name: jwt-secret
+              key: jwt-issuer
+
+        - name: JWT_EXPIRATION
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: JWT_EXPIRATION
+
+        - name: JWT_REFRESH_TOKEN_EXPIRY
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: JWT_REFRESH_TOKEN_EXPIRY
+
+        # CORS Configuration - FROM SECRETS
+        - name: CORS_ALLOWED_ORIGINS
+          valueFrom:
+            secretKeyRef:
+              name: app-config-secrets
+              key: cors-allowed-origins
+
+        # PostgreSQL Configuration - FROM SECRETS
+        - name: POSTGRES_HOST
+          valueFrom:
+            secretKeyRef:
+              name: postgres-credentials
+              key: postgres-host
+
+        - name: POSTGRES_PORT
+          valueFrom:
+            secretKeyRef:
+              name: postgres-credentials
+              key: postgres-port
+
+        - name: POSTGRES_DB
+          valueFrom:
+            secretKeyRef:
+              name: postgres-credentials
+              key: postgres-database
+
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: postgres-credentials
+              key: postgres-username
+
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-credentials
+              key: postgres-password
+
+        # Build JDBC URL from components
+        - name: SPRING_DATASOURCE_URL
+          value: "jdbc:postgresql://$(POSTGRES_HOST):$(POSTGRES_PORT)/$(POSTGRES_DB)"
+
+        - name: SPRING_DATASOURCE_USERNAME
+          value: "$(POSTGRES_USER)"
+
+        - name: SPRING_DATASOURCE_PASSWORD
+          value: "$(POSTGRES_PASSWORD)"
+
+        # Redis Configuration - External Redis (OVH Managed)
+        - name: REDIS_HOST
+          valueFrom:
+            secretKeyRef:
+              name: redis-credentials
+              key: redis-host
+
+        - name: REDIS_PORT
+          valueFrom:
+            secretKeyRef:
+              name: redis-credentials
+              key: redis-port
+
+        - name: REDIS_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: redis-credentials
+              key: redis-username
+
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: redis-credentials
+              key: redis-password
+
+        - name: REDIS_SSL_ENABLED
+          valueFrom:
+            secretKeyRef:
+              name: redis-credentials
+              key: redis-ssl-enabled
+
+        # Flyway Configuration
+        - name: FLYWAY_ENABLED
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: FLYWAY_ENABLED
+
+        - name: FLYWAY_BASELINE_ON_MIGRATE
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: FLYWAY_BASELINE_ON_MIGRATE
+
+        - name: FLYWAY_OUT_OF_ORDER
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: FLYWAY_OUT_OF_ORDER
+
+        - name: FLYWAY_VALIDATE_ON_MIGRATE
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: FLYWAY_VALIDATE_ON_MIGRATE
+
+        - name: FLYWAY_CLEAN_DISABLED
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: FLYWAY_CLEAN_DISABLED
+
+        # JPA Configuration
+        - name: JPA_DDL_AUTO
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: JPA_DDL_AUTO
+
+        - name: JPA_SHOW_SQL
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: JPA_SHOW_SQL
+
+        - name: JPA_FORMAT_SQL
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: JPA_FORMAT_SQL
+
+        # Logging Configuration
+        - name: LOGGING_LEVEL_ROOT
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: LOGGING_LEVEL_ROOT
+
+        - name: LOGGING_LEVEL_FINX
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: LOGGING_LEVEL_FINX
+
+        # Resource Management
+        resources:
+          requests:
+            memory: "768Mi"
+            cpu: "500m"
+          limits:
+            memory: "1.5Gi"
+            cpu: "1000m"
+
+        # Health Checks
+        startupProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8081
+          initialDelaySeconds: 40
+          periodSeconds: 10
+          failureThreshold: 15  # 2.5 minutes startup time
+
+        livenessProbe:
+          httpGet:
+            path: /actuator/health/liveness
+            port: 8081
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+
+        readinessProbe:
+          httpGet:
+            path: /actuator/health/readiness
+            port: 8081
+          initialDelaySeconds: 40
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+
+---
+# NOTES:
+#
+# 1. REPLICAS = 2 FOR HIGH AVAILABILITY:
+#    - If one pod crashes, another is still serving requests
+#    - Load is distributed across pods
+#    - Zero downtime during rolling updates
+#
+# 2. SECRETS vs CONFIGMAPS:
+#    - Database credentials: Secrets (encrypted at rest)
+#    - JWT secret: Secrets (critical security key)
+#    - CORS origins: Secrets (might contain internal URLs)
+#    - Logging levels: ConfigMaps (non-sensitive)
+#
+# 3. ENVIRONMENT VARIABLE COMPOSITION:
+#    - SPRING_DATASOURCE_URL uses $(POSTGRES_HOST) syntax
+#    - Kubernetes resolves these at runtime
+#    - Allows building complex values from multiple secrets
+#
+# 4. STARTUP TIME TUNING:
+#    - initialDelaySeconds: Based on actual app startup time
+#    - failureThreshold * periodSeconds = total wait time
+#    - Example: 15 failures * 10s = 150s (2.5 minutes)
+#    - Adjust based on your app's actual startup performance

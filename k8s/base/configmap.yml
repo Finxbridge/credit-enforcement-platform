@@ -1,0 +1,74 @@
+# ============================================
+# KUBERNETES CONFIGMAPS
+# ============================================
+#
+# WHY CONFIGMAPS?
+# - Store non-sensitive configuration data
+# - Can be updated without rebuilding images
+# - Mounted as environment variables or files
+# - Separates config from code (12-factor app principle)
+#
+# DIFFERENCE FROM SECRETS:
+# - ConfigMaps: Plain text, for non-sensitive data
+# - Secrets: Base64 encoded, for sensitive data
+#
+# ============================================
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: credit-enforcement-v2
+data:
+  # Spring Profile
+  SPRING_PROFILES_ACTIVE: "staging"
+
+  # Logging Levels (non-sensitive)
+  LOGGING_LEVEL_ROOT: "INFO"
+  LOGGING_LEVEL_FINX: "DEBUG"
+  LOGGING_LEVEL_EUREKA: "DEBUG"
+  LOGGING_LEVEL_DISCOVERY: "DEBUG"
+
+  # Flyway Configuration
+  FLYWAY_ENABLED: "true"
+  FLYWAY_BASELINE_ON_MIGRATE: "true"
+  FLYWAY_OUT_OF_ORDER: "false"
+  FLYWAY_VALIDATE_ON_MIGRATE: "false"
+  FLYWAY_CLEAN_DISABLED: "true"
+
+  # JPA Configuration
+  JPA_DDL_AUTO: "validate"
+  JPA_SHOW_SQL: "false"
+  JPA_FORMAT_SQL: "false"
+
+  # JWT Configuration (non-sensitive parts)
+  JWT_EXPIRATION: "3600000"  # 1 hour in milliseconds
+  JWT_REFRESH_TOKEN_EXPIRY: "604800000"  # 7 days in milliseconds
+
+  # Eureka Configuration
+  # In Kubernetes, we use service DNS names
+  EUREKA_INSTANCE_PREFER_IP_ADDRESS: "false"
+
+  # Circuit Breaker Configuration
+  CIRCUIT_BREAKER_HEALTH_INDICATOR: "true"
+  CIRCUIT_BREAKER_SLIDING_WINDOW_SIZE: "10"
+  CIRCUIT_BREAKER_FAILURE_RATE_THRESHOLD: "50"
+  CIRCUIT_BREAKER_WAIT_DURATION: "5s"
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: service-ports
+  namespace: credit-enforcement-v2
+data:
+  # Service Ports (for reference, actual ports defined in Service manifests)
+  EUREKA_SERVER_PORT: "8761"
+  API_GATEWAY_PORT: "8080"
+  ACCESS_MGMT_PORT: "8081"
+  CASE_SOURCING_PORT: "8082"
+  ALLOCATION_PORT: "8083"
+  COMMUNICATION_PORT: "8084"
+  MASTER_DATA_PORT: "8085"
+  REDIS_PORT: "6379"
