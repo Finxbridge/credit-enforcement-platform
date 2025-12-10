@@ -32,6 +32,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -129,7 +130,7 @@ public class TemplateServiceImpl implements TemplateService {
         // Fetch variables separately
         List<TemplateVariable> variables = templateVariableRepository
                 .findByTemplateIdOrderByDisplayOrder(template.getId());
-        template.setVariables(variables);
+        template.setVariables(new HashSet<>(variables));
 
         return mapToDetailDTO(template);
     }
@@ -236,7 +237,7 @@ public class TemplateServiceImpl implements TemplateService {
 
         // Get content for the template
         TemplateContent content = template.getContents() != null && !template.getContents().isEmpty()
-                ? template.getContents().get(0)
+                ? template.getContents().iterator().next()
                 : null;
 
         if (content == null) {
@@ -342,6 +343,332 @@ public class TemplateServiceImpl implements TemplateService {
             }
             log.info("Email template synced successfully: {}", response.getData());
         }
+    }
+
+    // ==================== Simplified API Methods ====================
+
+    @Override
+    @Transactional
+    @CacheEvict(value = {"templates", "templatesByChannel"}, allEntries = true)
+    public TemplateDetailDTO createTemplateSimplified(SimpleCreateTemplateRequest request, MultipartFile document) {
+        log.info("Creating template (simplified): {} for channel: {}", request.getTemplateName(), request.getChannel());
+
+        // Validate based on channel requirements
+        validateTemplateRequest(request, document);
+
+        // Generate template code from name
+        String templateCode = generateTemplateCode(request.getTemplateName(), request.getChannel());
+
+        // Check if template code already exists
+        if (templateRepository.existsByTemplateCode(templateCode)) {
+            throw new TemplateAlreadyExistsException(templateCode);
+        }
+
+        // Extract variables from content ({{variableName}} pattern)
+        List<String> extractedVariables = extractVariablesFromContent(request.getContent());
+
+        // Create template entity
+        Template template = Template.builder()
+                .templateName(request.getTemplateName())
+                .templateCode(templateCode)
+                .channel(request.getChannel())
+                .providerTemplateId(request.getProviderTemplateId())
+                .description(request.getDescription())
+                .isActive(true)
+                .build();
+
+        // Add extracted variables from content
+        int order = 1;
+        for (String varName : extractedVariables) {
+            TemplateVariable variable = TemplateVariable.builder()
+                    .variableName("{{" + varName + "}}")
+                    .variableKey(varName)
+                    .isRequired(true)
+                    .displayOrder(order++)
+                    .build();
+            template.addVariable(variable);
+        }
+
+        // Add content (optional for NOTICE channel)
+        if (request.getContent() != null && !request.getContent().isEmpty()) {
+            TemplateContent content = TemplateContent.builder()
+                    .languageCode("en")
+                    .subject(request.getSubject())
+                    .content(request.getContent())
+                    .build();
+            template.addContent(content);
+        }
+
+        // Save template
+        template = templateRepository.save(template);
+        log.info("Template created successfully with id: {}", template.getId());
+
+        // Auto-sync with provider (SMS, WhatsApp, Email) via communication-service
+        if (request.getChannel() == ChannelType.SMS ||
+            request.getChannel() == ChannelType.WHATSAPP ||
+            request.getChannel() == ChannelType.EMAIL) {
+            try {
+                syncWithProvider(template.getId());
+                log.info("Template auto-synced with provider (MSG91) for channel: {}", request.getChannel());
+            } catch (Exception e) {
+                log.warn("Failed to auto-sync template with provider: {}. Template created but not synced with MSG91.", e.getMessage());
+                // Don't fail the request - template is created in DB, sync can be retried manually
+            }
+        }
+
+        // If document is provided and channel supports it
+        if (document != null && !document.isEmpty()) {
+            if (request.getChannel() == ChannelType.SMS) {
+                log.warn("SMS channel does not support document attachment, ignoring document");
+            } else {
+                // Upload document and extract placeholders
+                return uploadDocumentAndExtractPlaceholders(template.getId(), document);
+            }
+        }
+
+        return mapToDetailDTO(template);
+    }
+
+    /**
+     * Validate template request based on channel requirements
+     */
+    private void validateTemplateRequest(SimpleCreateTemplateRequest request, MultipartFile document) {
+        boolean hasContent = request.getContent() != null && !request.getContent().isBlank();
+        boolean hasDocument = document != null && !document.isEmpty();
+
+        switch (request.getChannel()) {
+            case NOTICE:
+                // NOTICE channel requires document, content is optional
+                if (!hasDocument) {
+                    throw new BusinessException("Document is required for NOTICE channel");
+                }
+                break;
+            case SMS:
+                // SMS requires content, no document support
+                if (!hasContent) {
+                    throw new BusinessException("Content is required for SMS channel");
+                }
+                break;
+            case WHATSAPP:
+            case EMAIL:
+            case IVR:
+                // These channels require content
+                if (!hasContent) {
+                    throw new BusinessException("Content is required for " + request.getChannel() + " channel");
+                }
+                break;
+        }
+    }
+
+    @Override
+    @Transactional
+    @CacheEvict(value = {"templates", "templatesByChannel"}, allEntries = true)
+    public TemplateDetailDTO updateTemplateSimplified(Long id, SimpleCreateTemplateRequest request, MultipartFile document) {
+        log.info("Updating template (simplified): {}", id);
+
+        Template template = templateRepository.findById(id)
+                .orElseThrow(() -> new TemplateNotFoundException(id));
+
+        // For NOTICE channel, if no new document and no existing document, require document
+        boolean hasExistingDocument = template.getDmsDocumentId() != null;
+        boolean hasNewDocument = document != null && !document.isEmpty();
+        if (request.getChannel() == ChannelType.NOTICE && !hasExistingDocument && !hasNewDocument) {
+            throw new BusinessException("Document is required for NOTICE channel");
+        }
+
+        // Update basic fields
+        template.setTemplateName(request.getTemplateName());
+        template.setDescription(request.getDescription());
+        template.setProviderTemplateId(request.getProviderTemplateId());
+
+        // Extract and update variables from content
+        List<String> extractedVariables = extractVariablesFromContent(request.getContent());
+
+        // Clear existing variables and add new ones
+        template.getVariables().clear();
+        int order = 1;
+        for (String varName : extractedVariables) {
+            TemplateVariable variable = TemplateVariable.builder()
+                    .variableName("{{" + varName + "}}")
+                    .variableKey(varName)
+                    .isRequired(true)
+                    .displayOrder(order++)
+                    .build();
+            template.addVariable(variable);
+        }
+
+        // Update content (optional for NOTICE channel)
+        if (request.getContent() != null && !request.getContent().isEmpty()) {
+            if (template.getContents() != null && !template.getContents().isEmpty()) {
+                TemplateContent existingContent = template.getContents().iterator().next();
+                existingContent.setSubject(request.getSubject());
+                existingContent.setContent(request.getContent());
+            } else {
+                TemplateContent content = TemplateContent.builder()
+                        .languageCode("en")
+                        .subject(request.getSubject())
+                        .content(request.getContent())
+                        .build();
+                template.addContent(content);
+            }
+        }
+
+        template = templateRepository.save(template);
+
+        // Handle document if provided
+        if (hasNewDocument) {
+            if (request.getChannel() == ChannelType.SMS) {
+                log.warn("SMS channel does not support document attachment, ignoring document");
+            } else {
+                // Upload document and extract placeholders
+                return uploadDocumentAndExtractPlaceholders(template.getId(), document);
+            }
+        }
+
+        log.info("Template updated successfully: {}", id);
+        return mapToDetailDTO(template);
+    }
+
+    /**
+     * Extract variable names from content using {{variableName}} pattern
+     */
+    private List<String> extractVariablesFromContent(String content) {
+        List<String> variables = new ArrayList<>();
+        if (content == null || content.isEmpty()) {
+            return variables;
+        }
+
+        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("\\{\\{([^}]+)\\}\\}");
+        java.util.regex.Matcher matcher = pattern.matcher(content);
+
+        while (matcher.find()) {
+            String varName = matcher.group(1).trim();
+            if (!variables.contains(varName)) {
+                variables.add(varName);
+            }
+        }
+
+        return variables;
+    }
+
+    /**
+     * Generate template code from name and channel
+     */
+    private String generateTemplateCode(String templateName, ChannelType channel) {
+        String code = templateName.toUpperCase()
+                .replaceAll("[^A-Z0-9]", "_")
+                .replaceAll("_+", "_");
+
+        // Truncate if too long
+        if (code.length() > 40) {
+            code = code.substring(0, 40);
+        }
+
+        return channel.name() + "_" + code + "_" + System.currentTimeMillis();
+    }
+
+    /**
+     * Upload document to DMS and extract placeholders, storing them with the template
+     */
+    @Transactional
+    private TemplateDetailDTO uploadDocumentAndExtractPlaceholders(Long templateId, MultipartFile document) {
+        log.info("Uploading document and extracting placeholders for template: {}", templateId);
+
+        Template template = templateRepository.findById(templateId)
+                .orElseThrow(() -> new TemplateNotFoundException(templateId));
+
+        // Validate document
+        validateDocument(document);
+
+        // Delete existing document from DMS if present
+        if (template.getDmsDocumentId() != null) {
+            try {
+                CommonResponse<DmsDocumentDTO> existingDoc = dmsServiceClient.getDocumentByDocumentId(template.getDmsDocumentId());
+                if (existingDoc != null && existingDoc.getData() != null) {
+                    dmsServiceClient.permanentlyDeleteDocument(existingDoc.getData().getId());
+                    log.info("Deleted existing document from DMS: {}", template.getDmsDocumentId());
+                }
+            } catch (Exception e) {
+                log.warn("Failed to delete existing document from DMS: {}", e.getMessage());
+            }
+        }
+
+        // Upload document to DMS (OVH S3 storage)
+        DmsUploadRequest uploadRequest = DmsUploadRequest.builder()
+                .documentType("TEMPLATE_DOC")
+                .documentSubtype(getDocumentType(document.getOriginalFilename()))
+                .entityType("TEMPLATE")
+                .entityId(templateId)
+                .documentName(template.getTemplateName() + " - Document")
+                .description("Document attachment for template: " + template.getTemplateCode())
+                .build();
+
+        CommonResponse<DmsDocumentDTO> dmsResponse = dmsServiceClient.uploadDocument(uploadRequest, document);
+
+        if (dmsResponse == null || dmsResponse.getData() == null) {
+            throw new BusinessException("Failed to upload document to DMS");
+        }
+
+        DmsDocumentDTO dmsDoc = dmsResponse.getData();
+
+        // Update template with DMS document info
+        template.setDmsDocumentId(dmsDoc.getDocumentId());
+        template.setDocumentUrl(dmsDoc.getFileUrl());
+        template.setDocumentOriginalName(dmsDoc.getFileName());
+        template.setDocumentType(getDocumentType(dmsDoc.getFileName()));
+        template.setDocumentSizeBytes(dmsDoc.getFileSizeBytes());
+
+        // Extract and store document placeholders
+        List<String> placeholders = Collections.emptyList();
+        try {
+            // Store temporarily for placeholder extraction
+            String tempPath = fileStorageService.uploadFile(document, "temp/" + templateId);
+            placeholders = documentProcessingService.extractPlaceholders(tempPath);
+            template.setHasDocumentVariables(!placeholders.isEmpty());
+
+            // Store placeholders as JSON array
+            if (!placeholders.isEmpty()) {
+                template.setDocumentPlaceholders(String.join(",", placeholders));
+                log.info("Extracted {} placeholders from document: {}", placeholders.size(), placeholders);
+
+                // Add document placeholders as template variables too
+                int existingVarCount = template.getVariables() != null ? template.getVariables().size() : 0;
+                int order = existingVarCount + 1;
+                for (String placeholder : placeholders) {
+                    // Check if variable already exists
+                    boolean exists = template.getVariables().stream()
+                            .anyMatch(v -> v.getVariableKey().equals(placeholder));
+                    if (!exists) {
+                        TemplateVariable variable = TemplateVariable.builder()
+                                .variableName("{{" + placeholder + "}}")
+                                .variableKey(placeholder)
+                                .isRequired(true)
+                                .description("From document")
+                                .displayOrder(order++)
+                                .build();
+                        template.addVariable(variable);
+                    }
+                }
+            } else {
+                template.setDocumentPlaceholders(null);
+            }
+
+            // Clean up temp file
+            try {
+                fileStorageService.deleteFile(tempPath);
+            } catch (Exception e) {
+                log.warn("Failed to delete temp file: {}", e.getMessage());
+            }
+        } catch (Exception e) {
+            log.warn("Failed to extract document placeholders: {}", e.getMessage());
+            template.setHasDocumentVariables(false);
+            template.setDocumentPlaceholders(null);
+        }
+
+        template = templateRepository.save(template);
+        log.info("Document uploaded successfully to DMS for template: {}, DMS ID: {}", templateId, dmsDoc.getDocumentId());
+
+        return mapToDetailDTO(template);
     }
 
     // ==================== Document Management Methods ====================
@@ -504,7 +831,7 @@ public class TemplateServiceImpl implements TemplateService {
 
         // Render subject if available
         if (template.getContents() != null && !template.getContents().isEmpty()) {
-            String subject = template.getContents().get(0).getSubject();
+            String subject = template.getContents().iterator().next().getSubject();
             if (subject != null && !subject.isEmpty()) {
                 renderedSubject = renderingService.renderSubject(subject, resolvedVariables);
             }
@@ -514,9 +841,12 @@ public class TemplateServiceImpl implements TemplateService {
         TemplateResolveResponse.TemplateResolveResponseBuilder responseBuilder = TemplateResolveResponse.builder()
                 .templateId(templateId)
                 .templateCode(template.getTemplateCode())
+                .channel(template.getChannel() != null ? template.getChannel().name() : null)
                 .resolvedVariables(resolvedVariables)
                 .renderedContent(renderedContent)
-                .subject(renderedSubject);
+                .subject(renderedSubject)
+                .variableCount(template.getVariables() != null ? template.getVariables().size() : 0)
+                .resolvedCount(resolvedVariables != null ? resolvedVariables.size() : 0);
 
         // Process document if exists (only templates with documents hit DMS/S3)
         if (template.getDmsDocumentId() != null && template.getDocumentUrl() != null) {
@@ -619,7 +949,7 @@ public class TemplateServiceImpl implements TemplateService {
         // Map content (get first content or default language)
         TemplateDetailDTO.TemplateContentDTO contentDTO = null;
         if (template.getContents() != null && !template.getContents().isEmpty()) {
-            TemplateContent content = template.getContents().get(0);
+            TemplateContent content = template.getContents().iterator().next();
             contentDTO = TemplateDetailDTO.TemplateContentDTO.builder()
                     .languageCode(content.getLanguageCode())
                     .subject(content.getSubject())
@@ -627,14 +957,10 @@ public class TemplateServiceImpl implements TemplateService {
                     .build();
         }
 
-        // Get document placeholders if document exists
+        // Get document placeholders from stored field
         List<String> documentPlaceholders = null;
-        if (template.getDocumentUrl() != null && Boolean.TRUE.equals(template.getHasDocumentVariables())) {
-            try {
-                documentPlaceholders = documentProcessingService.extractPlaceholders(template.getDocumentUrl());
-            } catch (Exception e) {
-                log.warn("Failed to extract document placeholders: {}", e.getMessage());
-            }
+        if (template.getDocumentPlaceholders() != null && !template.getDocumentPlaceholders().isEmpty()) {
+            documentPlaceholders = List.of(template.getDocumentPlaceholders().split(","));
         }
 
         return TemplateDetailDTO.builder()

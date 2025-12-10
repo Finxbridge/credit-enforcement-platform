@@ -46,16 +46,28 @@ public class StrategyController {
      * 4. Priority
      * 5. Schedule (daily/weekly)
      * 6. Status (DRAFT/ACTIVE/INACTIVE)
+     *
+     * Simplified Filter Format:
+     * - All filter types use: field, filterType, operator, value1, value2, values
+     * - Numeric examples:
+     *   - {"field": "DPD", "filterType": "NUMERIC", "operator": ">=", "value1": "30"}
+     *   - {"field": "OVERDUE_AMOUNT", "filterType": "NUMERIC", "operator": "RANGE", "value1": "10000", "value2": "100000"}
+     * - Text examples:
+     *   - {"field": "LANGUAGE", "filterType": "TEXT", "operator": "IN", "values": ["HINDI", "ENGLISH"]}
+     * - Date examples:
+     *   - {"field": "DUE_DATE", "filterType": "DATE", "operator": ">=", "value1": "2024-01-01"}
+     *   - {"field": "DUE_DATE", "filterType": "DATE", "operator": "BETWEEN", "value1": "2024-01-01", "value2": "2024-12-31"}
      */
-    @PostMapping
+    @PostMapping("/create")
     @Operation(
         summary = "Create complete strategy",
-        description = "Create a new strategy with all configurations (filters, template, schedule) in a single API call"
+        description = "Create a new strategy with all configurations (filters, template, schedule) in a single API call. " +
+                      "Filters use unified format: field, filterType, operator, value1, value2, values"
     )
     public ResponseEntity<CommonResponse<StrategyResponse>> createStrategy(
             @Valid @RequestBody StrategyRequest request) {
 
-        log.info("POST /api/v1/strategies/v2 - Create unified strategy: {}", request.getStrategyName());
+        log.info("POST /api/v1/strategies/create - Create unified strategy: {}", request.getStrategyName());
 
         StrategyResponse response = strategyService.createStrategy(request);
 

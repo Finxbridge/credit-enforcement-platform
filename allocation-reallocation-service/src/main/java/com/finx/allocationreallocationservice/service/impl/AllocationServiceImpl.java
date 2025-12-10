@@ -258,8 +258,16 @@ public class AllocationServiceImpl implements AllocationService {
         if (ruleDTO.getRuleType() == null || ruleDTO.getRuleType().trim().isEmpty()) {
             throw new ValidationException("ruleType", "Rule type is required");
         }
-        if (ruleDTO.getGeographies() == null || ruleDTO.getGeographies().isEmpty()) {
-            throw new ValidationException("geographies", "At least one geography is required");
+
+        // Validate at least one geography filter is provided
+        boolean hasStates = ruleDTO.getStates() != null && !ruleDTO.getStates().isEmpty();
+        boolean hasCities = ruleDTO.getCities() != null && !ruleDTO.getCities().isEmpty();
+        boolean hasLocations = ruleDTO.getLocations() != null && !ruleDTO.getLocations().isEmpty();
+        boolean hasLegacyGeographies = ruleDTO.getGeographies() != null && !ruleDTO.getGeographies().isEmpty();
+
+        if (!hasStates && !hasCities && !hasLocations && !hasLegacyGeographies) {
+            throw new ValidationException("geography",
+                    "At least one geography filter is required (states, cities, or locations)");
         }
 
         // Validate rule type
@@ -358,12 +366,28 @@ public class AllocationServiceImpl implements AllocationService {
 
         Map<String, Object> criteria = rule.getCriteria();
         String ruleType = (String) criteria.getOrDefault("ruleType", criteria.get("type"));
-        List<String> geographies = (List<String>) criteria.get("geographies");
+
+        // Extract multi-field geography filters
+        List<String> states = (List<String>) criteria.get("states");
+        List<String> cities = (List<String>) criteria.get("cities");
+        List<String> locations = (List<String>) criteria.get("locations");
+        List<String> geographies = (List<String>) criteria.get("geographies"); // Legacy field
         List<String> buckets = (List<String>) criteria.get("buckets");
 
+        // Determine which geography filter to use
+        boolean hasNewGeoFilters = (states != null && !states.isEmpty())
+                || (cities != null && !cities.isEmpty())
+                || (locations != null && !locations.isEmpty());
+
         // Fetch unallocated cases matching the rule's geography and bucket filters
-        List<com.finx.allocationreallocationservice.domain.entity.Case> matchingCases = getUnallocatedCasesMatchingFilters(
-                geographies, buckets);
+        List<com.finx.allocationreallocationservice.domain.entity.Case> matchingCases;
+        if (hasNewGeoFilters) {
+            // Use new multi-field geography filtering
+            matchingCases = getUnallocatedCasesMatchingMultiFilters(states, cities, locations, buckets);
+        } else {
+            // Fall back to legacy geography filtering
+            matchingCases = getUnallocatedCasesMatchingFilters(geographies, buckets);
+        }
         int unallocatedCasesCount = matchingCases.size();
 
         // Extract case IDs for the response
@@ -371,29 +395,36 @@ public class AllocationServiceImpl implements AllocationService {
                 .map(com.finx.allocationreallocationservice.domain.entity.Case::getId)
                 .collect(Collectors.toList());
 
-        log.info("Found {} unallocated cases matching rule filters (geographies: {}, buckets: {})",
-                unallocatedCasesCount, geographies, buckets);
+        log.info("Found {} unallocated cases matching rule filters (states: {}, cities: {}, locations: {}, buckets: {})",
+                unallocatedCasesCount, states, cities, locations, buckets);
 
         // Automatically detect eligible agents based on rule's geographies
+        // For agent detection, combine all geography types
+        List<String> allGeographies = new ArrayList<>();
+        if (states != null) allGeographies.addAll(states);
+        if (cities != null) allGeographies.addAll(cities);
+        if (locations != null) allGeographies.addAll(locations);
+        if (geographies != null && allGeographies.isEmpty()) allGeographies.addAll(geographies);
+
         List<UserDTO> eligibleAgentsList = new ArrayList<>();
-        if (geographies != null && !geographies.isEmpty()) {
+        if (!allGeographies.isEmpty()) {
             try {
-                List<User> users = userRepository.findByGeographies(geographies.toArray(new String[0]));
+                List<User> users = userRepository.findByGeographies(allGeographies.toArray(new String[0]));
                 eligibleAgentsList = users.stream()
                         .map(this::mapToUserDTO)
                         .collect(Collectors.toList());
-                log.info("Found {} eligible agents for geographies: {}", eligibleAgentsList.size(), geographies);
+                log.info("Found {} eligible agents for geographies: {}", eligibleAgentsList.size(), allGeographies);
             } catch (Exception e) {
-                log.error("Failed to fetch users by geography {}: {}", geographies, e.getMessage());
+                log.error("Failed to fetch users by geography {}: {}", allGeographies, e.getMessage());
                 throw new BusinessException("Failed to fetch eligible agents: " + e.getMessage());
             }
         } else {
             log.warn("No geographies specified in rule. Cannot determine eligible agents.");
-            throw new BusinessException("Rule must have geographies specified to detect eligible agents");
+            throw new BusinessException("Rule must have at least one geography filter (states, cities, or locations) to detect eligible agents");
         }
 
         if (eligibleAgentsList.isEmpty()) {
-            throw new BusinessException("No eligible agents found for the specified geographies: " + geographies);
+            throw new BusinessException("No eligible agents found for the specified geographies: " + allGeographies);
         }
 
         // Build eligible agents list with capacity info
@@ -458,28 +489,58 @@ public class AllocationServiceImpl implements AllocationService {
                 .build();
     }
 
+    /**
+     * Legacy method for backward compatibility - uses single geographies list
+     */
     private List<com.finx.allocationreallocationservice.domain.entity.Case> getUnallocatedCasesMatchingFilters(
             List<String> geographies, List<String> buckets) {
+        // For backward compatibility, treat geographies as locations
+        return getUnallocatedCasesMatchingMultiFilters(null, null, geographies, buckets);
+    }
+
+    /**
+     * New multi-field geography filtering method
+     * Filters by states, cities, and/or locations
+     */
+    private List<com.finx.allocationreallocationservice.domain.entity.Case> getUnallocatedCasesMatchingMultiFilters(
+            List<String> states, List<String> cities, List<String> locations, List<String> buckets) {
         List<com.finx.allocationreallocationservice.domain.entity.Case> allMatchingCases = new ArrayList<>();
         int page = 0;
         int size = 1000; // Larger page size for better performance
         Page<com.finx.allocationreallocationservice.domain.entity.Case> casesPage;
 
+        boolean hasStates = states != null && !states.isEmpty();
+        boolean hasCities = cities != null && !cities.isEmpty();
+        boolean hasLocations = locations != null && !locations.isEmpty();
+        boolean hasBuckets = buckets != null && !buckets.isEmpty();
+
         do {
             Pageable pageable = PageRequest.of(page, size);
 
-            // Query cases based on filters (all queries now filter for ACTIVE cases only with status=200)
-            if (geographies != null && !geographies.isEmpty() && buckets != null && !buckets.isEmpty()) {
-                // Filter by both geography and buckets
-                casesPage = caseReadRepository.findUnallocatedCasesByGeographyAndBucket(geographies, buckets, pageable);
-            } else if (geographies != null && !geographies.isEmpty()) {
-                // Filter by geography only
-                casesPage = caseReadRepository.findUnallocatedCasesByGeography(geographies, pageable);
-            } else if (buckets != null && !buckets.isEmpty()) {
-                // Filter by buckets only
-                casesPage = caseReadRepository.findUnallocatedCasesByBucket(buckets, pageable);
+            // Choose the appropriate query based on which filters are provided
+            if (hasBuckets) {
+                // With buckets - use the flexible multi-geography query
+                casesPage = caseReadRepository.findUnallocatedCasesByMultiGeographyAndBucket(
+                        hasStates ? states : null,
+                        hasCities ? cities : null,
+                        hasLocations ? locations : null,
+                        buckets, pageable);
+            } else if (hasStates && hasCities && hasLocations) {
+                casesPage = caseReadRepository.findUnallocatedCasesByStatesAndCitiesAndLocations(states, cities, locations, pageable);
+            } else if (hasStates && hasCities) {
+                casesPage = caseReadRepository.findUnallocatedCasesByStatesAndCities(states, cities, pageable);
+            } else if (hasStates && hasLocations) {
+                casesPage = caseReadRepository.findUnallocatedCasesByStatesAndLocations(states, locations, pageable);
+            } else if (hasCities && hasLocations) {
+                casesPage = caseReadRepository.findUnallocatedCasesByCitiesAndLocations(cities, locations, pageable);
+            } else if (hasStates) {
+                casesPage = caseReadRepository.findUnallocatedCasesByStates(states, pageable);
+            } else if (hasCities) {
+                casesPage = caseReadRepository.findUnallocatedCasesByCities(cities, pageable);
+            } else if (hasLocations) {
+                casesPage = caseReadRepository.findUnallocatedCasesByLocations(locations, pageable);
             } else {
-                // No filters - get all ACTIVE unallocated cases
+                // No geography filters - get all ACTIVE unallocated cases
                 casesPage = caseReadRepository.findByCaseStatusAndActive("UNALLOCATED", pageable);
             }
 
@@ -487,8 +548,8 @@ public class AllocationServiceImpl implements AllocationService {
             page++;
         } while (casesPage.hasNext());
 
-        log.info("Fetched {} unallocated cases matching filters (geographies: {}, buckets: {})",
-                allMatchingCases.size(), geographies, buckets);
+        log.info("Fetched {} unallocated cases matching multi-geography filters (states: {}, cities: {}, locations: {}, buckets: {})",
+                allMatchingCases.size(), states, cities, locations, buckets);
 
         return allMatchingCases;
     }
@@ -1161,6 +1222,17 @@ public class AllocationServiceImpl implements AllocationService {
             if (criteria.containsKey("ruleType")) {
                 builder.ruleType((String) criteria.get("ruleType"));
             }
+            // New multi-field geography filters
+            if (criteria.containsKey("states")) {
+                builder.states((List<String>) criteria.get("states"));
+            }
+            if (criteria.containsKey("cities")) {
+                builder.cities((List<String>) criteria.get("cities"));
+            }
+            if (criteria.containsKey("locations")) {
+                builder.locations((List<String>) criteria.get("locations"));
+            }
+            // Legacy field
             if (criteria.containsKey("geographies")) {
                 builder.geographies((List<String>) criteria.get("geographies"));
             }
@@ -1191,6 +1263,17 @@ public class AllocationServiceImpl implements AllocationService {
         if (ruleDTO.getRuleType() != null) {
             criteriaMap.put("ruleType", ruleDTO.getRuleType());
         }
+        // New multi-field geography filters
+        if (ruleDTO.getStates() != null && !ruleDTO.getStates().isEmpty()) {
+            criteriaMap.put("states", ruleDTO.getStates());
+        }
+        if (ruleDTO.getCities() != null && !ruleDTO.getCities().isEmpty()) {
+            criteriaMap.put("cities", ruleDTO.getCities());
+        }
+        if (ruleDTO.getLocations() != null && !ruleDTO.getLocations().isEmpty()) {
+            criteriaMap.put("locations", ruleDTO.getLocations());
+        }
+        // Legacy geography field (for backward compatibility)
         if (ruleDTO.getGeographies() != null) {
             criteriaMap.put("geographies", ruleDTO.getGeographies());
         }
@@ -1223,6 +1306,17 @@ public class AllocationServiceImpl implements AllocationService {
         if (ruleDTO.getRuleType() != null) {
             criteriaMap.put("ruleType", ruleDTO.getRuleType());
         }
+        // New multi-field geography filters
+        if (ruleDTO.getStates() != null && !ruleDTO.getStates().isEmpty()) {
+            criteriaMap.put("states", ruleDTO.getStates());
+        }
+        if (ruleDTO.getCities() != null && !ruleDTO.getCities().isEmpty()) {
+            criteriaMap.put("cities", ruleDTO.getCities());
+        }
+        if (ruleDTO.getLocations() != null && !ruleDTO.getLocations().isEmpty()) {
+            criteriaMap.put("locations", ruleDTO.getLocations());
+        }
+        // Legacy geography field (for backward compatibility)
         if (ruleDTO.getGeographies() != null) {
             criteriaMap.put("geographies", ruleDTO.getGeographies());
         }
@@ -1319,8 +1413,18 @@ public class AllocationServiceImpl implements AllocationService {
         // Get rule criteria
         Map<String, Object> criteria = rule.getCriteria();
         String ruleType = (String) criteria.getOrDefault("ruleType", criteria.get("type"));
-        List<String> geographies = (List<String>) criteria.get("geographies");
+
+        // Extract multi-field geography filters
+        List<String> states = (List<String>) criteria.get("states");
+        List<String> cities = (List<String>) criteria.get("cities");
+        List<String> locations = (List<String>) criteria.get("locations");
+        List<String> geographies = (List<String>) criteria.get("geographies"); // Legacy field
         List<String> buckets = (List<String>) criteria.get("buckets");
+
+        // Determine which geography filter to use
+        boolean hasNewGeoFilters = (states != null && !states.isEmpty())
+                || (cities != null && !cities.isEmpty())
+                || (locations != null && !locations.isEmpty());
 
         // Validate agentIds are provided
         List<Long> agentIds = request.getAgentIds();
@@ -1374,8 +1478,14 @@ public class AllocationServiceImpl implements AllocationService {
             }
         } else {
             // Fetch all matching unallocated cases based on rule criteria
-            List<com.finx.allocationreallocationservice.domain.entity.Case> matchingCases = getUnallocatedCasesMatchingFilters(
-                    geographies, buckets);
+            List<com.finx.allocationreallocationservice.domain.entity.Case> matchingCases;
+            if (hasNewGeoFilters) {
+                // Use new multi-field geography filtering
+                matchingCases = getUnallocatedCasesMatchingMultiFilters(states, cities, locations, buckets);
+            } else {
+                // Fall back to legacy geography filtering
+                matchingCases = getUnallocatedCasesMatchingFilters(geographies, buckets);
+            }
 
             unallocatedCaseIds = matchingCases.stream()
                     .map(com.finx.allocationreallocationservice.domain.entity.Case::getId)

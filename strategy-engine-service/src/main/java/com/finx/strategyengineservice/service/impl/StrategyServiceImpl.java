@@ -3,6 +3,7 @@ package com.finx.strategyengineservice.service.impl;
 import com.finx.strategyengineservice.domain.dto.DashboardResponse;
 import com.finx.strategyengineservice.domain.dto.DashboardSummary;
 import com.finx.strategyengineservice.domain.dto.FilterDTO;
+import com.finx.strategyengineservice.domain.dto.SimulationCaseDTO;
 import com.finx.strategyengineservice.domain.dto.StrategyDashboardItem;
 import com.finx.strategyengineservice.domain.dto.StrategyRequest;
 import com.finx.strategyengineservice.domain.dto.StrategyResponse;
@@ -211,13 +212,52 @@ public class StrategyServiceImpl implements StrategyService {
         List<Case> matchedCases = rules.isEmpty() ? Collections.emptyList()
                 : caseFilterService.filterCasesByRules(rules);
 
+        // Convert to simplified DTOs
+        List<SimulationCaseDTO> simplifiedCases = matchedCases.stream()
+                .map(this::convertToSimulationCaseDTO)
+                .collect(Collectors.toList());
+
         int estimatedCount = matchedCases.size();
         log.info("Strategy simulation complete: {} cases matched", estimatedCount);
 
         return SimulationResponse.builder()
                 .matchedCasesCount(estimatedCount)
-                .matchedCases(matchedCases)
+                .matchedCases(simplifiedCases)
                 .build();
+    }
+
+    /**
+     * Converts Case entity to simplified SimulationCaseDTO
+     */
+    private SimulationCaseDTO convertToSimulationCaseDTO(Case caseEntity) {
+        SimulationCaseDTO.SimulationCaseDTOBuilder builder = SimulationCaseDTO.builder()
+                .caseNumber(caseEntity.getCaseNumber())
+                .externalCaseId(caseEntity.getExternalCaseId())
+                .caseStatus(caseEntity.getCaseStatus());
+
+        // Add loan details if available
+        if (caseEntity.getLoan() != null) {
+            builder.loanAccountNumber(caseEntity.getLoan().getLoanAccountNumber())
+                    .productType(caseEntity.getLoan().getProductType())
+                    .loanAmount(caseEntity.getLoan().getLoanAmount())
+                    .totalOutstanding(caseEntity.getLoan().getTotalOutstanding())
+                    .emiAmount(caseEntity.getLoan().getEmiAmount())
+                    .dpd(caseEntity.getLoan().getDpd())
+                    .paidEmi(caseEntity.getLoan().getNoOfPaidEmi())
+                    .pendingEmi(caseEntity.getLoan().getNoOfPendingEmi())
+                    .dueDate(caseEntity.getLoan().getDueDate())
+                    .lastPaymentDate(caseEntity.getLoan().getLastPaymentDate());
+
+            // Add customer details if available
+            if (caseEntity.getLoan().getPrimaryCustomer() != null) {
+                builder.customerName(caseEntity.getLoan().getPrimaryCustomer().getFullName())
+                        .mobileNumber(caseEntity.getLoan().getPrimaryCustomer().getMobileNumber())
+                        .city(caseEntity.getLoan().getPrimaryCustomer().getCity())
+                        .state(caseEntity.getLoan().getPrimaryCustomer().getState());
+            }
+        }
+
+        return builder.build();
     }
 
     @SuppressWarnings("null")
@@ -455,65 +495,96 @@ public class StrategyServiceImpl implements StrategyService {
 
     /**
      * Creates a numeric rule based on the operator and values
+     * Supports simplified operators: ">=", "<=", "=", ">", "<", "RANGE"
      */
     private StrategyRule createNumericRule(Strategy strategy, String fieldName, FilterDTO filter, int order) {
-        if (filter.getNumericOperator() == null) {
-            log.warn("Numeric operator is null for filter: {}", filter.getField());
+        if (filter.getOperator() == null || filter.getOperator().isBlank()) {
+            log.warn("Operator is null for filter: {}", filter.getField());
             return null;
         }
 
         RuleOperator ruleOperator;
         String fieldValue;
+        String operator = filter.getOperator().toUpperCase().trim();
 
-        switch (filter.getNumericOperator()) {
-            case GREATER_THAN_EQUAL:
-                if (filter.getMinValue() == null) {
-                    log.warn("minValue is required for GREATER_THAN_EQUAL operator on field: {}", filter.getField());
+        switch (operator) {
+            case ">=":
+            case "GREATER_THAN_EQUAL":
+            case "GTE":
+                if (filter.getValue1() == null || filter.getValue1().isBlank()) {
+                    log.warn("value1 is required for >= operator on field: {}", filter.getField());
                     return null;
                 }
                 ruleOperator = RuleOperator.GREATER_THAN_OR_EQUAL;
-                fieldValue = String.valueOf(filter.getMinValue().intValue());
+                fieldValue = parseNumericValue(filter.getValue1());
                 break;
 
-            case LESS_THAN_EQUAL:
-                if (filter.getMaxValue() == null) {
-                    log.warn("maxValue is required for LESS_THAN_EQUAL operator on field: {}", filter.getField());
+            case "<=":
+            case "LESS_THAN_EQUAL":
+            case "LTE":
+                if (filter.getValue1() == null || filter.getValue1().isBlank()) {
+                    log.warn("value1 is required for <= operator on field: {}", filter.getField());
                     return null;
                 }
                 ruleOperator = RuleOperator.LESS_THAN_OR_EQUAL;
-                fieldValue = String.valueOf(filter.getMaxValue().intValue());
+                fieldValue = parseNumericValue(filter.getValue1());
                 break;
 
-            case EQUAL:
-                if (filter.getExactValue() == null) {
-                    log.warn("exactValue is required for EQUAL operator on field: {}", filter.getField());
+            case "=":
+            case "EQUAL":
+            case "EQ":
+                if (filter.getValue1() == null || filter.getValue1().isBlank()) {
+                    log.warn("value1 is required for = operator on field: {}", filter.getField());
                     return null;
                 }
                 ruleOperator = RuleOperator.EQUALS;
-                fieldValue = String.valueOf(filter.getExactValue().intValue());
+                fieldValue = parseNumericValue(filter.getValue1());
                 break;
 
-            case RANGE:
-                if (filter.getMinValue() == null || filter.getMaxValue() == null) {
-                    log.warn("minValue and maxValue are required for RANGE operator on field: {}", filter.getField());
+            case ">":
+            case "GREATER_THAN":
+            case "GT":
+                if (filter.getValue1() == null || filter.getValue1().isBlank()) {
+                    log.warn("value1 is required for > operator on field: {}", filter.getField());
+                    return null;
+                }
+                ruleOperator = RuleOperator.GREATER_THAN;
+                fieldValue = parseNumericValue(filter.getValue1());
+                break;
+
+            case "<":
+            case "LESS_THAN":
+            case "LT":
+                if (filter.getValue1() == null || filter.getValue1().isBlank()) {
+                    log.warn("value1 is required for < operator on field: {}", filter.getField());
+                    return null;
+                }
+                ruleOperator = RuleOperator.LESS_THAN;
+                fieldValue = parseNumericValue(filter.getValue1());
+                break;
+
+            case "RANGE":
+            case "BETWEEN":
+                if (filter.getValue1() == null || filter.getValue1().isBlank() ||
+                    filter.getValue2() == null || filter.getValue2().isBlank()) {
+                    log.warn("value1 and value2 are required for RANGE operator on field: {}", filter.getField());
                     return null;
                 }
                 ruleOperator = RuleOperator.BETWEEN;
-                fieldValue = filter.getMinValue().intValue() + "," + filter.getMaxValue().intValue();
+                fieldValue = parseNumericValue(filter.getValue1()) + "," + parseNumericValue(filter.getValue2());
                 break;
 
             default:
-                log.warn("Unknown numeric operator: {}", filter.getNumericOperator());
+                log.warn("Unknown numeric operator: {} for field: {}", operator, filter.getField());
                 return null;
         }
 
         Map<String, Object> conditions = new HashMap<>();
         conditions.put("field", filter.getField());
         conditions.put("filterType", filter.getFilterType());
-        conditions.put("numericOperator", filter.getNumericOperator());
-        conditions.put("minValue", filter.getMinValue());
-        conditions.put("maxValue", filter.getMaxValue());
-        conditions.put("exactValue", filter.getExactValue());
+        conditions.put("operator", filter.getOperator());
+        conditions.put("value1", filter.getValue1());
+        conditions.put("value2", filter.getValue2());
 
         return StrategyRule.builder()
                 .strategy(strategy)
@@ -530,45 +601,116 @@ public class StrategyServiceImpl implements StrategyService {
     }
 
     /**
+     * Parse numeric value - handles both integer and decimal formats
+     */
+    private String parseNumericValue(String value) {
+        try {
+            Double numValue = Double.parseDouble(value.trim());
+            // If it's a whole number, return as integer
+            if (numValue == Math.floor(numValue) && !Double.isInfinite(numValue)) {
+                return String.valueOf(numValue.intValue());
+            }
+            return String.valueOf(numValue);
+        } catch (NumberFormatException e) {
+            log.warn("Invalid numeric value: {}", value);
+            return value.trim();
+        }
+    }
+
+    /**
      * Creates a date rule based on the operator and values
+     * Supports simplified operators: ">=", "<=", "=", ">", "<", "BETWEEN"
+     * Date values should be in ISO format: YYYY-MM-DD
      */
     private StrategyRule createDateRule(Strategy strategy, String fieldName, FilterDTO filter, int order) {
-        if (filter.getDateOperator() == null) {
-            log.warn("Date operator is null for filter: {}", filter.getField());
+        if (filter.getOperator() == null || filter.getOperator().isBlank()) {
+            log.warn("Operator is null for date filter: {}", filter.getField());
             return null;
         }
 
         RuleOperator ruleOperator;
         String fieldValue;
+        String operator = filter.getOperator().toUpperCase().trim();
 
-        switch (filter.getDateOperator()) {
-            case OLDER_THAN:
+        switch (operator) {
+            case "<":
+            case "OLDER_THAN":
+            case "BEFORE":
+            case "LT":
+                if (filter.getValue1() == null || filter.getValue1().isBlank()) {
+                    log.warn("value1 is required for < operator on date field: {}", filter.getField());
+                    return null;
+                }
                 ruleOperator = RuleOperator.LESS_THAN;
-                fieldValue = String.valueOf(filter.getSpecificDate());
+                fieldValue = filter.getValue1().trim();
                 break;
 
-            case NEWER_THAN:
+            case ">":
+            case "NEWER_THAN":
+            case "AFTER":
+            case "GT":
+                if (filter.getValue1() == null || filter.getValue1().isBlank()) {
+                    log.warn("value1 is required for > operator on date field: {}", filter.getField());
+                    return null;
+                }
                 ruleOperator = RuleOperator.GREATER_THAN;
-                fieldValue = String.valueOf(filter.getSpecificDate());
+                fieldValue = filter.getValue1().trim();
                 break;
 
-            case INTERVAL:
+            case ">=":
+            case "GTE":
+                if (filter.getValue1() == null || filter.getValue1().isBlank()) {
+                    log.warn("value1 is required for >= operator on date field: {}", filter.getField());
+                    return null;
+                }
+                ruleOperator = RuleOperator.GREATER_THAN_OR_EQUAL;
+                fieldValue = filter.getValue1().trim();
+                break;
+
+            case "<=":
+            case "LTE":
+                if (filter.getValue1() == null || filter.getValue1().isBlank()) {
+                    log.warn("value1 is required for <= operator on date field: {}", filter.getField());
+                    return null;
+                }
+                ruleOperator = RuleOperator.LESS_THAN_OR_EQUAL;
+                fieldValue = filter.getValue1().trim();
+                break;
+
+            case "=":
+            case "EQUAL":
+            case "EQ":
+                if (filter.getValue1() == null || filter.getValue1().isBlank()) {
+                    log.warn("value1 is required for = operator on date field: {}", filter.getField());
+                    return null;
+                }
+                ruleOperator = RuleOperator.EQUALS;
+                fieldValue = filter.getValue1().trim();
+                break;
+
+            case "BETWEEN":
+            case "INTERVAL":
+            case "RANGE":
+                if (filter.getValue1() == null || filter.getValue1().isBlank() ||
+                    filter.getValue2() == null || filter.getValue2().isBlank()) {
+                    log.warn("value1 and value2 are required for BETWEEN operator on date field: {}", filter.getField());
+                    return null;
+                }
                 ruleOperator = RuleOperator.BETWEEN;
-                fieldValue = filter.getFromDate() + "," + filter.getToDate();
+                fieldValue = filter.getValue1().trim() + "," + filter.getValue2().trim();
                 break;
 
             default:
-                log.warn("Unknown date operator: {}", filter.getDateOperator());
+                log.warn("Unknown date operator: {} for field: {}", operator, filter.getField());
                 return null;
         }
 
         Map<String, Object> conditions = new HashMap<>();
         conditions.put("field", filter.getField());
         conditions.put("filterType", filter.getFilterType());
-        conditions.put("dateOperator", filter.getDateOperator());
-        conditions.put("fromDate", filter.getFromDate());
-        conditions.put("toDate", filter.getToDate());
-        conditions.put("specificDate", filter.getSpecificDate());
+        conditions.put("operator", filter.getOperator());
+        conditions.put("value1", filter.getValue1());
+        conditions.put("value2", filter.getValue2());
 
         return StrategyRule.builder()
                 .strategy(strategy)

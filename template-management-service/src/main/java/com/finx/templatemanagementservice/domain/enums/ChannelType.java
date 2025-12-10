@@ -7,7 +7,8 @@ public enum ChannelType {
     SMS("SMS", "SMS messaging"),
     WHATSAPP("WhatsApp", "WhatsApp messaging"),
     EMAIL("Email", "Email communication"),
-    IVR("IVR", "Interactive Voice Response");
+    IVR("IVR", "Interactive Voice Response"),
+    NOTICE("Notice", "Legal/Physical Notice - Document only");
 
     private final String displayName;
     private final String description;

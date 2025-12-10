@@ -9,8 +9,8 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * Template entity for communication templates
@@ -47,6 +47,7 @@ public class Template {
     @Column(name = "description", columnDefinition = "TEXT")
     private String description;
 
+    @Builder.Default
     @Column(name = "is_active")
     private Boolean isActive = true;
 
@@ -66,8 +67,12 @@ public class Template {
     @Column(name = "document_size_bytes")
     private Long documentSizeBytes;
 
+    @Builder.Default
     @Column(name = "has_document_variables")
     private Boolean hasDocumentVariables = false;
+
+    @Column(name = "document_placeholders", columnDefinition = "TEXT")
+    private String documentPlaceholders; // JSON array of placeholders extracted from document
 
     @Column(name = "created_by")
     private Long createdBy;
@@ -78,11 +83,13 @@ public class Template {
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
+    @Builder.Default
     @OneToMany(mappedBy = "template", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
-    private List<TemplateVariable> variables = new ArrayList<>();
+    private Set<TemplateVariable> variables = new HashSet<>();
 
+    @Builder.Default
     @OneToMany(mappedBy = "template", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
-    private List<TemplateContent> contents = new ArrayList<>();
+    private Set<TemplateContent> contents = new HashSet<>();
 
     @PrePersist
     protected void onCreate() {

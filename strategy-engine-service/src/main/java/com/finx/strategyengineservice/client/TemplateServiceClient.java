@@ -12,6 +12,11 @@ import org.springframework.web.bind.annotation.RequestBody;
 
 /**
  * Feign Client for Template Management Service
+ * Used for template resolution during strategy execution
+ *
+ * NOTE: For template dropdowns, frontend should call Template Management Service directly:
+ *   - GET /api/v1/templates/dropdown
+ *   - GET /api/v1/templates/dropdown/{channel}
  */
 @FeignClient(name = "template-management-service", url = "${TEMPLATE_SERVICE_URL:http://template-management-service:8087}", path = "/api/v1/templates")
 public interface TemplateServiceClient {

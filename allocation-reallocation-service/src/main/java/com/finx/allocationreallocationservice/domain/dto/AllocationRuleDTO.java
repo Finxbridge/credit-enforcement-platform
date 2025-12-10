@@ -27,8 +27,14 @@ public class AllocationRuleDTO {
     @NotBlank(message = "Rule type is required (PERCENTAGE_SPLIT, CAPACITY_BASED, GEOGRAPHY)")
     private String ruleType;
 
-    @NotEmpty(message = "At least one geography is required")
+    // Legacy field - kept for backward compatibility
+    @Deprecated
     private List<String> geographies;
+
+    // New multi-field geography filtering (at least one must be provided)
+    private List<String> states;      // Filter by state (e.g., "Maharashtra", "Karnataka")
+    private List<String> cities;      // Filter by city (e.g., "Mumbai", "Pune")
+    private List<String> locations;   // Filter by location/branch (e.g., "BRANCH_001")
 
     // Optional - can be used for filtering cases by bucket when applying rule
     private List<String> buckets;

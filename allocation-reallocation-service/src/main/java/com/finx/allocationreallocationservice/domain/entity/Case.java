@@ -72,6 +72,9 @@ public class Case {
     @Column(name = "state_code", length = 50)
     private String stateCode;
 
+    @Column(name = "location", length = 100)
+    private String location;
+
     @Column(name = "ptp_date")
     private LocalDate ptpDate;
 
