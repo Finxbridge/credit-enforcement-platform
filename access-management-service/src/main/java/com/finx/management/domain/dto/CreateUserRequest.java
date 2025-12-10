@@ -39,7 +39,17 @@ public class CreateUserRequest {
 
     private String status;
     private Long userGroupId;
-    private List<String> assignedGeographies;
+
+    // Geography fields (mandatory for allocation)
+    @NotBlank(message = "State is required")
+    @Size(max = 100)
+    private String state;
+
+    @NotBlank(message = "City is required")
+    @Size(max = 100)
+    private String city;
+
+    private List<String> assignedGeographies; // Optional additional geographies
     private Integer maxCaseCapacity;
     private Double allocationPercentage;
     private String allocationBucket;

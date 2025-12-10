@@ -28,7 +28,8 @@ public class CsvExporter {
     private static final String LINE_SEPARATOR = "\n";
 
     /**
-     * Header matching AllocationCsvRow.java exactly (15 columns + STATUS + REMARKS)
+     * Header matching AllocationCsvRow.java exactly (16 columns + STATUS + REMARKS)
+     * Added reallocate_to_agent for unified CSV workflow (case-sourcing -> allocation -> reallocation)
      */
     private static final String ALLOCATION_HEADER = String.join(CSV_DELIMITER,
             "case_id",
@@ -40,6 +41,7 @@ public class CsvExporter {
             "dpd",
             "primary_agent_id",
             "secondary_agent_id",
+            "reallocate_to_agent",
             "allocation_type",
             "allocation_percentage",
             "geography",
@@ -71,8 +73,8 @@ public class CsvExporter {
                 // external_case_id
                 writer.write(escapeCsv(error.getExternalCaseId()));
                 writer.write(CSV_DELIMITER);
-                // loan_id through priority (12 empty columns)
-                for (int i = 0; i < 12; i++) {
+                // loan_id through priority (13 empty columns - added reallocate_to_agent)
+                for (int i = 0; i < 13; i++) {
                     writer.write(CSV_DELIMITER);
                 }
                 // remarks (from original data - empty)
@@ -144,7 +146,7 @@ public class CsvExporter {
     }
 
     /**
-     * Write a single allocation row with all 17 columns
+     * Write a single allocation row with all 18 columns (including reallocate_to_agent)
      */
     private void writeAllocationRow(PrintWriter writer, CaseAllocation allocation,
                                      String customStatus, String customRemark) {
@@ -184,6 +186,10 @@ public class CsvExporter {
         // secondary_agent_id
         writer.write(allocation.getSecondaryAgentId() != null ?
                 String.valueOf(allocation.getSecondaryAgentId()) : "");
+        writer.write(CSV_DELIMITER);
+
+        // reallocate_to_agent (empty for allocation export - used for reallocation)
+        writer.write("");
         writer.write(CSV_DELIMITER);
 
         // allocation_type
@@ -291,7 +297,7 @@ public class CsvExporter {
         try {
             JsonNode node = objectMapper.readTree(json);
 
-            // Write all 15 data columns from JSON (matching AllocationCsvRow field names)
+            // Write all 16 data columns from JSON (matching AllocationCsvRow field names + reallocate_to_agent)
             writer.write(escapeCsv(getJsonString(node, "caseId")));
             writer.write(CSV_DELIMITER);
             writer.write(escapeCsv(getJsonString(node, "externalCaseId")));
@@ -309,6 +315,8 @@ public class CsvExporter {
             writer.write(escapeCsv(getJsonString(node, "primaryAgentId")));
             writer.write(CSV_DELIMITER);
             writer.write(escapeCsv(getJsonString(node, "secondaryAgentId")));
+            writer.write(CSV_DELIMITER);
+            writer.write(escapeCsv(getJsonString(node, "reallocateToAgent")));
             writer.write(CSV_DELIMITER);
             writer.write(escapeCsv(getJsonString(node, "allocationType")));
             writer.write(CSV_DELIMITER);
@@ -344,8 +352,8 @@ public class CsvExporter {
         // external_case_id
         writer.write(escapeCsv(error.getExternalCaseId()));
         writer.write(CSV_DELIMITER);
-        // loan_id through priority (12 empty columns)
-        for (int i = 0; i < 12; i++) {
+        // loan_id through priority (13 empty columns - added reallocate_to_agent)
+        for (int i = 0; i < 13; i++) {
             writer.write(CSV_DELIMITER);
         }
         // remarks (empty)

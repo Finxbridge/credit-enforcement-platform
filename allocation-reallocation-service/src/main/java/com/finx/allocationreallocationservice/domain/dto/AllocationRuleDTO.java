@@ -1,7 +1,6 @@
 package com.finx.allocationreallocationservice.domain.dto;
 
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotEmpty;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -23,29 +22,13 @@ public class AllocationRuleDTO {
 
     private String description;
 
-    // Rule configuration - All mandatory fields
-    @NotBlank(message = "Rule type is required (PERCENTAGE_SPLIT, CAPACITY_BASED, GEOGRAPHY)")
+    // Rule type: GEOGRAPHY or CAPACITY_BASED
+    @NotBlank(message = "Rule type is required (GEOGRAPHY or CAPACITY_BASED)")
     private String ruleType;
 
-    // Legacy field - kept for backward compatibility
-    @Deprecated
-    private List<String> geographies;
-
-    // New multi-field geography filtering (at least one must be provided)
-    private List<String> states;      // Filter by state (e.g., "Maharashtra", "Karnataka")
-    private List<String> cities;      // Filter by city (e.g., "Mumbai", "Pune")
-    private List<String> locations;   // Filter by location/branch (e.g., "BRANCH_001")
-
-    // Optional - can be used for filtering cases by bucket when applying rule
-    private List<String> buckets;
-
-    private Integer maxCasesPerAgent;
-
-    // Optional - will be configured later via separate endpoint
-    private List<Long> agentIds;
-
-    // Optional - will be configured later via separate endpoint
-    private List<Integer> percentages;
+    // Geography filtering (required for GEOGRAPHY rule type)
+    private List<String> states;      // Filter by state (e.g., "Telangana", "Maharashtra")
+    private List<String> cities;      // Filter by city (e.g., "Hyderabad", "Mumbai")
 
     // Legacy criteria field for backward compatibility
     private Map<String, Object> criteria;

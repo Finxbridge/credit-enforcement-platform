@@ -57,6 +57,15 @@ public class Case {
     @Column(name = "allocated_to_user_id")
     private Long allocatedToUserId;
 
+    @Column(name = "primary_agent", length = 100)
+    private String primaryAgent;
+
+    @Column(name = "secondary_agent", length = 100)
+    private String secondaryAgent;
+
+    @Column(name = "reallocate_to_agent", length = 100)
+    private String reallocateToAgent;
+
     @Column(name = "allocated_to_agency_id")
     private Long allocatedToAgencyId;
 

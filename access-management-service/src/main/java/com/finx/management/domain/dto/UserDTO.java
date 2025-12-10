@@ -19,6 +19,8 @@ public class UserDTO {
     private String status;
     private Long userGroupId;
     private String userGroupName;
+    private String state;
+    private String city;
     private List<String> assignedGeographies;
     private Integer maxCaseCapacity;
     private Integer currentCaseCount;

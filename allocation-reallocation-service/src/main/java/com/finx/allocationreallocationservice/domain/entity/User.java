@@ -63,6 +63,13 @@ public class User {
     @Column(name = "team_id")
     private Long teamId;
 
+    // Geography fields for allocation
+    @Column(name = "state", length = 100)
+    private String state;
+
+    @Column(name = "city", length = 100)
+    private String city;
+
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
 

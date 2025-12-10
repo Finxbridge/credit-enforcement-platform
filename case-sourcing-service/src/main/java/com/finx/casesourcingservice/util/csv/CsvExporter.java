@@ -78,7 +78,7 @@ public class CsvExporter {
             // Location & Geography
             "LOCATION", "ZONE", "LANGUAGE",
             // Agent Allocation
-            "PRIMARY AGENT", "SECONDARY AGENT",
+            "PRIMARY AGENT", "SECONDARY AGENT", "REALLOCATE TO AGENT",
             // Sourcing
             "SOURCING RM NAME",
             // Flags
@@ -380,6 +380,8 @@ public class CsvExporter {
         writer.write(escapeCsv(caseEntity.getPrimaryAgent()));
         writer.write(CSV_DELIMITER);
         writer.write(escapeCsv(caseEntity.getSecondaryAgent()));
+        writer.write(CSV_DELIMITER);
+        writer.write(escapeCsv(caseEntity.getReallocateToAgent()));
         writer.write(CSV_DELIMITER);
 
         // Sourcing
@@ -689,6 +691,8 @@ public class CsvExporter {
             writer.write(CSV_DELIMITER);
             writer.write(escapeCsv(getJsonString(node, "secondaryAgent")));
             writer.write(CSV_DELIMITER);
+            writer.write(escapeCsv(getJsonString(node, "reallocateToAgent")));
+            writer.write(CSV_DELIMITER);
             // Sourcing
             writer.write(escapeCsv(getJsonString(node, "sourcingRmName")));
             writer.write(CSV_DELIMITER);
@@ -738,8 +742,8 @@ public class CsvExporter {
         writer.write(escapeCsv(error.getExternalCaseId()));
         writer.write(CSV_DELIMITER);
 
-        // Columns 3-86 (84 empty columns)
-        for (int i = 0; i < 84; i++) {
+        // Columns 3-87 (85 empty columns - added REALLOCATE TO AGENT)
+        for (int i = 0; i < 85; i++) {
             writer.write(CSV_DELIMITER);
         }
 

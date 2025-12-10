@@ -99,75 +99,76 @@ public interface CaseReadRepository extends JpaRepository<Case, Long> {
     Long countUnallocatedCasesByBucket(@Param("buckets") List<String> buckets);
 
     // ============================================
-    // MULTI-FIELD GEOGRAPHY FILTERING
-    // Filter by states, cities, and/or locations
+    // MULTI-FIELD GEOGRAPHY FILTERING (CASE-INSENSITIVE)
+    // Filter by states, cities, and/or locations with case-insensitive matching
     // ============================================
 
     /**
-     * Find unallocated cases by states only
+     * Find unallocated cases by states only (case-insensitive)
      */
     @Query("SELECT c FROM Case c WHERE c.caseStatus = 'UNALLOCATED' " +
-           "AND c.stateCode IN :states AND c.status = 200")
+           "AND LOWER(c.stateCode) IN :states AND c.status = 200")
     Page<Case> findUnallocatedCasesByStates(@Param("states") List<String> states, Pageable pageable);
 
     /**
-     * Find unallocated cases by cities only
+     * Find unallocated cases by cities only (case-insensitive)
      */
     @Query("SELECT c FROM Case c WHERE c.caseStatus = 'UNALLOCATED' " +
-           "AND c.cityCode IN :cities AND c.status = 200")
+           "AND LOWER(c.cityCode) IN :cities AND c.status = 200")
     Page<Case> findUnallocatedCasesByCities(@Param("cities") List<String> cities, Pageable pageable);
 
     /**
-     * Find unallocated cases by locations only
+     * Find unallocated cases by locations only (case-insensitive)
      */
     @Query("SELECT c FROM Case c WHERE c.caseStatus = 'UNALLOCATED' " +
-           "AND c.location IN :locations AND c.status = 200")
+           "AND LOWER(c.location) IN :locations AND c.status = 200")
     Page<Case> findUnallocatedCasesByLocations(@Param("locations") List<String> locations, Pageable pageable);
 
     /**
-     * Find unallocated cases by states and cities
+     * Find unallocated cases by states OR cities (case-insensitive)
+     * Uses OR logic: matches cases in specified states OR in specified cities
      */
     @Query("SELECT c FROM Case c WHERE c.caseStatus = 'UNALLOCATED' " +
-           "AND c.stateCode IN :states AND c.cityCode IN :cities AND c.status = 200")
+           "AND (LOWER(c.stateCode) IN :states OR LOWER(c.cityCode) IN :cities) AND c.status = 200")
     Page<Case> findUnallocatedCasesByStatesAndCities(@Param("states") List<String> states,
                                                       @Param("cities") List<String> cities,
                                                       Pageable pageable);
 
     /**
-     * Find unallocated cases by states, cities, and locations
+     * Find unallocated cases by states, cities, and locations (case-insensitive)
      */
     @Query("SELECT c FROM Case c WHERE c.caseStatus = 'UNALLOCATED' " +
-           "AND c.stateCode IN :states AND c.cityCode IN :cities AND c.location IN :locations AND c.status = 200")
+           "AND LOWER(c.stateCode) IN :states AND LOWER(c.cityCode) IN :cities AND LOWER(c.location) IN :locations AND c.status = 200")
     Page<Case> findUnallocatedCasesByStatesAndCitiesAndLocations(@Param("states") List<String> states,
                                                                   @Param("cities") List<String> cities,
                                                                   @Param("locations") List<String> locations,
                                                                   Pageable pageable);
 
     /**
-     * Find unallocated cases by states and locations (no city filter)
+     * Find unallocated cases by states and locations (case-insensitive, no city filter)
      */
     @Query("SELECT c FROM Case c WHERE c.caseStatus = 'UNALLOCATED' " +
-           "AND c.stateCode IN :states AND c.location IN :locations AND c.status = 200")
+           "AND LOWER(c.stateCode) IN :states AND LOWER(c.location) IN :locations AND c.status = 200")
     Page<Case> findUnallocatedCasesByStatesAndLocations(@Param("states") List<String> states,
                                                          @Param("locations") List<String> locations,
                                                          Pageable pageable);
 
     /**
-     * Find unallocated cases by cities and locations (no state filter)
+     * Find unallocated cases by cities and locations (case-insensitive, no state filter)
      */
     @Query("SELECT c FROM Case c WHERE c.caseStatus = 'UNALLOCATED' " +
-           "AND c.cityCode IN :cities AND c.location IN :locations AND c.status = 200")
+           "AND LOWER(c.cityCode) IN :cities AND LOWER(c.location) IN :locations AND c.status = 200")
     Page<Case> findUnallocatedCasesByCitiesAndLocations(@Param("cities") List<String> cities,
                                                          @Param("locations") List<String> locations,
                                                          Pageable pageable);
 
     /**
-     * Find unallocated cases by multi-field geography with buckets
+     * Find unallocated cases by multi-field geography with buckets (case-insensitive)
      */
     @Query("SELECT c FROM Case c JOIN FETCH c.loan l WHERE c.caseStatus = 'UNALLOCATED' " +
-           "AND (:states IS NULL OR c.stateCode IN :states) " +
-           "AND (:cities IS NULL OR c.cityCode IN :cities) " +
-           "AND (:locations IS NULL OR c.location IN :locations) " +
+           "AND (:states IS NULL OR LOWER(c.stateCode) IN :states) " +
+           "AND (:cities IS NULL OR LOWER(c.cityCode) IN :cities) " +
+           "AND (:locations IS NULL OR LOWER(c.location) IN :locations) " +
            "AND l.bucket IN :buckets AND c.status = 200")
     Page<Case> findUnallocatedCasesByMultiGeographyAndBucket(@Param("states") List<String> states,
                                                               @Param("cities") List<String> cities,
@@ -197,4 +198,22 @@ public interface CaseReadRepository extends JpaRepository<Case, Long> {
     Optional<Case> findByLoanAccountNumber(@Param("accountNo") String accountNo);
 
     Long countByCaseStatus(String caseStatus);
+
+    // ============================================
+    // CAPACITY_BASED ALLOCATION - NO GEOGRAPHY FILTER
+    // Get ALL unallocated cases for capacity-based distribution
+    // ============================================
+
+    /**
+     * Find ALL unallocated active cases (no geography filter)
+     * Used for CAPACITY_BASED allocation to get all cases for distribution
+     */
+    @Query("SELECT c FROM Case c WHERE c.caseStatus = 'UNALLOCATED' AND c.status = 200")
+    List<Case> findAllUnallocatedCases();
+
+    /**
+     * Count ALL unallocated active cases (no geography filter)
+     */
+    @Query("SELECT COUNT(c) FROM Case c WHERE c.caseStatus = 'UNALLOCATED' AND c.status = 200")
+    Long countAllUnallocatedCases();
 }

@@ -292,12 +292,16 @@ public class CaseCsvRowDTO {
     // ==================== AGENT ALLOCATION ====================
     // For Case Sourcing: Optional
     // For Allocation/Reallocation: PRIMARY_AGENT Mandatory, SECONDARY_AGENT Optional
+    // For Reallocation: REALLOCATE_TO_AGENT Mandatory
 
     @CsvBindByName(column = "PRIMARY AGENT")
     private String primaryAgent;
 
     @CsvBindByName(column = "SECONDARY AGENT")
     private String secondaryAgent;
+
+    @CsvBindByName(column = "REALLOCATE TO AGENT")
+    private String reallocateToAgent;
 
     // ==================== SOURCING ====================
 

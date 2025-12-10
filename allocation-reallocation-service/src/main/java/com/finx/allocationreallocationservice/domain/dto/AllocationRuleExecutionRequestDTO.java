@@ -1,28 +1,21 @@
 package com.finx.allocationreallocationservice.domain.dto;
 
-import jakarta.validation.constraints.NotEmpty;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.util.List;
-
+/**
+ * Request DTO for applying allocation rules.
+ * For both GEOGRAPHY and CAPACITY_BASED rules:
+ * - Agents are auto-detected based on rule criteria
+ * - All matching unallocated cases are allocated
+ *
+ * Simply pass an empty body: {}
+ */
 @Data
-@Builder
 @NoArgsConstructor
-@AllArgsConstructor
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class AllocationRuleExecutionRequestDTO {
-    @NotEmpty(message = "Agent IDs are required")
-    private List<Long> agentIds;
-
-    // Only required for PERCENTAGE_SPLIT rule type
-    private List<Integer> percentages;
-
-    // Optional - specific case IDs to allocate (from simulate response)
-    // If not provided, all cases matching rule criteria will be allocated
-    private List<Long> caseIds;
-
-    // Optional - limit number of cases to allocate
-    private Integer maxCases;
+    // No fields required - everything is auto-detected from the rule
+    // Empty body {} is sufficient for apply
 }

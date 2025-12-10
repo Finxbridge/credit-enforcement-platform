@@ -49,10 +49,14 @@ public class User {
     @JoinColumn(name = "user_group_id")
     private UserGroup userGroup;
 
-    // Assuming assigned_geographies is stored as JSONB in DB,
-    // for simplicity, we can map it as a String or a custom object/JSON type if
-    // needed.
-    // For now, let's keep it as String.
+    // Geography fields for allocation
+    @Column(name = "state", length = 100)
+    private String state; // e.g., "Telangana", "Maharashtra"
+
+    @Column(name = "city", length = 100)
+    private String city; // e.g., "Hyderabad", "Mumbai"
+
+    // Additional geographies stored as JSONB (legacy/optional)
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "assigned_geographies", columnDefinition = "jsonb")
     private List<String> assignedGeographies;

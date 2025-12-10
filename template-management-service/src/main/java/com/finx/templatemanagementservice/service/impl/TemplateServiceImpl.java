@@ -264,9 +264,12 @@ public class TemplateServiceImpl implements TemplateService {
     private void syncSmsTemplate(Template template, TemplateContent content) {
         log.info("Syncing SMS template: {}", template.getTemplateName());
 
+        // Convert {{variableName}} to ##variableName## for MSG91 format
+        String msg91Content = convertToMsg91Format(content.getContent());
+
         SmsCreateTemplateRequest request = SmsCreateTemplateRequest.builder()
                 .templateName(template.getTemplateName())
-                .template(content.getContent())
+                .template(msg91Content)
                 .dltTemplateId(template.getProviderTemplateId()) // Using providerTemplateId as DLT ID
                 .build();
 
@@ -289,19 +292,25 @@ public class TemplateServiceImpl implements TemplateService {
     private void syncWhatsAppTemplate(Template template, TemplateContent content) {
         log.info("Syncing WhatsApp template: {}", template.getTemplateName());
 
+        // Convert template name to MSG91 format (lowercase with underscores only)
+        String msg91TemplateName = convertToMsg91TemplateName(template.getTemplateName());
+
+        // Convert {{variableName}} to {{1}}, {{2}}, etc. for MSG91 WhatsApp format
+        String msg91Content = convertToWhatsAppMsg91Format(content.getContent());
+
         // Build components based on template content
         List<WhatsAppCreateTemplateRequest.TemplateComponent> components = new ArrayList<>();
 
-        // Add BODY component with template content
+        // Add BODY component with converted template content
         WhatsAppCreateTemplateRequest.TemplateComponent bodyComponent =
                 WhatsAppCreateTemplateRequest.TemplateComponent.builder()
                         .type("BODY")
-                        .text(content.getContent())
+                        .text(msg91Content)
                         .build();
         components.add(bodyComponent);
 
         WhatsAppCreateTemplateRequest request = WhatsAppCreateTemplateRequest.builder()
-                .templateName(template.getTemplateName())
+                .templateName(msg91TemplateName)
                 .language(content.getLanguageCode() != null ? content.getLanguageCode() : "en")
                 .category("UTILITY") // Default category
                 .components(components)
@@ -549,6 +558,57 @@ public class TemplateServiceImpl implements TemplateService {
         }
 
         return variables;
+    }
+
+    /**
+     * Convert template variables from {{variableName}} to ##variableName## for MSG91 SMS format
+     */
+    private String convertToMsg91Format(String content) {
+        if (content == null || content.isEmpty()) {
+            return content;
+        }
+        // Replace {{variableName}} with ##variableName##
+        return content.replaceAll("\\{\\{([^}]+)\\}\\}", "##$1##");
+    }
+
+    /**
+     * Convert template name to MSG91 WhatsApp format (lowercase with underscores only)
+     * Example: "WhatsApp Payment Reminder" -> "whatsapp_payment_reminder"
+     */
+    private String convertToMsg91TemplateName(String templateName) {
+        if (templateName == null || templateName.isEmpty()) {
+            return templateName;
+        }
+        // Convert to lowercase, replace spaces and special chars with underscores
+        return templateName.toLowerCase()
+                .replaceAll("[^a-z0-9]", "_")
+                .replaceAll("_+", "_")
+                .replaceAll("^_|_$", ""); // Remove leading/trailing underscores
+    }
+
+    /**
+     * Convert template variables from {{variableName}} to {{1}}, {{2}}, etc. for MSG91 WhatsApp format
+     * Example: "Hello {{customerName}}, your amount is {{amount}}" -> "Hello {{1}}, your amount is {{2}}"
+     */
+    private String convertToWhatsAppMsg91Format(String content) {
+        if (content == null || content.isEmpty()) {
+            return content;
+        }
+
+        // Find all {{variableName}} patterns and replace with {{1}}, {{2}}, etc.
+        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("\\{\\{([^}]+)\\}\\}");
+        java.util.regex.Matcher matcher = pattern.matcher(content);
+
+        StringBuffer result = new StringBuffer();
+        int variableIndex = 1;
+
+        while (matcher.find()) {
+            matcher.appendReplacement(result, "{{" + variableIndex + "}}");
+            variableIndex++;
+        }
+        matcher.appendTail(result);
+
+        return result.toString();
     }
 
     /**

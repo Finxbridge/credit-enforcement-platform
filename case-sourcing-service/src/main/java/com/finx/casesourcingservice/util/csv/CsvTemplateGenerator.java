@@ -108,7 +108,7 @@ public class CsvTemplateGenerator {
                 // Location & Geography
                 "LOCATION", "ZONE", "LANGUAGE",
                 // Agent Allocation
-                "PRIMARY AGENT", "SECONDARY AGENT",
+                "PRIMARY AGENT", "SECONDARY AGENT", "REALLOCATE TO AGENT",
                 // Sourcing
                 "SOURCING RM NAME",
                 // Flags
@@ -167,8 +167,8 @@ public class CsvTemplateGenerator {
                         "", "", "", "",
                         // Location & Geography
                         "Mumbai West", "WEST", "en",
-                        // Agent Allocation
-                        "", "",
+                        // Agent Allocation (PRIMARY AGENT, SECONDARY AGENT, REALLOCATE TO AGENT)
+                        "", "", "",
                         // Sourcing
                         "Rahul Sales",
                         // Flags

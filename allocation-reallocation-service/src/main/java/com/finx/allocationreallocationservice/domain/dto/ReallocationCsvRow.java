@@ -28,6 +28,9 @@ public class ReallocationCsvRow {
     @CsvBindByName(column = "SECONDARY AGENT")
     private String secondaryAgent;
 
+    @CsvBindByName(column = "REALLOCATE TO AGENT")
+    private String reallocateToAgent;
+
     // ==================== LEGACY FORMAT ====================
 
     @CsvBindByName(column = "case_id")
@@ -96,6 +99,28 @@ public class ReallocationCsvRow {
     public boolean isNewFormat() {
         return accountNo != null && !accountNo.trim().isEmpty() &&
                primaryAgent != null && !primaryAgent.trim().isEmpty();
+    }
+
+    /**
+     * Check if this row has a valid reallocation target (REALLOCATE TO AGENT is mandatory for reallocation)
+     */
+    public boolean hasReallocateToAgent() {
+        return reallocateToAgent != null && !reallocateToAgent.trim().isEmpty();
+    }
+
+    /**
+     * Get the effective new agent for reallocation
+     * For reallocation, REALLOCATE TO AGENT takes priority
+     */
+    public String getEffectiveNewAgent() {
+        if (reallocateToAgent != null && !reallocateToAgent.trim().isEmpty()) {
+            return reallocateToAgent;
+        }
+        // Fallback to legacy new_agent_id
+        if (newAgentId != null && !newAgentId.trim().isEmpty()) {
+            return newAgentId;
+        }
+        return null;
     }
 
     /**

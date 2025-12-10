@@ -56,3 +56,7 @@ file:
   storage:
     base-path: ${FILE_STORAGE_PATH:./uploads}
     base-url: ${FILE_STORAGE_URL:http://localhost:8087/api/v1/files}
+
+# External Service URLs
+communication-service:
+  url: ${COMMUNICATION_SERVICE_URL:http://localhost:8084}

@@ -64,6 +64,9 @@ public class Case {
     @Column(name = "secondary_agent", length = 100)
     private String secondaryAgent; // SECONDARY AGENT
 
+    @Column(name = "reallocate_to_agent", length = 100)
+    private String reallocateToAgent; // REALLOCATE TO AGENT - for reallocation workflow
+
     @Column(name = "allocated_to_agency_id")
     private Long allocatedToAgencyId;
 

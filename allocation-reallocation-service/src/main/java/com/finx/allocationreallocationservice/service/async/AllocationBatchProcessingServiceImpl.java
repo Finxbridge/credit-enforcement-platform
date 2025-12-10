@@ -338,62 +338,18 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
             for (ReallocationCsvRow row : rows) {
                 String validationError = getValidationError(row);
                 if (validationError == null) {
-                    Long caseId = Long.parseLong(row.getCaseId());
-                    Long currentAgentId = Long.parseLong(row.getCurrentAgentId());
-                    Long newAgentId = Long.parseLong(row.getNewAgentId());
+                    // Determine if using new format or legacy format
+                    boolean isNewFormat = row.getAccountNo() != null && !row.getAccountNo().trim().isEmpty()
+                            && row.getReallocateToAgent() != null && !row.getReallocateToAgent().trim().isEmpty();
 
-                    Optional<CaseAllocation> allocationOpt = caseAllocationRepository
-                            .findFirstByCaseIdOrderByAllocatedAtDesc(caseId);
-                    if (allocationOpt.isPresent()) {
-                        CaseAllocation allocation = allocationOpt.get();
-                        if (allocation.getPrimaryAgentId().equals(currentAgentId)) {
-                            // Fetch case entity to get geography code
-                            String geographyCode = allocation.getGeographyCode(); // Keep existing if available
-                            try {
-                                Optional<com.finx.allocationreallocationservice.domain.entity.Case> caseOpt = caseReadRepository
-                                        .findById(caseId);
-                                if (caseOpt.isPresent()) {
-                                    geographyCode = caseOpt.get().getGeographyCode();
-                                }
-                            } catch (Exception e) {
-                                log.warn("Failed to fetch case entity for caseId {}: {}", caseId, e.getMessage());
-                            }
-
-                            // Update allocation
-                            allocation.setPrimaryAgentId(newAgentId);
-                            // Maintain workload_percentage (default 100.00 if not set)
-                            if (allocation.getWorkloadPercentage() == null) {
-                                allocation.setWorkloadPercentage(new java.math.BigDecimal("100.00"));
-                            }
-                            // Update geography code
-                            if (geographyCode != null) {
-                                allocation.setGeographyCode(geographyCode);
-                            }
-                            allocationsToUpdate.add(allocation);
-
-                            // Track agent statistics changes
-                            agentDecrements.put(currentAgentId, agentDecrements.getOrDefault(currentAgentId, 0) + 1);
-                            agentIncrements.put(newAgentId, agentIncrements.getOrDefault(newAgentId, 0) + 1);
-
-                            historyToSave.add(AllocationHistory.builder()
-                                    .caseId(allocation.getCaseId())
-                                    .allocatedToUserId(newAgentId)
-                                    .allocatedFromUserId(currentAgentId)
-                                    .newOwnerType("USER")
-                                    .previousOwnerType("USER")
-                                    .allocatedAt(LocalDateTime.now())
-                                    .action(AllocationAction.REALLOCATED)
-                                    .reason(row.getReallocationReason())
-                                    .batchId(batchId)
-                                    .build());
-                            successfulAllocations.incrementAndGet();
-                        } else {
-                            errors.add(buildErrorWithData(batchId, rowNumber[0], "Case not allocated to current_agent_id", row));
-                            failedAllocations.incrementAndGet();
-                        }
+                    if (isNewFormat) {
+                        // NEW FORMAT: ACCOUNT NO + REALLOCATE TO AGENT
+                        processNewFormatReallocation(row, batchId, rowNumber[0], allocationsToUpdate, historyToSave,
+                                errors, agentDecrements, agentIncrements, successfulAllocations, failedAllocations);
                     } else {
-                        errors.add(buildErrorWithData(batchId, rowNumber[0], "Case allocation not found", row));
-                        failedAllocations.incrementAndGet();
+                        // LEGACY FORMAT: case_id, current_agent_id, new_agent_id
+                        processLegacyFormatReallocation(row, batchId, rowNumber[0], allocationsToUpdate, historyToSave,
+                                errors, agentDecrements, agentIncrements, successfulAllocations, failedAllocations);
                     }
                 } else {
                     errors.add(buildErrorWithData(batchId, rowNumber[0], validationError, row));
@@ -436,6 +392,58 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
     }
 
     private String getValidationError(ReallocationCsvRow row) {
+        // Check if using new unified CSV format (with ACCOUNT NO and REALLOCATE TO AGENT)
+        boolean hasAccountNo = row.getAccountNo() != null && !row.getAccountNo().trim().isEmpty();
+        boolean hasReallocateToAgent = row.getReallocateToAgent() != null && !row.getReallocateToAgent().trim().isEmpty();
+
+        if (hasAccountNo || hasReallocateToAgent) {
+            // NEW FORMAT: Unified CSV with ACCOUNT NO and REALLOCATE TO AGENT (mandatory)
+            return validateNewFormatReallocation(row);
+        } else {
+            // LEGACY FORMAT: case_id, current_agent_id, new_agent_id
+            return validateLegacyFormatReallocation(row);
+        }
+    }
+
+    /**
+     * Validate new unified CSV format for reallocation.
+     * Required fields: ACCOUNT NO, REALLOCATE TO AGENT (mandatory)
+     */
+    private String validateNewFormatReallocation(ReallocationCsvRow row) {
+        // Validate ACCOUNT NO is provided
+        if (row.getAccountNo() == null || row.getAccountNo().trim().isEmpty()) {
+            return "ACCOUNT NO is required for reallocation";
+        }
+
+        // Validate REALLOCATE TO AGENT is provided (MANDATORY for reallocation)
+        if (row.getReallocateToAgent() == null || row.getReallocateToAgent().trim().isEmpty()) {
+            return "REALLOCATE TO AGENT is required for reallocation";
+        }
+
+        // Validate case exists by loan account number
+        Optional<Case> caseOpt = caseReadRepository.findByLoanAccountNumber(row.getAccountNo());
+        if (!caseOpt.isPresent()) {
+            return "Case not found for ACCOUNT NO: " + row.getAccountNo();
+        }
+
+        // Validate REALLOCATE TO AGENT exists (can be ID or username)
+        try {
+            Long newAgentId = resolveAgentId(row.getReallocateToAgent());
+            if (newAgentId == null) {
+                return "User not found for REALLOCATE TO AGENT: " + row.getReallocateToAgent();
+            }
+        } catch (Exception e) {
+            return "Invalid REALLOCATE TO AGENT: " + row.getReallocateToAgent() + ". " + e.getMessage();
+        }
+
+        return null;
+    }
+
+    /**
+     * Validate legacy CSV format for reallocation.
+     * Required fields: case_id, current_agent_id, new_agent_id
+     */
+    private String validateLegacyFormatReallocation(ReallocationCsvRow row) {
         // Validate case_id format
         try {
             Long.parseLong(row.getCaseId());
@@ -479,6 +487,171 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
         }
 
         return null;
+    }
+
+    /**
+     * Process reallocation using NEW unified CSV format (ACCOUNT NO + REALLOCATE TO AGENT)
+     * Looks up case by ACCOUNT NO, finds existing allocation, and reallocates to new agent
+     */
+    private void processNewFormatReallocation(ReallocationCsvRow row, String batchId, int rowNumber,
+                                               List<CaseAllocation> allocationsToUpdate, List<AllocationHistory> historyToSave,
+                                               List<BatchError> errors, java.util.Map<Long, Integer> agentDecrements,
+                                               java.util.Map<Long, Integer> agentIncrements,
+                                               AtomicInteger successfulAllocations, AtomicInteger failedAllocations) {
+        try {
+            // 1. Find case by ACCOUNT NO (loan account number)
+            Case caseEntity = caseReadRepository.findByLoanAccountNumber(row.getAccountNo())
+                    .orElseThrow(() -> new RuntimeException("Case not found for ACCOUNT NO: " + row.getAccountNo()));
+            Long caseId = caseEntity.getId();
+
+            // 2. Find existing allocation for this case
+            Optional<CaseAllocation> existingAllocationOpt = caseAllocationRepository.findFirstByCaseIdOrderByAllocatedAtDesc(caseId);
+            if (!existingAllocationOpt.isPresent()) {
+                errors.add(buildErrorWithData(batchId, rowNumber,
+                        "No existing allocation found for case. Please allocate the case first.", row));
+                failedAllocations.incrementAndGet();
+                return;
+            }
+
+            CaseAllocation existingAllocation = existingAllocationOpt.get();
+            Long previousAgentId = existingAllocation.getPrimaryAgentId();
+
+            // 3. Resolve new agent from REALLOCATE TO AGENT
+            Long newAgentId = resolveAgentId(row.getReallocateToAgent());
+            if (newAgentId == null) {
+                errors.add(buildErrorWithData(batchId, rowNumber,
+                        "User not found for REALLOCATE TO AGENT: " + row.getReallocateToAgent(), row));
+                failedAllocations.incrementAndGet();
+                return;
+            }
+
+            // 4. Skip if reallocating to the same agent
+            if (previousAgentId != null && previousAgentId.equals(newAgentId)) {
+                log.info("Skipping reallocation for case {} - already assigned to agent {}", caseId, newAgentId);
+                errors.add(buildErrorWithData(batchId, rowNumber,
+                        "Case is already assigned to agent: " + row.getReallocateToAgent(), row));
+                failedAllocations.incrementAndGet();
+                return;
+            }
+
+            // 5. Update existing allocation
+            existingAllocation.setPrimaryAgentId(newAgentId);
+            existingAllocation.setAllocatedAt(LocalDateTime.now());
+            existingAllocation.setStatus(AllocationStatus.REALLOCATED);
+            existingAllocation.setBatchId(batchId);
+            allocationsToUpdate.add(existingAllocation);
+
+            // 6. Create history entry
+            historyToSave.add(AllocationHistory.builder()
+                    .caseId(caseId)
+                    .allocatedToUserId(newAgentId)
+                    .allocatedFromUserId(previousAgentId)
+                    .newOwnerType("USER")
+                    .previousOwnerType("USER")
+                    .allocatedAt(LocalDateTime.now())
+                    .action(AllocationAction.REALLOCATED)
+                    .reason(row.getRemarksFromCsv() != null && !row.getRemarksFromCsv().isEmpty()
+                            ? row.getRemarksFromCsv()
+                            : "Batch reallocation: " + batchId)
+                    .batchId(batchId)
+                    .build());
+
+            // 7. Track agent statistics changes
+            if (previousAgentId != null) {
+                agentDecrements.put(previousAgentId, agentDecrements.getOrDefault(previousAgentId, 0) + 1);
+            }
+            agentIncrements.put(newAgentId, agentIncrements.getOrDefault(newAgentId, 0) + 1);
+
+            successfulAllocations.incrementAndGet();
+            log.debug("New format reallocation: case {} from agent {} to agent {}",
+                    caseId, previousAgentId, newAgentId);
+
+        } catch (Exception e) {
+            log.error("Failed to process new format reallocation for row {}: {}", rowNumber, e.getMessage());
+            errors.add(buildErrorWithData(batchId, rowNumber, "Processing error: " + e.getMessage(), row));
+            failedAllocations.incrementAndGet();
+        }
+    }
+
+    /**
+     * Process reallocation using LEGACY CSV format (case_id, current_agent_id, new_agent_id)
+     * Original reallocation logic for backward compatibility
+     */
+    private void processLegacyFormatReallocation(ReallocationCsvRow row, String batchId, int rowNumber,
+                                                  List<CaseAllocation> allocationsToUpdate, List<AllocationHistory> historyToSave,
+                                                  List<BatchError> errors, java.util.Map<Long, Integer> agentDecrements,
+                                                  java.util.Map<Long, Integer> agentIncrements,
+                                                  AtomicInteger successfulAllocations, AtomicInteger failedAllocations) {
+        try {
+            Long caseId = Long.parseLong(row.getCaseId());
+            Long currentAgentId = Long.parseLong(row.getCurrentAgentId());
+            Long newAgentId = Long.parseLong(row.getNewAgentId());
+
+            // Find existing allocation
+            Optional<CaseAllocation> existingAllocationOpt = caseAllocationRepository.findFirstByCaseIdOrderByAllocatedAtDesc(caseId);
+            if (!existingAllocationOpt.isPresent()) {
+                errors.add(buildErrorWithData(batchId, rowNumber,
+                        "No existing allocation found for case_id: " + caseId, row));
+                failedAllocations.incrementAndGet();
+                return;
+            }
+
+            CaseAllocation existingAllocation = existingAllocationOpt.get();
+
+            // Verify current agent matches
+            if (existingAllocation.getPrimaryAgentId() != null &&
+                    !existingAllocation.getPrimaryAgentId().equals(currentAgentId)) {
+                errors.add(buildErrorWithData(batchId, rowNumber,
+                        "Current agent mismatch. Expected: " + existingAllocation.getPrimaryAgentId() +
+                                ", Provided: " + currentAgentId, row));
+                failedAllocations.incrementAndGet();
+                return;
+            }
+
+            // Skip if reallocating to the same agent
+            if (currentAgentId.equals(newAgentId)) {
+                log.info("Skipping reallocation for case {} - already assigned to agent {}", caseId, newAgentId);
+                errors.add(buildErrorWithData(batchId, rowNumber,
+                        "Case is already assigned to agent: " + newAgentId, row));
+                failedAllocations.incrementAndGet();
+                return;
+            }
+
+            // Update allocation
+            existingAllocation.setPrimaryAgentId(newAgentId);
+            existingAllocation.setAllocatedAt(LocalDateTime.now());
+            existingAllocation.setStatus(AllocationStatus.REALLOCATED);
+            existingAllocation.setBatchId(batchId);
+            allocationsToUpdate.add(existingAllocation);
+
+            // Create history entry
+            historyToSave.add(AllocationHistory.builder()
+                    .caseId(caseId)
+                    .allocatedToUserId(newAgentId)
+                    .allocatedFromUserId(currentAgentId)
+                    .newOwnerType("USER")
+                    .previousOwnerType("USER")
+                    .allocatedAt(LocalDateTime.now())
+                    .action(AllocationAction.REALLOCATED)
+                    .reason(row.getReallocationReason() != null && !row.getReallocationReason().isEmpty()
+                            ? row.getReallocationReason()
+                            : "Batch reallocation: " + batchId)
+                    .batchId(batchId)
+                    .build());
+
+            // Track agent statistics changes
+            agentDecrements.put(currentAgentId, agentDecrements.getOrDefault(currentAgentId, 0) + 1);
+            agentIncrements.put(newAgentId, agentIncrements.getOrDefault(newAgentId, 0) + 1);
+
+            successfulAllocations.incrementAndGet();
+            log.debug("Legacy format reallocation: case {} from agent {} to agent {}",
+                    caseId, currentAgentId, newAgentId);
+
+        } catch (Exception e) {
+            log.error("Failed to process legacy format reallocation for row {}: {}", rowNumber, e.getMessage());
+            errors.add(buildErrorWithData(batchId, rowNumber, "Processing error: " + e.getMessage(), row));
+            failedAllocations.incrementAndGet();
+        }
     }
 
     @SuppressWarnings("null")

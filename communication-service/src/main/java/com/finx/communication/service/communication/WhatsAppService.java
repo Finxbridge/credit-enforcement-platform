@@ -144,7 +144,9 @@ public class WhatsAppService {
         body.put("integrated_number", integratedNumber);
         body.put("template_name", request.getTemplateName());
         body.put("language", request.getLanguage());
-        body.put("category", request.getCategory());
+        // MSG91 requires uppercase category: UTILITY, MARKETING, AUTHENTICATION
+        String category = request.getCategory() != null ? request.getCategory().toUpperCase() : "UTILITY";
+        body.put("category", category);
 
         if (request.getButtonUrl() != null && request.getButtonUrl()) {
             body.put("button_url", "true");
