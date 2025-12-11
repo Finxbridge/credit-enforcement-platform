@@ -1339,11 +1339,13 @@ public class AllocationServiceImpl implements AllocationService {
         AllocationRule rule = allocationRuleRepository.findById(ruleId)
                 .orElseThrow(() -> new ResourceNotFoundException("Allocation rule not found: " + ruleId));
 
-        // Enforce lifecycle: apply() allowed only if status == READY_FOR_APPLY
-        if (rule.getStatus() != RuleStatus.READY_FOR_APPLY) {
+        // Allow apply from any status - users can simulate first or directly apply
+        // Only prevent re-applying an already ACTIVE rule
+        if (rule.getStatus() == RuleStatus.ACTIVE) {
             throw new ValidationException(
-                    "Simulation required before applying rule. Current status: " + rule.getStatus());
+                    "Rule is already ACTIVE and has been applied. Create a new rule for fresh allocation.");
         }
+        log.info("Applying rule {} with current status: {}", ruleId, rule.getStatus());
 
         // Get rule criteria
         Map<String, Object> criteria = rule.getCriteria();

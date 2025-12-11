@@ -618,7 +618,7 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
             // 5. Update existing allocation
             existingAllocation.setPrimaryAgentId(newAgentId);
             existingAllocation.setAllocatedAt(LocalDateTime.now());
-            existingAllocation.setStatus(AllocationStatus.REALLOCATED);
+            existingAllocation.setStatus(AllocationStatus.ALLOCATED); // Keep as ALLOCATED so workload counts it
             existingAllocation.setBatchId(batchId);
             allocationsToUpdate.add(existingAllocation);
 
@@ -701,7 +701,7 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
             // Update allocation
             existingAllocation.setPrimaryAgentId(newAgentId);
             existingAllocation.setAllocatedAt(LocalDateTime.now());
-            existingAllocation.setStatus(AllocationStatus.REALLOCATED);
+            existingAllocation.setStatus(AllocationStatus.ALLOCATED); // Keep as ALLOCATED so workload counts it
             existingAllocation.setBatchId(batchId);
             allocationsToUpdate.add(existingAllocation);
 
