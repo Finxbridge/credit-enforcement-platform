@@ -76,8 +76,7 @@ public class CsvTemplateGenerator {
                 // Dealer
                 "DEALER NAME", "DEALER ADDRESS",
                 // Agency
-                "AGENCY NAME"
-        );
+                "AGENCY NAME");
 
         if (!includeSample) {
             return generateTemplate(headers, null);
@@ -123,7 +122,7 @@ public class CsvTemplateGenerator {
                         // Block Status
                         "", "", "", "",
                         // Location & Geography
-                        "Mumbai West", "WEST", "En_US",
+                        "Mumbai West", "WEST", "en",
                         // Agent Allocation (PRIMARY AGENT, SECONDARY AGENT, REALLOCATE TO AGENT)
                         "101", "102", "",
                         // Sourcing
@@ -135,9 +134,7 @@ public class CsvTemplateGenerator {
                         // Dealer
                         "", "",
                         // Agency
-                        ""
-                )
-        );
+                        ""));
 
         return generateTemplate(headers, sampleRows);
     }
@@ -162,13 +159,11 @@ public class CsvTemplateGenerator {
                         "update_type",
                         "mobile_number",
                         "alternate_mobile",
-                        "remarks"
-                );
+                        "remarks");
                 if (includeSample) {
                     sampleRows = List.of(
                             List.of("LA123456789", "MOBILE_UPDATE", "9999999999", "8888888888", "New mobile verified"),
-                            List.of("LA987654321", "MOBILE_UPDATE", "7777777777", "", "Updated from bank")
-                    );
+                            List.of("LA987654321", "MOBILE_UPDATE", "7777777777", "", "Updated from bank"));
                 }
                 break;
 
@@ -178,13 +173,12 @@ public class CsvTemplateGenerator {
                         "update_type",
                         "email",
                         "alternate_email",
-                        "remarks"
-                );
+                        "remarks");
                 if (includeSample) {
                     sampleRows = List.of(
-                            List.of("LA123456789", "EMAIL_UPDATE", "newemail@example.com", "alt@example.com", "Email verified"),
-                            List.of("LA987654321", "EMAIL_UPDATE", "updated@example.com", "", "Borrower provided")
-                    );
+                            List.of("LA123456789", "EMAIL_UPDATE", "newemail@example.com", "alt@example.com",
+                                    "Email verified"),
+                            List.of("LA987654321", "EMAIL_UPDATE", "updated@example.com", "", "Borrower provided"));
                 }
                 break;
 
@@ -196,13 +190,13 @@ public class CsvTemplateGenerator {
                         "city",
                         "state",
                         "pincode",
-                        "remarks"
-                );
+                        "remarks");
                 if (includeSample) {
                     sampleRows = List.of(
-                            List.of("LA123456789", "ADDRESS_UPDATE", "123 New Street", "Mumbai", "Maharashtra", "400001", "Verified address"),
-                            List.of("LA987654321", "ADDRESS_UPDATE", "456 Updated Avenue", "Delhi", "Delhi", "110001", "Field visit confirmed")
-                    );
+                            List.of("LA123456789", "ADDRESS_UPDATE", "123 New Street", "Mumbai", "Maharashtra",
+                                    "400001", "Verified address"),
+                            List.of("LA987654321", "ADDRESS_UPDATE", "456 Updated Avenue", "Delhi", "Delhi", "110001",
+                                    "Field visit confirmed"));
                 }
                 break;
 
@@ -219,14 +213,15 @@ public class CsvTemplateGenerator {
                         "city",
                         "state",
                         "pincode",
-                        "remarks"
-                );
+                        "remarks");
                 if (includeSample) {
                     sampleRows = List.of(
-                            List.of("LA123456789", "MOBILE_UPDATE", "9999999999", "8888888888", "", "", "", "", "", "", "Mobile update"),
-                            List.of("LA987654321", "EMAIL_UPDATE", "", "", "email@example.com", "", "", "", "", "", "Email update"),
-                            List.of("LA555555555", "ADDRESS_UPDATE", "", "", "", "", "123 Street", "Mumbai", "MH", "400001", "Address update")
-                    );
+                            List.of("LA123456789", "MOBILE_UPDATE", "9999999999", "8888888888", "", "", "", "", "", "",
+                                    "Mobile update"),
+                            List.of("LA987654321", "EMAIL_UPDATE", "", "", "email@example.com", "", "", "", "", "",
+                                    "Email update"),
+                            List.of("LA555555555", "ADDRESS_UPDATE", "", "", "", "", "123 Street", "Mumbai", "MH",
+                                    "400001", "Address update"));
                 }
         }
 
@@ -248,8 +243,7 @@ public class CsvTemplateGenerator {
                 "reallocation_type",
                 "effective_date",
                 "priority",
-                "remarks"
-        );
+                "remarks");
 
         if (!includeSample) {
             return generateTemplate(headers, null);
@@ -266,8 +260,7 @@ public class CsvTemplateGenerator {
                         "IMMEDIATE",
                         "2025-11-20",
                         "HIGH",
-                        "Agent 101 at full capacity"
-                ),
+                        "Agent 101 at full capacity"),
                 List.of(
                         "1002",
                         "EXT002",
@@ -278,9 +271,7 @@ public class CsvTemplateGenerator {
                         "IMMEDIATE",
                         "2025-11-20",
                         "HIGH",
-                        "Agent 102 resigned"
-                )
-        );
+                        "Agent 102 resigned"));
 
         return generateTemplate(headers, sampleRows);
     }
@@ -290,7 +281,7 @@ public class CsvTemplateGenerator {
      */
     private byte[] generateTemplate(List<String> headers, List<List<String>> sampleRows) {
         try (ByteArrayOutputStream baos = new ByteArrayOutputStream();
-             OutputStreamWriter writer = new OutputStreamWriter(baos, StandardCharsets.UTF_8)) {
+                OutputStreamWriter writer = new OutputStreamWriter(baos, StandardCharsets.UTF_8)) {
 
             // Write header row
             writer.write(String.join(",", headers));
@@ -325,7 +316,8 @@ public class CsvTemplateGenerator {
             return "";
         }
 
-        // If value contains comma, quote, or newline, wrap in quotes and escape existing quotes
+        // If value contains comma, quote, or newline, wrap in quotes and escape
+        // existing quotes
         if (value.contains(",") || value.contains("\"") || value.contains("\n")) {
             return "\"" + value.replace("\"", "\"\"") + "\"";
         }

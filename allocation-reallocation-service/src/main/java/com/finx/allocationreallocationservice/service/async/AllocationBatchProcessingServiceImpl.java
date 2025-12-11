@@ -195,6 +195,22 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
             batch.setStatus(BatchStatus.FAILED);
             batch.setCompletedAt(LocalDateTime.now());
             allocationBatchRepository.save(batch);
+
+            // Save fatal error to batch_errors table so it can be exported
+            BatchError fatalError = BatchError.builder()
+                    .errorId("ERR_FATAL_" + batchId + "_" + System.currentTimeMillis())
+                    .batchId(batchId)
+                    .rowNumber(0)
+                    .errorType(ErrorType.SYSTEM)
+                    .errorMessage("Fatal error during batch processing: " + e.getMessage())
+                    .originalRowData("{\"error\": \"" + e.getMessage().replace("\"", "'") + "\"}")
+                    .build();
+            batchErrorRepository.save(fatalError);
+
+            // Also save any validation errors that were collected before the fatal error
+            if (!errors.isEmpty()) {
+                batchErrorRepository.saveAll(errors);
+            }
         } finally {
             try {
                 Files.deleteIfExists(path);
@@ -411,6 +427,22 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
             batch.setStatus(BatchStatus.FAILED);
             batch.setCompletedAt(LocalDateTime.now());
             allocationBatchRepository.save(batch);
+
+            // Save fatal error to batch_errors table so it can be exported
+            BatchError fatalError = BatchError.builder()
+                    .errorId("ERR_FATAL_" + batchId + "_" + System.currentTimeMillis())
+                    .batchId(batchId)
+                    .rowNumber(0)
+                    .errorType(ErrorType.SYSTEM)
+                    .errorMessage("Fatal error during batch processing: " + e.getMessage())
+                    .originalRowData("{\"error\": \"" + e.getMessage().replace("\"", "'") + "\"}")
+                    .build();
+            batchErrorRepository.save(fatalError);
+
+            // Also save any validation errors that were collected before the fatal error
+            if (!errors.isEmpty()) {
+                batchErrorRepository.saveAll(errors);
+            }
         } finally {
             try {
                 Files.deleteIfExists(path);
@@ -834,6 +866,22 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
             batch.setStatus(BatchStatus.FAILED);
             batch.setCompletedAt(LocalDateTime.now());
             contactUpdateBatchRepository.save(batch);
+
+            // Save fatal error to batch_errors table so it can be exported
+            BatchError fatalError = BatchError.builder()
+                    .errorId("ERR_FATAL_" + batchId + "_" + System.currentTimeMillis())
+                    .batchId(batchId)
+                    .rowNumber(0)
+                    .errorType(ErrorType.SYSTEM)
+                    .errorMessage("Fatal error during batch processing: " + e.getMessage())
+                    .originalRowData("{\"error\": \"" + e.getMessage().replace("\"", "'") + "\"}")
+                    .build();
+            batchErrorRepository.save(fatalError);
+
+            // Also save any validation errors that were collected before the fatal error
+            if (!errors.isEmpty()) {
+                batchErrorRepository.saveAll(errors);
+            }
         } finally {
             try {
                 Files.deleteIfExists(path);
@@ -1142,6 +1190,7 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
 
     private BatchError buildError(String batchId, int rowNumber, String message, String caseId) {
         return BatchError.builder()
+                .errorId(generateErrorId(batchId, rowNumber))
                 .batchId(batchId)
                 .rowNumber(rowNumber)
                 .errorType(ErrorType.VALIDATION)
@@ -1155,6 +1204,7 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
      */
     private BatchError buildErrorWithData(String batchId, int rowNumber, String message, AllocationCsvRow row) {
         return BatchError.builder()
+                .errorId(generateErrorId(batchId, rowNumber))
                 .batchId(batchId)
                 .rowNumber(rowNumber)
                 .errorType(ErrorType.VALIDATION)
@@ -1169,6 +1219,7 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
      */
     private BatchError buildErrorWithData(String batchId, int rowNumber, String message, ReallocationCsvRow row) {
         return BatchError.builder()
+                .errorId(generateErrorId(batchId, rowNumber))
                 .batchId(batchId)
                 .rowNumber(rowNumber)
                 .errorType(ErrorType.VALIDATION)
@@ -1183,6 +1234,7 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
      */
     private BatchError buildErrorWithData(String batchId, int rowNumber, String message, ContactUpdateCsvRow row) {
         return BatchError.builder()
+                .errorId(generateErrorId(batchId, rowNumber))
                 .batchId(batchId)
                 .rowNumber(rowNumber)
                 .errorType(ErrorType.VALIDATION)
@@ -1190,6 +1242,13 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
                 .externalCaseId(row.getLoanId())
                 .originalRowData(convertToJson(row))
                 .build();
+    }
+
+    /**
+     * Generate unique error ID for batch errors
+     */
+    private String generateErrorId(String batchId, int rowNumber) {
+        return String.format("ERR_%s_%d_%d", batchId, rowNumber, System.currentTimeMillis());
     }
 
     /**

@@ -26,13 +26,13 @@ public class CsvTemplateGenerator {
     /**
      * Generate CSV template with headers and sample rows
      *
-     * @param headers      List of column headers
-     * @param sampleRows   List of sample data rows (each row is a list of values)
+     * @param headers    List of column headers
+     * @param sampleRows List of sample data rows (each row is a list of values)
      * @return CSV file as byte array
      */
     public byte[] generateTemplate(List<String> headers, List<List<String>> sampleRows) {
         try (ByteArrayOutputStream baos = new ByteArrayOutputStream();
-             OutputStreamWriter writer = new OutputStreamWriter(baos, StandardCharsets.UTF_8)) {
+                OutputStreamWriter writer = new OutputStreamWriter(baos, StandardCharsets.UTF_8)) {
 
             // Write header row
             writer.write(String.join(",", headers));
@@ -119,14 +119,14 @@ public class CsvTemplateGenerator {
                 // Dealer
                 "DEALER NAME", "DEALER ADDRESS",
                 // Agency
-                "AGENCY NAME"
-        );
+                "AGENCY NAME");
 
         if (!includeSample) {
             return generateTemplate(headers);
         }
 
-        // Sample row with all 86 columns (excluding STATUS and REMARKS which are for export only)
+        // Sample row with all 86 columns (excluding STATUS and REMARKS which are for
+        // export only)
         List<List<String>> sampleRows = List.of(
                 List.of(
                         // Lender & Account
@@ -166,7 +166,7 @@ public class CsvTemplateGenerator {
                         // Block Status
                         "", "", "", "",
                         // Location & Geography
-                        "Mumbai West", "WEST", "En_US",
+                        "Mumbai West", "WEST", "en",
                         // Agent Allocation (PRIMARY AGENT, SECONDARY AGENT, REALLOCATE TO AGENT)
                         "", "", "",
                         // Sourcing
@@ -178,9 +178,7 @@ public class CsvTemplateGenerator {
                         // Dealer
                         "", "",
                         // Agency
-                        ""
-                )
-        );
+                        ""));
 
         return generateTemplate(headers, sampleRows);
     }
@@ -193,7 +191,8 @@ public class CsvTemplateGenerator {
             return "";
         }
 
-        // If value contains comma, quote, or newline, wrap in quotes and escape existing quotes
+        // If value contains comma, quote, or newline, wrap in quotes and escape
+        // existing quotes
         if (value.contains(",") || value.contains("\"") || value.contains("\n")) {
             return "\"" + value.replace("\"", "\"\"") + "\"";
         }
