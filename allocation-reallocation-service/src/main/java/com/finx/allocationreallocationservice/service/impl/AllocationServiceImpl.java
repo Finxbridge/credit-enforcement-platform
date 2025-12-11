@@ -360,11 +360,8 @@ public class AllocationServiceImpl implements AllocationService {
         AllocationRule rule = allocationRuleRepository.findById(ruleId)
                 .orElseThrow(() -> new ResourceNotFoundException("Allocation rule not found: " + ruleId));
 
-        // Enforce lifecycle: simulate() allowed if status == DRAFT or READY_FOR_APPLY
-        if (rule.getStatus() != RuleStatus.DRAFT && rule.getStatus() != RuleStatus.READY_FOR_APPLY) {
-            throw new ValidationException(
-                    "Rule must be in DRAFT or READY_FOR_APPLY status to simulate. Current status: " + rule.getStatus());
-        }
+        // Allow simulation for any status - user can simulate n number of times even after apply
+        log.info("Simulating rule {} with status: {}", ruleId, rule.getStatus());
 
         Map<String, Object> criteria = rule.getCriteria();
         String ruleType = (String) criteria.getOrDefault("ruleType", criteria.get("type"));
@@ -815,8 +812,20 @@ public class AllocationServiceImpl implements AllocationService {
             }
         }
 
+        // Save and flush to ensure immediate persistence
         caseAllocationRepository.saveAll(allocations);
+        caseAllocationRepository.flush();
         allocationHistoryRepository.saveAll(historyEntries);
+
+        log.info("Saved {} allocation records", allocations.size());
+
+        // Verify the allocations by counting for each agent
+        for (Map.Entry<Long, Integer> entry : agentCaseCount.entrySet()) {
+            Long agentId = entry.getKey();
+            long count = caseAllocationRepository.countByPrimaryAgentIdAndStatus(agentId, AllocationStatus.ALLOCATED);
+            log.info("Post-allocation count for agent {}: {} cases (expected to increase by {})",
+                    agentId, count, entry.getValue());
+        }
 
         // CRITICAL: Update cases table to reflect allocation
         updateCasesTableForAllocation(allocations);
@@ -886,8 +895,20 @@ public class AllocationServiceImpl implements AllocationService {
             }
         }
 
+        // Save and flush to ensure immediate persistence
         caseAllocationRepository.saveAll(allocations);
+        caseAllocationRepository.flush();
         allocationHistoryRepository.saveAll(historyEntries);
+
+        log.info("Saved {} allocation records (equal distribution)", allocations.size());
+
+        // Verify the allocations by counting for each agent
+        for (Map.Entry<Long, Integer> entry : agentCaseCount.entrySet()) {
+            Long agentId = entry.getKey();
+            long count = caseAllocationRepository.countByPrimaryAgentIdAndStatus(agentId, AllocationStatus.ALLOCATED);
+            log.info("Post-allocation count for agent {}: {} cases (expected to increase by {})",
+                    agentId, count, entry.getValue());
+        }
 
         // CRITICAL: Update cases table to reflect allocation
         updateCasesTableForAllocation(allocations);
@@ -1291,21 +1312,15 @@ public class AllocationServiceImpl implements AllocationService {
         log.info("Fetching all batches with filters - status: {}, startDate: {}, endDate: {}", status, startDate,
                 endDate);
 
-        List<AllocationBatch> batches;
-        if (status != null || startDate != null || endDate != null) {
-            batches = allocationBatchRepository.findAll().stream()
-                    .filter(batch -> status == null || batch.getStatus().name().equals(status))
-                    .filter(batch -> startDate == null || !batch.getUploadedAt().toLocalDate().isBefore(startDate))
-                    .filter(batch -> endDate == null || !batch.getUploadedAt().toLocalDate().isAfter(endDate))
-                    .skip((long) page * size)
-                    .limit(size)
-                    .collect(Collectors.toList());
-        } else {
-            batches = allocationBatchRepository.findAll().stream()
-                    .skip((long) page * size)
-                    .limit(size)
-                    .collect(Collectors.toList());
-        }
+        // Get all batches sorted by uploadedAt descending (latest first)
+        List<AllocationBatch> batches = allocationBatchRepository.findAll().stream()
+                .sorted((a, b) -> b.getUploadedAt().compareTo(a.getUploadedAt())) // Latest first
+                .filter(batch -> status == null || batch.getStatus().name().equals(status))
+                .filter(batch -> startDate == null || !batch.getUploadedAt().toLocalDate().isBefore(startDate))
+                .filter(batch -> endDate == null || !batch.getUploadedAt().toLocalDate().isAfter(endDate))
+                .skip((long) page * size)
+                .limit(size)
+                .collect(Collectors.toList());
 
         return batches.stream()
                 .map(this::mapToAllocationBatchDTO)
@@ -1560,6 +1575,61 @@ public class AllocationServiceImpl implements AllocationService {
                             .capacity(capacity)
                             .availableCapacity(available)
                             .utilizationPercentage(Math.round(utilization * 100.0) / 100.0)
+                            .build();
+                })
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public List<CaseAllocationDTO> getAllAllocatedCases(Long agentId, String geography, int page, int size) {
+        log.info("Fetching all allocated cases - agentId: {}, geography: {}, page: {}, size: {}",
+                agentId, geography, page, size);
+
+        // Get all ALLOCATED cases from case_allocations table
+        List<CaseAllocation> allocations = caseAllocationRepository.findAll().stream()
+                .filter(alloc -> alloc.getStatus() == AllocationStatus.ALLOCATED)
+                .filter(alloc -> agentId == null || alloc.getPrimaryAgentId().equals(agentId))
+                .filter(alloc -> geography == null || geography.isEmpty() ||
+                        (alloc.getGeographyCode() != null && alloc.getGeographyCode().toLowerCase().contains(geography.toLowerCase())))
+                .sorted((a, b) -> b.getAllocatedAt().compareTo(a.getAllocatedAt())) // Latest first
+                .skip((long) page * size)
+                .limit(size)
+                .collect(Collectors.toList());
+
+        // Map to DTOs with agent details
+        return allocations.stream()
+                .map(alloc -> {
+                    // Get primary agent details
+                    CaseAllocationDTO.AgentDTO primaryAgent = null;
+                    if (alloc.getPrimaryAgentId() != null) {
+                        User user = userRepository.findById(alloc.getPrimaryAgentId()).orElse(null);
+                        if (user != null) {
+                            primaryAgent = CaseAllocationDTO.AgentDTO.builder()
+                                    .userId(user.getId())
+                                    .username(user.getUsername() != null ? user.getUsername() :
+                                            (user.getFirstName() + " " + user.getLastName()))
+                                    .build();
+                        }
+                    }
+
+                    // Get secondary agent details if exists
+                    CaseAllocationDTO.AgentDTO secondaryAgent = null;
+                    if (alloc.getSecondaryAgentId() != null) {
+                        User user = userRepository.findById(alloc.getSecondaryAgentId()).orElse(null);
+                        if (user != null) {
+                            secondaryAgent = CaseAllocationDTO.AgentDTO.builder()
+                                    .userId(user.getId())
+                                    .username(user.getUsername() != null ? user.getUsername() :
+                                            (user.getFirstName() + " " + user.getLastName()))
+                                    .build();
+                        }
+                    }
+
+                    return CaseAllocationDTO.builder()
+                            .caseId(alloc.getCaseId())
+                            .primaryAgent(primaryAgent)
+                            .secondaryAgent(secondaryAgent)
+                            .allocatedAt(alloc.getAllocatedAt())
                             .build();
                 })
                 .collect(Collectors.toList());

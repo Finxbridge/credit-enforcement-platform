@@ -393,4 +393,21 @@ public class AllocationController {
         return ResponseEntity.ok(CommonResponse.success(
                 "Agent workload retrieved successfully.", workload));
     }
+
+    @GetMapping("/cases/allocated")
+    @Operation(summary = "Get all allocated cases with assigned agents",
+               description = "Returns list of all currently allocated cases with their assigned agent details. Supports filtering by agent ID and pagination.")
+    public ResponseEntity<CommonResponse<List<CaseAllocationDTO>>> getAllAllocatedCases(
+            @RequestParam(required = false) Long agentId,
+            @RequestParam(required = false) String geography,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "50") int size) {
+        log.info("Fetching all allocated cases - agentId: {}, geography: {}, page: {}, size: {}",
+                agentId, geography, page, size);
+
+        List<CaseAllocationDTO> allocations = allocationService.getAllAllocatedCases(agentId, geography, page, size);
+
+        return ResponseEntity.ok(CommonResponse.success(
+                "Allocated cases retrieved successfully.", allocations));
+    }
 }

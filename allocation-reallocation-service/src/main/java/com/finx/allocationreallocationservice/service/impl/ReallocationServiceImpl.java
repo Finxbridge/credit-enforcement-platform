@@ -173,7 +173,17 @@ public class ReallocationServiceImpl implements ReallocationService {
             }
         });
 
+        // Save and flush to ensure immediate persistence
         caseAllocationRepository.saveAll(allocations);
+        caseAllocationRepository.flush();
+
+        log.info("Saved {} allocation records with new agent {}", allocations.size(), toAgentId);
+
+        // Verify the update by counting allocations for both agents
+        long fromAgentCount = caseAllocationRepository.countByPrimaryAgentIdAndStatus(fromAgentId, AllocationStatus.ALLOCATED);
+        long toAgentCount = caseAllocationRepository.countByPrimaryAgentIdAndStatus(toAgentId, AllocationStatus.ALLOCATED);
+        log.info("Post-reallocation counts - fromAgent {} has {} cases, toAgent {} has {} cases",
+                fromAgentId, fromAgentCount, toAgentId, toAgentCount);
 
         final Long finalFromAgentId = fromAgentId;
         List<AllocationHistory> history = allocations.stream()

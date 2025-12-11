@@ -51,6 +51,9 @@ public interface AllocationService {
     // Agent Workload
     List<AgentWorkloadDTO> getAgentWorkload(List<Long> agentIds, List<String> geographies);
 
+    // Allocated Cases
+    List<CaseAllocationDTO> getAllAllocatedCases(Long agentId, String geography, int page, int size);
+
     // Contact Update Operations
     AllocationBatchUploadResponseDTO uploadContactUpdateBatch(MultipartFile file);
 

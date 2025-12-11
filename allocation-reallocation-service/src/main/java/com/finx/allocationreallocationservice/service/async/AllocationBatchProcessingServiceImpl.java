@@ -173,7 +173,17 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
 
             batch.setSuccessfulAllocations(successfulAllocations.get());
             batch.setFailedAllocations(failedAllocations.get());
-            batch.setStatus(BatchStatus.COMPLETED);
+
+            // Determine batch status based on success/failure counts
+            BatchStatus finalStatus;
+            if (failedAllocations.get() == 0) {
+                finalStatus = BatchStatus.COMPLETED;
+            } else if (successfulAllocations.get() == 0) {
+                finalStatus = BatchStatus.FAILED;
+            } else {
+                finalStatus = BatchStatus.PARTIALLY_COMPLETED;
+            }
+            batch.setStatus(finalStatus);
             batch.setCompletedAt(LocalDateTime.now());
 
             allocationBatchRepository.save(batch);
@@ -187,8 +197,8 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
             // Update user statistics for allocated agents
             updateUserStatisticsForAllocation(agentCaseCount);
 
-            log.info("Finished processing allocation batch: {}. Total: {}, Success: {}, Failed: {}",
-                    batchId, rows.size(), successfulAllocations.get(), failedAllocations.get());
+            log.info("Finished processing allocation batch: {}. Total: {}, Success: {}, Failed: {}, Status: {}",
+                    batchId, rows.size(), successfulAllocations.get(), failedAllocations.get(), finalStatus);
 
         } catch (Exception e) {
             log.error("Fatal error processing allocation batch {}: {}", batchId, e.getMessage(), e);
@@ -405,7 +415,17 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
 
             batch.setSuccessfulAllocations(successfulAllocations.get());
             batch.setFailedAllocations(failedAllocations.get());
-            batch.setStatus(BatchStatus.COMPLETED);
+
+            // Determine batch status based on success/failure counts
+            BatchStatus finalStatus;
+            if (failedAllocations.get() == 0) {
+                finalStatus = BatchStatus.COMPLETED;
+            } else if (successfulAllocations.get() == 0) {
+                finalStatus = BatchStatus.FAILED;
+            } else {
+                finalStatus = BatchStatus.PARTIALLY_COMPLETED;
+            }
+            batch.setStatus(finalStatus);
             batch.setCompletedAt(LocalDateTime.now());
 
             allocationBatchRepository.save(batch);
@@ -419,8 +439,8 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
             // Update user statistics for both old and new agents
             updateUserStatisticsForReallocation(agentDecrements, agentIncrements);
 
-            log.info("Finished processing reallocation batch: {}. Total: {}, Success: {}, Failed: {}",
-                    batchId, rows.size(), successfulAllocations.get(), failedAllocations.get());
+            log.info("Finished processing reallocation batch: {}. Total: {}, Success: {}, Failed: {}, Status: {}",
+                    batchId, rows.size(), successfulAllocations.get(), failedAllocations.get(), finalStatus);
 
         } catch (Exception e) {
             log.error("Fatal error processing reallocation batch {}: {}", batchId, e.getMessage(), e);
@@ -852,14 +872,24 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
 
             batch.setSuccessfulUpdates(successfulUpdates.get());
             batch.setFailedUpdates(failedUpdates.get());
-            batch.setStatus(BatchStatus.COMPLETED);
+
+            // Determine batch status based on success/failure counts
+            BatchStatus finalStatus;
+            if (failedUpdates.get() == 0) {
+                finalStatus = BatchStatus.COMPLETED;
+            } else if (successfulUpdates.get() == 0) {
+                finalStatus = BatchStatus.FAILED;
+            } else {
+                finalStatus = BatchStatus.PARTIALLY_COMPLETED;
+            }
+            batch.setStatus(finalStatus);
             batch.setCompletedAt(LocalDateTime.now());
 
             contactUpdateBatchRepository.save(batch);
             batchErrorRepository.saveAll(errors);
 
-            log.info("Finished processing contact update batch: {}. Total: {}, Success: {}, Failed: {}",
-                    batchId, rows.size(), successfulUpdates.get(), failedUpdates.get());
+            log.info("Finished processing contact update batch: {}. Total: {}, Success: {}, Failed: {}, Status: {}",
+                    batchId, rows.size(), successfulUpdates.get(), failedUpdates.get(), finalStatus);
 
         } catch (Exception e) {
             log.error("Fatal error processing contact update batch {}: {}", batchId, e.getMessage(), e);
