@@ -365,6 +365,28 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
             throw new BusinessException("Mobile number not available for case: " + caseEntity.getId());
         }
 
+        // Get language code from template resolution
+        String languageCode = "En_US"; // Default to English
+        if (action.getTemplateId() != null) {
+            try {
+                com.finx.strategyengineservice.client.dto.TemplateResolveRequest resolveRequest =
+                    com.finx.strategyengineservice.client.dto.TemplateResolveRequest.builder()
+                        .caseId(caseEntity.getId())
+                        .additionalContext(null)
+                        .build();
+
+                Long templateId = Long.parseLong(action.getTemplateId());
+                com.finx.strategyengineservice.client.dto.TemplateResolveResponse resolveResponse =
+                    templateServiceClient.resolveTemplate(templateId, resolveRequest).getPayload();
+
+                if (resolveResponse != null && resolveResponse.getLanguageShortCode() != null) {
+                    languageCode = resolveResponse.getLanguageShortCode();
+                }
+            } catch (Exception e) {
+                log.warn("Error getting language code from template, using default: En_US", e);
+            }
+        }
+
         // Build WhatsApp request aligned with communication-service format
         com.finx.strategyengineservice.client.dto.WhatsAppRequest request =
                 com.finx.strategyengineservice.client.dto.WhatsAppRequest.builder()
@@ -372,7 +394,7 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
                 .to(java.util.Collections.singletonList(mobile))
                 .components(buildWhatsAppComponents(caseEntity, action))
                 .language(com.finx.strategyengineservice.client.dto.WhatsAppRequest.WhatsAppLanguage.builder()
-                        .code("en")
+                        .code(languageCode)
                         .policy("deterministic")
                         .build())
                 .caseId(caseEntity.getId())

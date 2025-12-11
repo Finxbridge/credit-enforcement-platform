@@ -32,6 +32,11 @@ public class TemplateResolveResponse {
     private String channel;
 
     /**
+     * Language short code for communication service (En_US, Hi, Te)
+     */
+    private String languageShortCode;
+
+    /**
      * Resolved variables (variable name -> value)
      */
     private Map<String, Object> resolvedVariables;

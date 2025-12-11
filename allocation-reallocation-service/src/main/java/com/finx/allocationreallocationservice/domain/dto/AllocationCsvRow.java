@@ -287,6 +287,9 @@ public class AllocationCsvRow {
     @CsvBindByName(column = "SECONDARY AGENT")
     private String secondaryAgent;
 
+    @CsvBindByName(column = "REALLOCATE TO AGENT")
+    private String reallocateToAgent;
+
     // ==================== SOURCING ====================
 
     @CsvBindByName(column = "SOURCING RM NAME")

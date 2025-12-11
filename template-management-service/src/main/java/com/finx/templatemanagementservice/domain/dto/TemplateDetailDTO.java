@@ -1,6 +1,7 @@
 package com.finx.templatemanagementservice.domain.dto;
 
 import com.finx.templatemanagementservice.domain.enums.ChannelType;
+import com.finx.templatemanagementservice.domain.enums.LanguageType;
 import com.finx.templatemanagementservice.domain.enums.ProviderType;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -23,6 +24,8 @@ public class TemplateDetailDTO {
     private String templateName;
     private String templateCode;
     private ChannelType channel;
+    private LanguageType language;
+    private String languageShortCode;  // Short code for communication service (Te, Hi, En_US)
     private ProviderType provider;
     private String providerTemplateId;
     private String description;

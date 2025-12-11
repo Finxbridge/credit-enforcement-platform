@@ -71,6 +71,7 @@ public class TemplateServiceImpl implements TemplateService {
                 .templateName(request.getTemplateName())
                 .templateCode(request.getTemplateCode())
                 .channel(request.getChannel())
+                .language(request.getLanguage())
                 .provider(request.getProvider())
                 .providerTemplateId(request.getProviderTemplateId())
                 .description(request.getDescription())
@@ -309,9 +310,14 @@ public class TemplateServiceImpl implements TemplateService {
                         .build();
         components.add(bodyComponent);
 
+        // Use template's language short code (En_US, Hi, Te) for MSG91
+        String languageCode = template.getLanguage() != null
+                ? template.getLanguage().getShortCode()
+                : "En_US"; // Default to English
+
         WhatsAppCreateTemplateRequest request = WhatsAppCreateTemplateRequest.builder()
                 .templateName(msg91TemplateName)
-                .language(content.getLanguageCode() != null ? content.getLanguageCode() : "en")
+                .language(languageCode)
                 .category("UTILITY") // Default category
                 .components(components)
                 .build();
@@ -381,6 +387,7 @@ public class TemplateServiceImpl implements TemplateService {
                 .templateName(request.getTemplateName())
                 .templateCode(templateCode)
                 .channel(request.getChannel())
+                .language(request.getLanguage())
                 .providerTemplateId(request.getProviderTemplateId())
                 .description(request.getDescription())
                 .isActive(true)
@@ -613,18 +620,26 @@ public class TemplateServiceImpl implements TemplateService {
 
     /**
      * Generate template code from name and channel
+     * Format: CHANNEL_TEMPLATENAME_TIMESTAMP (max 100 chars)
      */
     private String generateTemplateCode(String templateName, ChannelType channel) {
         String code = templateName.toUpperCase()
                 .replaceAll("[^A-Z0-9]", "_")
-                .replaceAll("_+", "_");
+                .replaceAll("_+", "_")
+                .replaceAll("^_|_$", ""); // Remove leading/trailing underscores
+
+        String channelPrefix = channel.name() + "_";
+        String timestamp = "_" + System.currentTimeMillis();
+
+        // Calculate max length for code portion (100 - channel prefix - timestamp)
+        int maxCodeLength = 100 - channelPrefix.length() - timestamp.length();
 
         // Truncate if too long
-        if (code.length() > 40) {
-            code = code.substring(0, 40);
+        if (code.length() > maxCodeLength) {
+            code = code.substring(0, maxCodeLength);
         }
 
-        return channel.name() + "_" + code + "_" + System.currentTimeMillis();
+        return channelPrefix + code + timestamp;
     }
 
     /**
@@ -902,6 +917,7 @@ public class TemplateServiceImpl implements TemplateService {
                 .templateId(templateId)
                 .templateCode(template.getTemplateCode())
                 .channel(template.getChannel() != null ? template.getChannel().name() : null)
+                .languageShortCode(template.getLanguage() != null ? template.getLanguage().getShortCode() : "En_US")
                 .resolvedVariables(resolvedVariables)
                 .renderedContent(renderedContent)
                 .subject(renderedSubject)
@@ -988,6 +1004,7 @@ public class TemplateServiceImpl implements TemplateService {
                 .templateName(template.getTemplateName())
                 .templateCode(template.getTemplateCode())
                 .channel(template.getChannel())
+                .language(template.getLanguage())
                 .provider(template.getProvider())
                 .providerTemplateId(template.getProviderTemplateId())
                 .description(template.getDescription())
@@ -1028,6 +1045,8 @@ public class TemplateServiceImpl implements TemplateService {
                 .templateName(template.getTemplateName())
                 .templateCode(template.getTemplateCode())
                 .channel(template.getChannel())
+                .language(template.getLanguage())
+                .languageShortCode(template.getLanguage() != null ? template.getLanguage().getShortCode() : null)
                 .provider(template.getProvider())
                 .providerTemplateId(template.getProviderTemplateId())
                 .description(template.getDescription())

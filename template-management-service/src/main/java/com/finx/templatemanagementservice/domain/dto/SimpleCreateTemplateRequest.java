@@ -1,6 +1,7 @@
 package com.finx.templatemanagementservice.domain.dto;
 
 import com.finx.templatemanagementservice.domain.enums.ChannelType;
+import com.finx.templatemanagementservice.domain.enums.LanguageType;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.AllArgsConstructor;
@@ -26,6 +27,9 @@ public class SimpleCreateTemplateRequest {
 
     @NotNull(message = "Channel is required")
     private ChannelType channel;  // SMS, WHATSAPP, EMAIL, NOTICE, IVR
+
+    @NotNull(message = "Language is required")
+    private LanguageType language;  // TELUGU, HINDI, ENGLISH
 
     /**
      * Template text with {{variableName}} placeholders

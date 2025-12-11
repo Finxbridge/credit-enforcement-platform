@@ -79,11 +79,21 @@ public class TemplateController {
     @GetMapping("/variables/available")
     @Operation(summary = "Get available variables",
                description = "Get list of available variables that can be used in templates. " +
-                           "Use these in template content like {{customerName}}, {{loanAccount}}")
-    public ResponseEntity<CommonResponse<List<VariableDefinitionDTO>>> getAvailableVariables() {
+                           "Use variableKey in template content like {{customer_name}}, {{loan_account_number}}")
+    public ResponseEntity<CommonResponse<List<AvailableVariableDTO>>> getAvailableVariables() {
         log.info("GET /api/v1/templates/variables/available - Fetching available variables");
         List<VariableDefinitionDTO> variables = variableDefinitionService.getActiveVariables();
-        return ResponseEntity.ok(CommonResponse.success("Available variables retrieved successfully", variables));
+
+        // Map to simplified DTO with only essential fields
+        List<AvailableVariableDTO> availableVariables = variables.stream()
+                .map(v -> AvailableVariableDTO.builder()
+                        .variableKey(v.getVariableKey())
+                        .exampleValue(v.getExampleValue())
+                        .isActive(v.getIsActive())
+                        .build())
+                .toList();
+
+        return ResponseEntity.ok(CommonResponse.success("Available variables retrieved successfully", availableVariables));
     }
 
     // ==================== 3. Get Template by ID ====================
@@ -181,7 +191,9 @@ public class TemplateController {
                         .id(t.getId())
                         .templateName(t.getTemplateName())
                         .templateCode(t.getTemplateCode())
-                        .channel(t.getChannel())
+                        .channel(t.getChannel() != null ? t.getChannel().name() : null)
+                        .language(t.getLanguage() != null ? t.getLanguage().name() : null)
+                        .languageShortCode(t.getLanguage() != null ? t.getLanguage().getShortCode() : null)
                         .build())
                 .toList();
         return ResponseEntity.ok(CommonResponse.success("Templates retrieved successfully", dropdownList));

@@ -18,66 +18,123 @@ public class CsvTemplateGenerator {
 
     /**
      * Generate allocation CSV template
-     * Headers match AllocationCsvRow.java annotations exactly
-     * NOTE: loan_id is REQUIRED (not case_id) - users know loan IDs from case upload, not database IDs
+     * Headers match CaseCsvRowDTO.java from case-sourcing-service for consistency
+     * Total: 86 columns matching case upload template
      */
     public byte[] generateAllocationTemplate(boolean includeSample) {
-        // All columns matching AllocationCsvRow.java in exact order
+        // All columns matching case-sourcing-service CaseCsvRowDTO.java in exact order
         List<String> headers = List.of(
-                "case_id",
-                "external_case_id",
-                "loan_id",
-                "case_number",
-                "customer_name",
-                "outstanding",
-                "dpd",
-                "primary_agent_id",
-                "secondary_agent_id",
-                "allocation_type",
-                "allocation_percentage",
-                "geography",
-                "bucket",
-                "priority",
-                "remarks"
+                // Lender & Account
+                "LENDER", "ACCOUNT NO",
+                // Customer Information
+                "CUSTOMER NAME", "MOBILE NO", "CUSTOMER ID", "EMAIL",
+                "SECONDARY MOBILE NUMBER", "RESI PHONE", "ADDITIONAL PHONE 2",
+                // Address
+                "PRIMARY ADDRESS", "SECONDARY ADDRESS", "CITY", "STATE", "PINCODE",
+                // Loan Financial Details
+                "OVERDUE AMOUNT", "POS", "TOS", "LOAN AMOUNT OR LIMIT", "EMI AMOUNT",
+                "PENALTY AMOUNT", "CHARGES", "OD INTEREST",
+                // Overdue Breakdown
+                "PRINCIPAL OVERDUE", "INTEREST OVERDUE", "FEES OVERDUE", "PENALTY OVERDUE",
+                // EMI Details
+                "EMI START DATE", "NO OF PAID EMI", "NO OF PENDING EMI", "Emi Overdue From", "Next EMI Date",
+                // Loan Tenure
+                "LOAN DURATION", "ROI",
+                // Important Dates
+                "DATE OF DISBURSEMENT", "MATURITY DATE", "DUE DATE", "WRITEOFF DATE",
+                // DPD & Bucket
+                "DPD", "RISK BUCKET", "SOM BUCKET", "SOM DPD", "CYCLE DUE",
+                // Product & Scheme
+                "PRODUCT", "SCHEME CODE", "PRODUCT SOURCING TYPE",
+                // Credit Card Specific
+                "MINIMUM AMOUNT DUE", "CARD OUTSTANDING", "STATEMENT DATE", "STATEMENT MONTH",
+                "CARD STATUS", "LAST BILLED AMOUNT", "LAST 4 DIGITS",
+                // Payment Information
+                "LAST PAYMENT DATE", "LAST PAYMENT MODE", "LAST PAID AMOUNT",
+                // Repayment Bank Details
+                "BENEFICIARY ACCOUNT Number", "BENEFICIARY ACCOUNT NAME",
+                "REPAYMENT BANK NAME", "REPAYMENT IFSC CODE", "REFERENCE URL",
+                // Lender References
+                "REFERENCE LENDER", "CO LENDER",
+                // Family & Employment
+                "FATHER SPOUSE NAME", "EMPLOYER OR BUSINESS ENTITY",
+                // References
+                "REFERENCE 1 NAME", "REFERENCE 1 NUMBER", "REFERENCE 2 NAME", "REFERENCE 2 NUMBER",
+                // Block Status
+                "BLOCK 1", "BLOCK 1 DATE", "BLOCK 2", "BLOCK 2 DATE",
+                // Location & Geography
+                "LOCATION", "ZONE", "LANGUAGE",
+                // Agent Allocation
+                "PRIMARY AGENT", "SECONDARY AGENT", "REALLOCATE TO AGENT",
+                // Sourcing
+                "SOURCING RM NAME",
+                // Flags
+                "REVIEW FLAG",
+                // Asset Details
+                "ASSET DETAILS", "VEHICLE REGISTRATION NUMBER", "VEHICLE IDENTIFICATION NUMBER",
+                "CHASSIS NUMBER", "MODEL MAKE", "BATTERY ID",
+                // Dealer
+                "DEALER NAME", "DEALER ADDRESS",
+                // Agency
+                "AGENCY NAME"
         );
 
         if (!includeSample) {
             return generateTemplate(headers, null);
         }
 
+        // Sample row with all 86 columns matching case upload template
         List<List<String>> sampleRows = List.of(
                 List.of(
-                        "",                     // case_id (optional, system will lookup)
-                        "",                     // external_case_id (optional)
-                        "LA123456789",          // loan_id (REQUIRED)
-                        "",                     // case_number (reference only)
-                        "Naveen Kumar",         // customer_name (reference only)
-                        "125000",               // outstanding (reference only)
-                        "45",                   // dpd (reference only)
-                        "101",                  // primary_agent_id (REQUIRED)
-                        "102",                  // secondary_agent_id (optional)
-                        "PRIMARY",              // allocation_type
-                        "100",                  // allocation_percentage
-                        "MUMBAI_WEST",          // geography
-                        "X",                    // bucket
-                        "HIGH",                 // priority
-                        "High value case"       // remarks
-                ),
-                List.of(
+                        // Lender & Account
+                        "ABC Finance", "LA123456789",
+                        // Customer Information
+                        "Naveen Kumar", "9398365948", "CUST001", "naveen@email.com",
+                        "9876543210", "04024567890", "9123456780",
+                        // Address
+                        "123 Main Street Andheri", "456 Sub Road Andheri East", "Mumbai", "Maharashtra", "400069",
+                        // Loan Financial Details
+                        "125000", "95000", "120000", "500000", "15000",
+                        "5000", "2000", "3000",
+                        // Overdue Breakdown
+                        "80000", "30000", "10000", "5000",
+                        // EMI Details
+                        "2024-01-15", "10", "14", "2024-10-15", "2025-01-15",
+                        // Loan Tenure
+                        "24 months", "12.5",
+                        // Important Dates
+                        "2024-01-15", "2026-01-15", "2024-12-05", "",
+                        // DPD & Bucket
+                        "45", "X", "B1", "30", "2",
+                        // Product & Scheme
+                        "Personal Loan", "PL001", "DSA",
+                        // Credit Card Specific
+                        "", "", "", "", "", "", "",
+                        // Payment Information
+                        "2024-11-01", "NEFT", "12000",
+                        // Repayment Bank Details
+                        "1234567890", "Naveen Kumar", "HDFC Bank", "HDFC0001234", "https://pay.finx.com/123",
+                        // Lender References
+                        "XYZ Bank", "",
+                        // Family & Employment
+                        "Ramesh Kumar", "ABC Corp",
+                        // References
+                        "Suresh", "9876543211", "Priya", "9876543212",
+                        // Block Status
+                        "", "", "", "",
+                        // Location & Geography
+                        "Mumbai West", "WEST", "en",
+                        // Agent Allocation (PRIMARY AGENT, SECONDARY AGENT, REALLOCATE TO AGENT)
+                        "101", "102", "",
+                        // Sourcing
+                        "Rahul Sales",
+                        // Flags
                         "",
-                        "",
-                        "LA987654321",
-                        "",
-                        "Priya Sharma",
-                        "180000",
-                        "32",
-                        "103",
-                        "",
-                        "PRIMARY",
-                        "100",
-                        "DELHI_SOUTH",
-                        "M2",
-                        "MEDIUM",
+                        // Asset Details
+                        "", "", "", "", "", "",
+                        // Dealer
+                        "", "",
+                        // Agency
                         ""
                 )
         );

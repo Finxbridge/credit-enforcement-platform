@@ -1,6 +1,7 @@
 package com.finx.templatemanagementservice.domain.entity;
 
 import com.finx.templatemanagementservice.domain.enums.ChannelType;
+import com.finx.templatemanagementservice.domain.enums.LanguageType;
 import com.finx.templatemanagementservice.domain.enums.ProviderType;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
@@ -34,12 +35,16 @@ public class Template {
     @Column(name = "template_name", nullable = false, length = 100)
     private String templateName;
 
-    @Column(name = "template_code", nullable = false, unique = true, length = 50)
+    @Column(name = "template_code", nullable = false, unique = true, length = 100)
     private String templateCode;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "channel", nullable = false, length = 20)
     private ChannelType channel;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "language", length = 20)
+    private LanguageType language;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "provider", length = 50)
