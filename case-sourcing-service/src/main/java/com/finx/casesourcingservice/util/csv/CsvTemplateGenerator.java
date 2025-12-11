@@ -166,7 +166,7 @@ public class CsvTemplateGenerator {
                         // Block Status
                         "", "", "", "",
                         // Location & Geography
-                        "Mumbai West", "WEST", "en",
+                        "Mumbai West", "WEST", "En_US",
                         // Agent Allocation (PRIMARY AGENT, SECONDARY AGENT, REALLOCATE TO AGENT)
                         "", "", "",
                         // Sourcing

@@ -7,10 +7,14 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+
+import java.time.LocalDate;
+import java.util.List;
 
 import org.springframework.web.bind.annotation.RequestPart;
 
@@ -87,5 +91,23 @@ public class ReallocationController {
         return ResponseEntity.ok()
                 .headers(headers)
                 .body(csvData);
+    }
+
+    @GetMapping("/batches")
+    @Operation(summary = "List/Search all reallocation batches",
+               description = "Returns only reallocation batches (not allocation or contact update batches)")
+    public ResponseEntity<CommonResponse<List<AllocationBatchDTO>>> getReallocationBatches(
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        log.info("Fetching reallocation batches with status: {}, dates: {} to {}, page: {}, size: {}",
+                status, startDate, endDate, page, size);
+
+        List<AllocationBatchDTO> batches = reallocationService.getReallocationBatches(status, startDate, endDate, page, size);
+
+        return ResponseEntity.ok(CommonResponse.success(
+                "Reallocation batches retrieved successfully.", batches));
     }
 }

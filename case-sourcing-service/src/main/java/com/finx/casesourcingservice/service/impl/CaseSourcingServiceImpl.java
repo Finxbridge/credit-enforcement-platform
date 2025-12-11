@@ -248,9 +248,8 @@ public class CaseSourcingServiceImpl implements CaseSourcingService {
 
         @Override
         @Transactional(readOnly = true)
-        @Cacheable(value = "unallocatedCases", key = "#pageable.pageNumber + '-' + #pageable.pageSize")
         public Page<UnallocatedCaseDTO> getUnallocatedCases(Pageable pageable) {
-                log.info("Fetching unallocated ACTIVE cases");
+                log.info("Fetching unallocated ACTIVE cases (no caching - fresh data every time)");
 
                 // Use findByCaseStatusAndActive to get only ACTIVE (status=200) unallocated cases
                 Page<Case> cases = caseRepository.findByCaseStatusAndActive("UNALLOCATED", pageable);

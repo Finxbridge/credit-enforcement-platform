@@ -114,4 +114,23 @@ public interface UserRepository extends JpaRepository<User, Long> {
            "OR (:cities IS NOT NULL AND LOWER(u.city) IN :cities))")
     List<User> findByGeographyFiltersIgnoreCase(@Param("states") List<String> states,
                                                   @Param("cities") List<String> cities);
+
+    /**
+     * Find user by full name (firstName + lastName, case-insensitive)
+     * Used for CSV uploads where agent name is provided instead of ID/username
+     */
+    @Query("SELECT u FROM User u WHERE LOWER(CONCAT(u.firstName, ' ', u.lastName)) = LOWER(:fullName)")
+    Optional<User> findByFullNameIgnoreCase(@Param("fullName") String fullName);
+
+    /**
+     * Find user by first name (case-insensitive)
+     */
+    @Query("SELECT u FROM User u WHERE LOWER(u.firstName) = LOWER(:firstName)")
+    List<User> findByFirstNameIgnoreCase(@Param("firstName") String firstName);
+
+    /**
+     * Find user by last name (case-insensitive)
+     */
+    @Query("SELECT u FROM User u WHERE LOWER(u.lastName) = LOWER(:lastName)")
+    List<User> findByLastNameIgnoreCase(@Param("lastName") String lastName);
 }

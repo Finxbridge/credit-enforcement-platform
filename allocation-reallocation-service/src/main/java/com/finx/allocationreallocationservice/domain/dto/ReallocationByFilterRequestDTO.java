@@ -1,6 +1,6 @@
 package com.finx.allocationreallocationservice.domain.dto;
 
-import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.NotBlank;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -13,11 +13,17 @@ import java.util.Map;
 @NoArgsConstructor
 @AllArgsConstructor
 public class ReallocationByFilterRequestDTO {
-    @NotNull(message = "filterCriteria is required")
     private Map<String, Object> filterCriteria;
 
-    @NotNull(message = "toUserId is required")
-    private Long toUserId;
+    /**
+     * Target agent - can be numeric ID, username, or full name (firstName lastName)
+     * Examples: "123", "john.doe", "John Doe"
+     */
+    @NotBlank(message = "toAgent is required")
+    private String toAgent;
 
     private String reason;
+
+    // Legacy support - if numeric ID is passed directly
+    private Long toUserId;
 }

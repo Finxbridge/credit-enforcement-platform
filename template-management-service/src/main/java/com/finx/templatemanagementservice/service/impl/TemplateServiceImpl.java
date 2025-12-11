@@ -297,23 +297,37 @@ public class TemplateServiceImpl implements TemplateService {
         String msg91TemplateName = convertToMsg91TemplateName(template.getTemplateName());
 
         // Convert {{variableName}} to {{1}}, {{2}}, etc. for MSG91 WhatsApp format
-        String msg91Content = convertToWhatsAppMsg91Format(content.getContent());
+        // and collect variable names for sample value generation
+        List<String> extractedVariables = new ArrayList<>();
+        String msg91Content = convertToWhatsAppNumberedFormat(content.getContent(), extractedVariables);
+
+        // Generate sample values based on extracted variable names
+        List<String> sampleValues = generateSampleValuesForVariables(extractedVariables);
 
         // Build components based on template content
         List<WhatsAppCreateTemplateRequest.TemplateComponent> components = new ArrayList<>();
 
-        // Add BODY component with converted template content
-        WhatsAppCreateTemplateRequest.TemplateComponent bodyComponent =
+        // Build body component with example sample values
+        WhatsAppCreateTemplateRequest.TemplateComponent.TemplateComponentBuilder bodyBuilder =
                 WhatsAppCreateTemplateRequest.TemplateComponent.builder()
                         .type("BODY")
-                        .text(msg91Content)
-                        .build();
-        components.add(bodyComponent);
+                        .text(msg91Content);
 
-        // Use template's language short code (En_US, Hi, Te) for MSG91
+        // Add example with sample values if variables exist
+        if (!sampleValues.isEmpty()) {
+            WhatsAppCreateTemplateRequest.ComponentExample example =
+                    WhatsAppCreateTemplateRequest.ComponentExample.builder()
+                            .bodyText(List.of(sampleValues))
+                            .build();
+            bodyBuilder.example(example);
+        }
+
+        components.add(bodyBuilder.build());
+
+        // Use template's language short code (en_US, hi, te) for MSG91
         String languageCode = template.getLanguage() != null
                 ? template.getLanguage().getShortCode()
-                : "En_US"; // Default to English
+                : "en_US"; // Default to English
 
         WhatsAppCreateTemplateRequest request = WhatsAppCreateTemplateRequest.builder()
                 .templateName(msg91TemplateName)
@@ -333,6 +347,114 @@ public class TemplateServiceImpl implements TemplateService {
             }
             log.info("WhatsApp template synced successfully: {}", response.getData());
         }
+    }
+
+    /**
+     * Convert {{variableName}} placeholders to {{1}}, {{2}}, etc. for MSG91 WhatsApp format
+     * Also collects the variable names in order for sample value generation
+     */
+    private String convertToWhatsAppNumberedFormat(String content, List<String> extractedVariables) {
+        if (content == null || content.isEmpty()) {
+            return content;
+        }
+
+        // Extract all unique variable names in order of appearance
+        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("\\{\\{([^}]+)\\}\\}");
+        java.util.regex.Matcher matcher = pattern.matcher(content);
+
+        while (matcher.find()) {
+            String varName = matcher.group(1).trim();
+            // Skip if it's already a number (already in MSG91 format)
+            if (!varName.matches("\\d+") && !extractedVariables.contains(varName)) {
+                extractedVariables.add(varName);
+            }
+        }
+
+        // Replace each variable name with its numbered position
+        String result = content;
+        for (int i = 0; i < extractedVariables.size(); i++) {
+            String varName = extractedVariables.get(i);
+            // Replace {{variableName}} with {{number}}
+            result = result.replace("{{" + varName + "}}", "{{" + (i + 1) + "}}");
+        }
+
+        return result;
+    }
+
+    /**
+     * Generate sample values based on variable names
+     * Maps common variable names to appropriate sample values
+     */
+    private List<String> generateSampleValuesForVariables(List<String> variableNames) {
+        List<String> sampleValues = new ArrayList<>();
+
+        for (String varName : variableNames) {
+            String sampleValue = getSampleValueForVariable(varName);
+            sampleValues.add(sampleValue);
+        }
+
+        return sampleValues;
+    }
+
+    /**
+     * Get appropriate sample value based on variable name
+     */
+    private String getSampleValueForVariable(String variableName) {
+        if (variableName == null) {
+            return "Sample value";
+        }
+
+        String lowerVar = variableName.toLowerCase();
+
+        // Customer related
+        if (lowerVar.contains("customer_name") || lowerVar.equals("name")) {
+            return "Naveen Kumar";
+        }
+        if (lowerVar.contains("customer_first")) {
+            return "Naveen";
+        }
+        if (lowerVar.contains("email")) {
+            return "naveen@example.com";
+        }
+        if (lowerVar.contains("phone") || lowerVar.contains("mobile")) {
+            return "9876543210";
+        }
+
+        // Loan related
+        if (lowerVar.contains("loan_account") || lowerVar.contains("account_number")) {
+            return "LA123456789";
+        }
+        if (lowerVar.contains("outstanding") || lowerVar.contains("amount") || lowerVar.contains("emi")) {
+            return "Rs. 25,000";
+        }
+        if (lowerVar.contains("due_date") || lowerVar.contains("date")) {
+            return "15-Jan-2025";
+        }
+        if (lowerVar.contains("dpd")) {
+            return "30";
+        }
+
+        // Company related
+        if (lowerVar.contains("company_name")) {
+            return "FinXBridge";
+        }
+        if (lowerVar.contains("company_phone")) {
+            return "+91-1234567890";
+        }
+        if (lowerVar.contains("company_email")) {
+            return "support@finxbridge.com";
+        }
+
+        // Other
+        if (lowerVar.contains("payment_link") || lowerVar.contains("link") || lowerVar.contains("url")) {
+            return "https://pay.finxbridge.com/abc123";
+        }
+        if (lowerVar.contains("agent")) {
+            return "Agent Rahul";
+        }
+
+        // Default
+        return "Sample value";
     }
 
     /**

@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 @Repository
@@ -15,6 +16,11 @@ public interface AllocationBatchRepository extends JpaRepository<AllocationBatch
     Optional<AllocationBatch> findByBatchId(String batchId);
 
     boolean existsByBatchId(String batchId);
+
+    /**
+     * Find all batches where batchId starts with the given prefix, ordered by uploadedAt descending
+     */
+    List<AllocationBatch> findByBatchIdStartingWithOrderByUploadedAtDesc(String prefix);
 
     @Query("SELECT COUNT(ab) FROM AllocationBatch ab WHERE ab.status = :status")
     Long countByStatus(BatchStatus status);

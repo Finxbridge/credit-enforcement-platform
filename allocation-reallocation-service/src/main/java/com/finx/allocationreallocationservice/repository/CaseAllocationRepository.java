@@ -16,6 +16,12 @@ public interface CaseAllocationRepository extends JpaRepository<CaseAllocation, 
 
     List<CaseAllocation> findByPrimaryAgentId(Long primaryAgentId);
 
+    /**
+     * Find all allocations for an agent with a specific status (e.g., ALLOCATED)
+     * Used for reallocation to only move currently allocated cases
+     */
+    List<CaseAllocation> findByPrimaryAgentIdAndStatus(Long primaryAgentId, AllocationStatus status);
+
     long countByPrimaryAgentIdAndStatus(Long primaryAgentId, AllocationStatus status);
 
     List<CaseAllocation> findByBatchId(String batchId);

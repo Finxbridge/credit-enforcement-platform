@@ -1,6 +1,7 @@
 package com.finx.allocationreallocationservice.service.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.finx.allocationreallocationservice.domain.dto.AllocationBatchDTO;
 import com.finx.allocationreallocationservice.domain.dto.AllocationBatchStatusDTO;
 import com.finx.allocationreallocationservice.domain.dto.AllocationBatchUploadResponseDTO;
 import com.finx.allocationreallocationservice.domain.dto.ReallocationByAgentRequestDTO;
@@ -12,6 +13,7 @@ import com.finx.allocationreallocationservice.domain.entity.AuditLog;
 import com.finx.allocationreallocationservice.domain.entity.BatchError;
 import com.finx.allocationreallocationservice.domain.entity.CaseAllocation;
 import com.finx.allocationreallocationservice.domain.enums.AllocationAction;
+import com.finx.allocationreallocationservice.domain.enums.AllocationStatus;
 import com.finx.allocationreallocationservice.domain.enums.BatchStatus;
 import com.finx.allocationreallocationservice.exception.ResourceNotFoundException;
 import com.finx.allocationreallocationservice.repository.AllocationBatchRepository;
@@ -27,6 +29,7 @@ import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.jpa.domain.Specification;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -37,6 +40,7 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -59,6 +63,7 @@ public class ReallocationServiceImpl implements ReallocationService {
     private final com.finx.allocationreallocationservice.repository.UserRepository userRepository;
     private final com.finx.allocationreallocationservice.repository.CaseReadRepository caseReadRepository;
     private final CaseSourcingServiceClient caseSourcingServiceClient;
+    private final JdbcTemplate jdbcTemplate;
 
     @SuppressWarnings("null")
     @Override
@@ -108,14 +113,32 @@ public class ReallocationServiceImpl implements ReallocationService {
     @Override
     @Transactional
     public ReallocationResponseDTO reallocateByAgent(ReallocationByAgentRequestDTO request) {
-        log.info("Processing reallocation from user {} to user {}",
-                request.getFromUserId(), request.getToUserId());
-
         String jobId = "REALLOC_JOB_" + System.currentTimeMillis();
 
-        List<CaseAllocation> allocations = caseAllocationRepository.findByPrimaryAgentId(request.getFromUserId());
+        // Resolve fromAgent - can be ID, username, or full name
+        Long fromAgentId = resolveAgentId(request.getFromAgent(), request.getFromUserId());
+        if (fromAgentId == null) {
+            throw new BusinessException("Could not resolve source agent: " +
+                    (request.getFromAgent() != null ? request.getFromAgent() : request.getFromUserId()));
+        }
+
+        // Resolve toAgent - can be ID, username, or full name
+        Long toAgentId = resolveAgentId(request.getToAgent(), request.getToUserId());
+        if (toAgentId == null) {
+            throw new BusinessException("Could not resolve target agent: " +
+                    (request.getToAgent() != null ? request.getToAgent() : request.getToUserId()));
+        }
+
+        log.info("Processing reallocation from agent {} to agent {}", fromAgentId, toAgentId);
+
+        // Only get ALLOCATED cases (not deallocated or other statuses)
+        List<CaseAllocation> allocations = caseAllocationRepository.findByPrimaryAgentIdAndStatus(
+                fromAgentId, AllocationStatus.ALLOCATED);
+
+        log.info("Found {} ALLOCATED cases for agent {}", allocations.size(), fromAgentId);
 
         if (allocations.isEmpty()) {
+            log.info("No ALLOCATED cases found for agent {} to reallocate", fromAgentId);
             return ReallocationResponseDTO.builder()
                     .jobId(jobId)
                     .status("COMPLETED")
@@ -129,8 +152,9 @@ public class ReallocationServiceImpl implements ReallocationService {
         int casesReallocated = allocations.size();
 
         // Update allocations with new agent and maintain/update fields
+        final Long finalToAgentId = toAgentId;
         allocations.forEach(alloc -> {
-            alloc.setPrimaryAgentId(request.getToUserId());
+            alloc.setPrimaryAgentId(finalToAgentId);
 
             // Maintain workload_percentage (default 100.00 if not set)
             if (alloc.getWorkloadPercentage() == null) {
@@ -151,11 +175,12 @@ public class ReallocationServiceImpl implements ReallocationService {
 
         caseAllocationRepository.saveAll(allocations);
 
+        final Long finalFromAgentId = fromAgentId;
         List<AllocationHistory> history = allocations.stream()
                 .map(alloc -> AllocationHistory.builder()
                         .caseId(alloc.getCaseId())
-                        .allocatedToUserId(request.getToUserId())
-                        .allocatedFromUserId(request.getFromUserId())
+                        .allocatedToUserId(finalToAgentId)
+                        .allocatedFromUserId(finalFromAgentId)
                         .newOwnerType("USER")
                         .previousOwnerType("USER")
                         .allocatedAt(LocalDateTime.now())
@@ -170,15 +195,21 @@ public class ReallocationServiceImpl implements ReallocationService {
                     allocations.get(i));
         }
 
+        // CRITICAL: Update cases table to reflect reallocation (change allocated_to_user_id)
+        updateCasesTableForReallocation(allocations, toAgentId);
+
         // Update user statistics
         java.util.Map<Long, Integer> decrements = new java.util.HashMap<>();
         java.util.Map<Long, Integer> increments = new java.util.HashMap<>();
-        decrements.put(request.getFromUserId(), casesReallocated);
-        increments.put(request.getToUserId(), casesReallocated);
+        decrements.put(fromAgentId, casesReallocated);
+        increments.put(toAgentId, casesReallocated);
         updateUserStatisticsForReallocation(decrements, increments);
 
         // Evict unallocated cases cache in case-sourcing-service
         evictCaseSourcingCache();
+
+        log.info("Reallocation by agent completed: {} cases moved from agent {} to agent {}",
+                casesReallocated, fromAgentId, toAgentId);
 
         return ReallocationResponseDTO.builder()
                 .jobId(jobId)
@@ -191,9 +222,16 @@ public class ReallocationServiceImpl implements ReallocationService {
     @Override
     @Transactional
     public ReallocationResponseDTO reallocateByFilter(ReallocationByFilterRequestDTO request) {
-        log.info("Processing reallocation by filter to user {}", request.getToUserId());
-
         String jobId = "REALLOC_JOB_" + System.currentTimeMillis();
+
+        // Resolve toAgent - can be ID, username, or full name
+        Long toAgentId = resolveAgentId(request.getToAgent(), request.getToUserId());
+        if (toAgentId == null) {
+            throw new BusinessException("Could not resolve target agent: " +
+                    (request.getToAgent() != null ? request.getToAgent() : request.getToUserId()));
+        }
+
+        log.info("Processing reallocation by filter to agent {}", toAgentId);
 
         Specification<CaseAllocation> spec = (root, query, criteriaBuilder) -> {
             List<Predicate> predicates = new ArrayList<>();
@@ -230,10 +268,11 @@ public class ReallocationServiceImpl implements ReallocationService {
         java.util.Map<Long, Integer> increments = new java.util.HashMap<>();
 
         // Update allocations with new agent and maintain/update fields
+        final Long finalToAgentId = toAgentId;
         allocations.forEach(alloc -> {
             Long oldAgentId = alloc.getPrimaryAgentId();
             decrements.put(oldAgentId, decrements.getOrDefault(oldAgentId, 0) + 1);
-            alloc.setPrimaryAgentId(request.getToUserId());
+            alloc.setPrimaryAgentId(finalToAgentId);
 
             // Maintain workload_percentage (default 100.00 if not set)
             if (alloc.getWorkloadPercentage() == null) {
@@ -251,7 +290,7 @@ public class ReallocationServiceImpl implements ReallocationService {
                 log.warn("Failed to fetch case entity for caseId {}: {}", alloc.getCaseId(), e.getMessage());
             }
         });
-        increments.put(request.getToUserId(), allocations.size());
+        increments.put(toAgentId, allocations.size());
 
         caseAllocationRepository.saveAll(allocations);
 
@@ -261,7 +300,7 @@ public class ReallocationServiceImpl implements ReallocationService {
             CaseAllocation newAlloc = allocations.get(i);
             history.add(AllocationHistory.builder()
                     .caseId(newAlloc.getCaseId())
-                    .allocatedToUserId(request.getToUserId())
+                    .allocatedToUserId(finalToAgentId)
                     .allocatedFromUserId(oldAlloc.getPrimaryAgentId())
                     .newOwnerType("USER")
                     .previousOwnerType("USER")
@@ -277,11 +316,16 @@ public class ReallocationServiceImpl implements ReallocationService {
                     allocations.get(i));
         }
 
+        // CRITICAL: Update cases table to reflect reallocation (change allocated_to_user_id)
+        updateCasesTableForReallocation(allocations, toAgentId);
+
         // Update user statistics
         updateUserStatisticsForReallocation(decrements, increments);
 
         // Evict unallocated cases cache in case-sourcing-service
         evictCaseSourcingCache();
+
+        log.info("Reallocation by filter completed: {} cases moved to agent {}", allocations.size(), toAgentId);
 
         return ReallocationResponseDTO.builder()
                 .jobId(jobId)
@@ -449,5 +493,140 @@ public class ReallocationServiceImpl implements ReallocationService {
             // Log error but don't fail the reallocation - cache will eventually be refreshed by TTL
             log.warn("Failed to evict unallocated cases cache in case-sourcing-service: {}", e.getMessage());
         }
+    }
+
+    @Override
+    public List<AllocationBatchDTO> getReallocationBatches(String status, LocalDate startDate, LocalDate endDate,
+            int page, int size) {
+        log.info("Fetching reallocation batches with filters - status: {}, startDate: {}, endDate: {}",
+                status, startDate, endDate);
+
+        // Get only reallocation batches (batchId starts with "REALLOC_BATCH_")
+        List<AllocationBatch> batches = allocationBatchRepository
+                .findByBatchIdStartingWithOrderByUploadedAtDesc("REALLOC_BATCH_");
+
+        // Apply filters
+        return batches.stream()
+                .filter(batch -> status == null || batch.getStatus().name().equals(status))
+                .filter(batch -> startDate == null || !batch.getUploadedAt().toLocalDate().isBefore(startDate))
+                .filter(batch -> endDate == null || !batch.getUploadedAt().toLocalDate().isAfter(endDate))
+                .skip((long) page * size)
+                .limit(size)
+                .map(this::mapToAllocationBatchDTO)
+                .collect(Collectors.toList());
+    }
+
+    private AllocationBatchDTO mapToAllocationBatchDTO(AllocationBatch batch) {
+        return AllocationBatchDTO.builder()
+                .batchId(batch.getBatchId())
+                .fileName(batch.getFileName())
+                .totalCases(batch.getTotalCases())
+                .successfulAllocations(batch.getSuccessfulAllocations())
+                .failedAllocations(batch.getFailedAllocations())
+                .status(batch.getStatus().name())
+                .uploadedAt(batch.getUploadedAt())
+                .completedAt(batch.getCompletedAt())
+                .build();
+    }
+
+    /**
+     * Update cases table to reflect reallocation.
+     * Changes allocated_to_user_id to the new agent.
+     */
+    private void updateCasesTableForReallocation(List<CaseAllocation> allocations, Long newAgentId) {
+        if (allocations.isEmpty()) {
+            return;
+        }
+
+        log.info("Updating cases table for {} reallocations to agent {}", allocations.size(), newAgentId);
+
+        String updateSql = "UPDATE cases SET allocated_to_user_id = ?, updated_at = NOW() WHERE id = ?";
+
+        int updatedCount = 0;
+        for (CaseAllocation allocation : allocations) {
+            try {
+                int rowsAffected = jdbcTemplate.update(
+                        updateSql,
+                        newAgentId,
+                        allocation.getCaseId());
+
+                if (rowsAffected > 0) {
+                    updatedCount++;
+                } else {
+                    log.warn("Case {} not found in cases table for reallocation update", allocation.getCaseId());
+                }
+            } catch (Exception e) {
+                log.error("Failed to update cases table for case {}: {}", allocation.getCaseId(), e.getMessage());
+            }
+        }
+
+        log.info("Successfully updated {} out of {} cases in cases table for reallocation", updatedCount, allocations.size());
+    }
+
+    /**
+     * Resolve agent ID from either string identifier (ID, username, full name) or legacy Long ID
+     * @param agentIdentifier String identifier - can be numeric ID, username, or full name
+     * @param legacyId Legacy Long ID (for backward compatibility)
+     * @return The agent's user ID, or null if not found
+     */
+    private Long resolveAgentId(String agentIdentifier, Long legacyId) {
+        // If string identifier is provided, use it
+        if (agentIdentifier != null && !agentIdentifier.trim().isEmpty()) {
+            String trimmed = agentIdentifier.trim();
+
+            // First, try to parse as numeric ID
+            try {
+                Long id = Long.parseLong(trimmed);
+                if (userRepository.existsById(id)) {
+                    log.debug("Resolved agent '{}' as numeric ID: {}", agentIdentifier, id);
+                    return id;
+                }
+            } catch (NumberFormatException ignored) {
+                // Not a numeric ID, try as username/name
+            }
+
+            // Try to find by username (exact match)
+            java.util.Optional<com.finx.allocationreallocationservice.domain.entity.User> userOpt =
+                    userRepository.findByUsername(trimmed);
+            if (userOpt.isPresent()) {
+                log.debug("Resolved agent '{}' by username: {}", agentIdentifier, userOpt.get().getId());
+                return userOpt.get().getId();
+            }
+
+            // Try case-insensitive username search
+            userOpt = userRepository.findByUsernameIgnoreCase(trimmed);
+            if (userOpt.isPresent()) {
+                log.debug("Resolved agent '{}' by username (case-insensitive): {}", agentIdentifier, userOpt.get().getId());
+                return userOpt.get().getId();
+            }
+
+            // Try to find by full name (firstName + lastName)
+            userOpt = userRepository.findByFullNameIgnoreCase(trimmed);
+            if (userOpt.isPresent()) {
+                log.debug("Resolved agent '{}' by full name: {}", agentIdentifier, userOpt.get().getId());
+                return userOpt.get().getId();
+            }
+
+            // Try to find by first name only (if single word and matches exactly one user)
+            if (!trimmed.contains(" ")) {
+                java.util.List<com.finx.allocationreallocationservice.domain.entity.User> usersByFirstName =
+                        userRepository.findByFirstNameIgnoreCase(trimmed);
+                if (usersByFirstName.size() == 1) {
+                    log.debug("Resolved agent '{}' by first name: {}", agentIdentifier, usersByFirstName.get(0).getId());
+                    return usersByFirstName.get(0).getId();
+                }
+            }
+
+            log.warn("Could not resolve agent identifier: {}", agentIdentifier);
+            return null;
+        }
+
+        // Fall back to legacy Long ID
+        if (legacyId != null && userRepository.existsById(legacyId)) {
+            log.debug("Using legacy agent ID: {}", legacyId);
+            return legacyId;
+        }
+
+        return null;
     }
 }

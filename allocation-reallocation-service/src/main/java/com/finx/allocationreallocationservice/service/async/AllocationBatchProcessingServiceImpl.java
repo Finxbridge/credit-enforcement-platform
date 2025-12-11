@@ -217,6 +217,14 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
                    ". Please ensure case with this account number exists in cases table before allocation.";
         }
 
+        // CRITICAL: Validate case is in UNALLOCATED status (prevent duplicate allocation)
+        Case caseEntity = caseOpt.get();
+        String caseStatus = caseEntity.getCaseStatus();
+        if (caseStatus != null && !"UNALLOCATED".equalsIgnoreCase(caseStatus)) {
+            return "Case with ACCOUNT NO: " + row.getAccountNo() + " is already allocated (current status: " + caseStatus +
+                   "). Only UNALLOCATED cases can be allocated. Use reallocation to change agent assignment.";
+        }
+
         // Validate PRIMARY AGENT is provided
         if (row.getPrimaryAgent() == null || row.getPrimaryAgent().trim().isEmpty()) {
             return "PRIMARY AGENT is required";
@@ -248,8 +256,8 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
     }
 
     /**
-     * Resolve agent ID from either numeric ID or username
-     * @param agentIdentifier Either a numeric ID or username
+     * Resolve agent ID from either numeric ID, username, or full name
+     * @param agentIdentifier Either a numeric ID, username, or full name (firstName lastName)
      * @return The agent's user ID, or null if not found
      */
     private Long resolveAgentId(String agentIdentifier) {
@@ -263,25 +271,46 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
         try {
             Long id = Long.parseLong(trimmed);
             if (userRepository.existsById(id)) {
+                log.debug("Resolved agent '{}' as numeric ID: {}", agentIdentifier, id);
                 return id;
             }
         } catch (NumberFormatException ignored) {
-            // Not a numeric ID, try as username
+            // Not a numeric ID, try as username/name
         }
 
-        // Try to find by username
+        // Try to find by username (exact match)
         Optional<com.finx.allocationreallocationservice.domain.entity.User> userOpt =
                 userRepository.findByUsername(trimmed);
         if (userOpt.isPresent()) {
+            log.debug("Resolved agent '{}' by username: {}", agentIdentifier, userOpt.get().getId());
             return userOpt.get().getId();
         }
 
         // Try case-insensitive username search
         userOpt = userRepository.findByUsernameIgnoreCase(trimmed);
         if (userOpt.isPresent()) {
+            log.debug("Resolved agent '{}' by username (case-insensitive): {}", agentIdentifier, userOpt.get().getId());
             return userOpt.get().getId();
         }
 
+        // Try to find by full name (firstName + lastName)
+        userOpt = userRepository.findByFullNameIgnoreCase(trimmed);
+        if (userOpt.isPresent()) {
+            log.debug("Resolved agent '{}' by full name: {}", agentIdentifier, userOpt.get().getId());
+            return userOpt.get().getId();
+        }
+
+        // Try to find by first name only (if single word and matches exactly one user)
+        if (!trimmed.contains(" ")) {
+            java.util.List<com.finx.allocationreallocationservice.domain.entity.User> usersByFirstName =
+                    userRepository.findByFirstNameIgnoreCase(trimmed);
+            if (usersByFirstName.size() == 1) {
+                log.debug("Resolved agent '{}' by first name: {}", agentIdentifier, usersByFirstName.get(0).getId());
+                return usersByFirstName.get(0).getId();
+            }
+        }
+
+        log.warn("Could not resolve agent identifier: {}", agentIdentifier);
         return null;
     }
 

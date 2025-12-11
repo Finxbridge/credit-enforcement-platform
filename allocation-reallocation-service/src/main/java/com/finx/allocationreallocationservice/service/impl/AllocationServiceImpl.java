@@ -19,6 +19,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.data.domain.Page;
@@ -59,6 +60,7 @@ public class AllocationServiceImpl implements AllocationService {
     private final CaseReadRepository caseReadRepository;
     private final UserRepository userRepository;
     private final CaseSourcingServiceClient caseSourcingServiceClient;
+    private final JdbcTemplate jdbcTemplate;
 
     @SuppressWarnings("null")
     @Override
@@ -816,6 +818,9 @@ public class AllocationServiceImpl implements AllocationService {
         caseAllocationRepository.saveAll(allocations);
         allocationHistoryRepository.saveAll(historyEntries);
 
+        // CRITICAL: Update cases table to reflect allocation
+        updateCasesTableForAllocation(allocations);
+
         // Update user statistics
         updateUserStatistics(agentCaseCount);
 
@@ -884,6 +889,9 @@ public class AllocationServiceImpl implements AllocationService {
         caseAllocationRepository.saveAll(allocations);
         allocationHistoryRepository.saveAll(historyEntries);
 
+        // CRITICAL: Update cases table to reflect allocation
+        updateCasesTableForAllocation(allocations);
+
         // Update user statistics
         updateUserStatistics(agentCaseCount);
 
@@ -894,7 +902,7 @@ public class AllocationServiceImpl implements AllocationService {
     /**
      * Update user statistics after allocation
      * Updates current_case_count and allocation_percentage
-     * 
+     *
      * @param agentCaseCount Map of agentId to number of cases allocated
      */
     @SuppressWarnings("null")
@@ -1582,5 +1590,41 @@ public class AllocationServiceImpl implements AllocationService {
             // Log error but don't fail the allocation - cache will eventually be refreshed by TTL
             log.warn("Failed to evict unallocated cases cache in case-sourcing-service: {}", e.getMessage());
         }
+    }
+
+    /**
+     * Update cases table to reflect allocation status.
+     * Sets case_status = 'ALLOCATED' and updates allocated_to_user_id.
+     */
+    private void updateCasesTableForAllocation(List<CaseAllocation> allocations) {
+        if (allocations.isEmpty()) {
+            return;
+        }
+
+        log.info("Updating cases table for {} allocations", allocations.size());
+
+        String updateSql = "UPDATE cases SET allocated_to_user_id = ?, allocated_at = ?, " +
+                "case_status = 'ALLOCATED', updated_at = NOW() WHERE id = ?";
+
+        int updatedCount = 0;
+        for (CaseAllocation allocation : allocations) {
+            try {
+                int rowsAffected = jdbcTemplate.update(
+                        updateSql,
+                        allocation.getPrimaryAgentId(),
+                        allocation.getAllocatedAt(),
+                        allocation.getCaseId());
+
+                if (rowsAffected > 0) {
+                    updatedCount++;
+                } else {
+                    log.warn("Case {} not found in cases table for allocation update", allocation.getCaseId());
+                }
+            } catch (Exception e) {
+                log.error("Failed to update cases table for case {}: {}", allocation.getCaseId(), e.getMessage());
+            }
+        }
+
+        log.info("Successfully updated {} out of {} cases in cases table", updatedCount, allocations.size());
     }
 }
