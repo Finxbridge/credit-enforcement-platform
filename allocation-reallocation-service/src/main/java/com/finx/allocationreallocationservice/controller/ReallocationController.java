@@ -25,89 +25,77 @@ import org.springframework.web.bind.annotation.RequestPart;
 @Tag(name = "Reallocation Management", description = "APIs for case reallocation management")
 public class ReallocationController {
 
-    private final ReallocationService reallocationService;
+        private final ReallocationService reallocationService;
 
-    @PostMapping("/upload")
-    @Operation(summary = "Upload CSV for bulk reallocation")
-    public ResponseEntity<CommonResponse<AllocationBatchUploadResponseDTO>> uploadReallocationBatch(
-            @RequestPart("file") MultipartFile file) {
-        log.info("Received reallocation batch upload request");
+        @PostMapping("/upload")
+        @Operation(summary = "Upload CSV for bulk reallocation")
+        public ResponseEntity<CommonResponse<AllocationBatchUploadResponseDTO>> uploadReallocationBatch(
+                        @RequestPart("file") MultipartFile file) {
+                log.info("Received reallocation batch upload request");
 
-        AllocationBatchUploadResponseDTO response = reallocationService.uploadReallocationBatch(file);
+                AllocationBatchUploadResponseDTO response = reallocationService.uploadReallocationBatch(file);
 
-        return ResponseEntity.status(HttpStatus.ACCEPTED)
-                .body(CommonResponse.success("Bulk reallocation initiated.", response));
-    }
+                return ResponseEntity.status(HttpStatus.ACCEPTED)
+                                .body(CommonResponse.success("Bulk reallocation initiated.", response));
+        }
 
-    @PostMapping("/by-agent")
-    @Operation(summary = "Reallocate all cases from one agent to another")
-    public ResponseEntity<CommonResponse<ReallocationResponseDTO>> reallocateByAgent(
-            @Valid @RequestBody ReallocationByAgentRequestDTO request) {
-        log.info("Received reallocation by agent request from {} to {}",
-                request.getFromUserId(), request.getToUserId());
+        @PostMapping("/by-agent")
+        @Operation(summary = "Reallocate all cases from one agent to another")
+        public ResponseEntity<CommonResponse<ReallocationResponseDTO>> reallocateByAgent(
+                        @Valid @RequestBody ReallocationByAgentRequestDTO request) {
+                log.info("Received reallocation by agent request from {} to {}",
+                                request.getFromUserId(), request.getToUserId());
 
-        ReallocationResponseDTO response = reallocationService.reallocateByAgent(request);
+                ReallocationResponseDTO response = reallocationService.reallocateByAgent(request);
 
-        return ResponseEntity.status(HttpStatus.ACCEPTED)
-                .body(CommonResponse.success("Reallocation by agent initiated.", response));
-    }
+                return ResponseEntity.status(HttpStatus.ACCEPTED)
+                                .body(CommonResponse.success("Reallocation by agent initiated.", response));
+        }
 
-    @PostMapping("/by-filter")
-    @Operation(summary = "Reallocate cases using filter criteria")
-    public ResponseEntity<CommonResponse<ReallocationResponseDTO>> reallocateByFilter(
-            @Valid @RequestBody ReallocationByFilterRequestDTO request) {
-        log.info("Received reallocation by filter request to user {}", request.getToUserId());
+        @GetMapping("/{batchId}/status")
+        @Operation(summary = "Get reallocation batch status")
+        public ResponseEntity<CommonResponse<AllocationBatchStatusDTO>> getReallocationBatchStatus(
+                        @PathVariable String batchId) {
+                log.info("Fetching reallocation batch status for: {}", batchId);
 
-        ReallocationResponseDTO response = reallocationService.reallocateByFilter(request);
+                AllocationBatchStatusDTO status = reallocationService.getReallocationBatchStatus(batchId);
 
-        return ResponseEntity.status(HttpStatus.ACCEPTED)
-                .body(CommonResponse.success("Reallocation by filter initiated.", response));
-    }
+                return ResponseEntity.ok(CommonResponse.success(
+                                "Reallocation batch status retrieved successfully.", status));
+        }
 
-    @GetMapping("/{batchId}/status")
-    @Operation(summary = "Get reallocation batch status")
-    public ResponseEntity<CommonResponse<AllocationBatchStatusDTO>> getReallocationBatchStatus(
-            @PathVariable String batchId) {
-        log.info("Fetching reallocation batch status for: {}", batchId);
+        @GetMapping("/{batchId}/errors")
+        @Operation(summary = "Export failed reallocation rows")
+        public ResponseEntity<byte[]> exportFailedReallocationRows(@PathVariable String batchId) {
+                log.info("Exporting failed reallocation rows for batch: {}", batchId);
 
-        AllocationBatchStatusDTO status = reallocationService.getReallocationBatchStatus(batchId);
+                byte[] csvData = reallocationService.exportFailedReallocationRows(batchId);
 
-        return ResponseEntity.ok(CommonResponse.success(
-                "Reallocation batch status retrieved successfully.", status));
-    }
+                org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+                headers.setContentType(org.springframework.http.MediaType.parseMediaType("text/csv"));
+                headers.setContentDispositionFormData("attachment",
+                                "failed_reallocations_" + batchId + ".csv");
 
-    @GetMapping("/{batchId}/errors")
-    @Operation(summary = "Export failed reallocation rows")
-    public ResponseEntity<byte[]> exportFailedReallocationRows(@PathVariable String batchId) {
-        log.info("Exporting failed reallocation rows for batch: {}", batchId);
+                return ResponseEntity.ok()
+                                .headers(headers)
+                                .body(csvData);
+        }
 
-        byte[] csvData = reallocationService.exportFailedReallocationRows(batchId);
+        @GetMapping("/batches")
+        @Operation(summary = "List/Search all reallocation batches", description = "Returns only reallocation batches (not allocation or contact update batches)")
+        public ResponseEntity<CommonResponse<List<AllocationBatchDTO>>> getReallocationBatches(
+                        @RequestParam(required = false) String status,
+                        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+                        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
+                        @RequestParam(defaultValue = "0") int page,
+                        @RequestParam(defaultValue = "20") int size) {
+                log.info("Fetching reallocation batches with status: {}, dates: {} to {}, page: {}, size: {}",
+                                status, startDate, endDate, page, size);
 
-        org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
-        headers.setContentType(org.springframework.http.MediaType.parseMediaType("text/csv"));
-        headers.setContentDispositionFormData("attachment",
-                "failed_reallocations_" + batchId + ".csv");
+                List<AllocationBatchDTO> batches = reallocationService.getReallocationBatches(status, startDate,
+                                endDate, page, size);
 
-        return ResponseEntity.ok()
-                .headers(headers)
-                .body(csvData);
-    }
-
-    @GetMapping("/batches")
-    @Operation(summary = "List/Search all reallocation batches",
-               description = "Returns only reallocation batches (not allocation or contact update batches)")
-    public ResponseEntity<CommonResponse<List<AllocationBatchDTO>>> getReallocationBatches(
-            @RequestParam(required = false) String status,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
-        log.info("Fetching reallocation batches with status: {}, dates: {} to {}, page: {}, size: {}",
-                status, startDate, endDate, page, size);
-
-        List<AllocationBatchDTO> batches = reallocationService.getReallocationBatches(status, startDate, endDate, page, size);
-
-        return ResponseEntity.ok(CommonResponse.success(
-                "Reallocation batches retrieved successfully.", batches));
-    }
+                return ResponseEntity.ok(CommonResponse.success(
+                                "Reallocation batches retrieved successfully.", batches));
+        }
 }
