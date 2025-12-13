@@ -20,6 +20,7 @@ public class TemplateResolveResponse {
 
     private Long templateId;
     private String templateCode;
+    private String providerTemplateId; // MSG91 template_id returned during template creation - USE THIS for sending messages
     private String channel; // SMS, WHATSAPP, EMAIL, NOTICE, IVR
     private String languageShortCode; // Language short code for communication service (En_US, Hi, Te)
     private Map<String, Object> resolvedVariables;

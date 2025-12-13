@@ -1,5 +1,6 @@
 package com.finx.strategyengineservice.client.dto;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -14,6 +15,7 @@ import java.util.Map;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class TemplateResolveResponse {
 
     /**
@@ -22,9 +24,15 @@ public class TemplateResolveResponse {
     private Long templateId;
 
     /**
-     * Template code
+     * Template code (our internal code)
      */
     private String templateCode;
+
+    /**
+     * MSG91 provider template ID - USE THIS for sending messages via MSG91
+     * This is the template_id returned by MSG91 during template creation
+     */
+    private String providerTemplateId;
 
     /**
      * Communication channel
@@ -81,4 +89,14 @@ public class TemplateResolveResponse {
      * Flag indicating if template has a document attachment
      */
     private Boolean hasDocument;
+
+    /**
+     * Total number of variables in template
+     */
+    private Integer variableCount;
+
+    /**
+     * Number of successfully resolved variables
+     */
+    private Integer resolvedCount;
 }

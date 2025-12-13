@@ -58,8 +58,9 @@ public class StrategyRequest {
         @NotBlank(message = "Template name is required")
         private String templateName;  // Template name/code for reference
 
-        // Provider template ID (MSG91 template ID) - used directly for sending
-        private String templateId;
+        // Template ID from template-management-service (numeric ID like 23)
+        // Used to fetch template details and resolve variables
+        private Long templateId;
     }
 
     // ===================================

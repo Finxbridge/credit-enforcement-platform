@@ -24,7 +24,7 @@ public class GlobalExceptionHandler {
         log.error("Template not found: {}", ex.getMessage());
         return ResponseEntity
                 .status(HttpStatus.NOT_FOUND)
-                .body(CommonResponse.error("Template not found", ex.getMessage()));
+                .body(CommonResponse.failure("Template not found: " + ex.getMessage(), "TEMPLATE_NOT_FOUND"));
     }
 
     @ExceptionHandler(TemplateAlreadyExistsException.class)
@@ -32,7 +32,7 @@ public class GlobalExceptionHandler {
         log.error("Template already exists: {}", ex.getMessage());
         return ResponseEntity
                 .status(HttpStatus.CONFLICT)
-                .body(CommonResponse.error("Template already exists", ex.getMessage()));
+                .body(CommonResponse.failure("Template already exists: " + ex.getMessage(), "TEMPLATE_ALREADY_EXISTS"));
     }
 
     @ExceptionHandler(BusinessException.class)
@@ -40,11 +40,11 @@ public class GlobalExceptionHandler {
         log.error("Business exception: {}", ex.getMessage());
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
-                .body(CommonResponse.error("Business error", ex.getMessage()));
+                .body(CommonResponse.failure(ex.getMessage(), "BUSINESS_ERROR"));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<CommonResponse<Map<String, String>>> handleValidationExceptions(
+    public ResponseEntity<CommonResponse<Void>> handleValidationExceptions(
             MethodArgumentNotValidException ex) {
         Map<String, String> errors = new HashMap<>();
         ex.getBindingResult().getAllErrors().forEach((error) -> {
@@ -55,7 +55,7 @@ public class GlobalExceptionHandler {
         log.error("Validation failed: {}", errors);
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
-                .body(CommonResponse.success("Validation failed", errors));
+                .body(CommonResponse.failure("Validation failed", "VALIDATION_ERROR", errors));
     }
 
     @ExceptionHandler(Exception.class)
@@ -63,6 +63,6 @@ public class GlobalExceptionHandler {
         log.error("Unexpected error occurred", ex);
         return ResponseEntity
                 .status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(CommonResponse.error("Internal server error", "An unexpected error occurred"));
+                .body(CommonResponse.failure("An unexpected error occurred", "INTERNAL_SERVER_ERROR"));
     }
 }

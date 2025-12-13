@@ -15,7 +15,7 @@ import java.util.Map;
  * Note: smsType, senderId (SMS) and integrated_number (WhatsApp) are read from
  * database config_json in communication-service, not passed in request
  */
-@FeignClient(name = "communication-service", url = "${communication-service.url:http://localhost:8084}")
+@FeignClient(name = "communication-service", url = "${COMMUNICATION_SERVICE_URL:http://localhost:8085}")
 public interface CommunicationServiceClient {
 
     // ==================== SMS APIs ====================

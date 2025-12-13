@@ -22,6 +22,7 @@ import com.finx.templatemanagementservice.service.FileStorageService;
 import com.finx.templatemanagementservice.service.TemplateService;
 import com.finx.templatemanagementservice.service.TemplateVariableResolverService;
 import com.finx.templatemanagementservice.service.TemplateRenderingService;
+import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;
@@ -54,6 +55,7 @@ public class TemplateServiceImpl implements TemplateService {
     private final DocumentProcessingService documentProcessingService;
     private final TemplateVariableResolverService variableResolverService;
     private final TemplateRenderingService renderingService;
+    private final EntityManager entityManager;
 
     @Override
     @Transactional
@@ -139,8 +141,8 @@ public class TemplateServiceImpl implements TemplateService {
     @Override
     @Cacheable(value = "templates")
     public List<TemplateDTO> getAllTemplates() {
-        log.info("Fetching all templates");
-        List<Template> templates = templateRepository.findByIsActiveTrue();
+        log.info("Fetching all templates (ordered by latest first)");
+        List<Template> templates = templateRepository.findByIsActiveTrueOrderByCreatedAtDesc();
         return templates.stream()
                 .map(this::mapToDTO)
                 .collect(Collectors.toList());
@@ -276,14 +278,14 @@ public class TemplateServiceImpl implements TemplateService {
 
         CommonResponse<Map<String, Object>> response = communicationServiceClient.createSMSTemplate(request);
 
-        if (response != null && response.getData() != null) {
+        if (response != null && response.getPayload() != null) {
             // Extract provider template ID from response if available
-            Object templateId = response.getData().get("template_id");
+            Object templateId = response.getPayload().get("template_id");
             if (templateId != null && template.getProviderTemplateId() == null) {
                 template.setProviderTemplateId(templateId.toString());
                 templateRepository.save(template);
             }
-            log.info("SMS template synced successfully: {}", response.getData());
+            log.info("SMS template synced successfully: {}", response.getPayload());
         }
     }
 
@@ -338,14 +340,35 @@ public class TemplateServiceImpl implements TemplateService {
 
         CommonResponse<Map<String, Object>> response = communicationServiceClient.createWhatsAppTemplate(request);
 
-        if (response != null && response.getData() != null) {
-            // Extract provider template ID from response if available
-            Object templateId = response.getData().get("id");
+        if (response != null && response.getPayload() != null) {
+            // Extract provider template ID from MSG91 response
+            // MSG91 response structure: { "data": { "template_id": "...", "message": "..." }, "status": "success" }
+            Object templateId = null;
+
+            // First try to get template_id from data object (MSG91 structure)
+            Object dataObj = response.getPayload().get("data");
+            if (dataObj instanceof Map) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> data = (Map<String, Object>) dataObj;
+                templateId = data.get("template_id");
+            }
+
+            // Fallback: try direct "template_id" key
+            if (templateId == null) {
+                templateId = response.getPayload().get("template_id");
+            }
+
+            // Fallback: try "id" key
+            if (templateId == null) {
+                templateId = response.getPayload().get("id");
+            }
+
             if (templateId != null && template.getProviderTemplateId() == null) {
                 template.setProviderTemplateId(templateId.toString());
                 templateRepository.save(template);
+                log.info("Stored MSG91 template_id: {} for template: {}", templateId, template.getTemplateName());
             }
-            log.info("WhatsApp template synced successfully: {}", response.getData());
+            log.info("WhatsApp template synced successfully: {}", response.getPayload());
         }
     }
 
@@ -471,14 +494,14 @@ public class TemplateServiceImpl implements TemplateService {
 
         CommonResponse<Map<String, Object>> response = communicationServiceClient.createEmailTemplate(request);
 
-        if (response != null && response.getData() != null) {
+        if (response != null && response.getPayload() != null) {
             // Extract provider template ID from response if available
-            Object templateId = response.getData().get("id");
+            Object templateId = response.getPayload().get("id");
             if (templateId != null && template.getProviderTemplateId() == null) {
                 template.setProviderTemplateId(templateId.toString());
                 templateRepository.save(template);
             }
-            log.info("Email template synced successfully: {}", response.getData());
+            log.info("Email template synced successfully: {}", response.getPayload());
         }
     }
 
@@ -504,7 +527,13 @@ public class TemplateServiceImpl implements TemplateService {
         // Extract variables from content ({{variableName}} pattern)
         List<String> extractedVariables = extractVariablesFromContent(request.getContent());
 
-        // Create template entity
+        // Determine if this channel requires provider sync
+        boolean requiresProviderSync = request.getChannel() == ChannelType.SMS ||
+                                       request.getChannel() == ChannelType.WHATSAPP ||
+                                       request.getChannel() == ChannelType.EMAIL;
+
+        // Create template entity - initially INACTIVE for channels that require provider sync
+        // For NOTICE and IVR channels, set as ACTIVE since they don't need provider sync
         Template template = Template.builder()
                 .templateName(request.getTemplateName())
                 .templateCode(templateCode)
@@ -512,7 +541,7 @@ public class TemplateServiceImpl implements TemplateService {
                 .language(request.getLanguage())
                 .providerTemplateId(request.getProviderTemplateId())
                 .description(request.getDescription())
-                .isActive(true)
+                .isActive(!requiresProviderSync) // INACTIVE for SMS/WHATSAPP/EMAIL until synced
                 .build();
 
         // Add extracted variables from content
@@ -537,20 +566,21 @@ public class TemplateServiceImpl implements TemplateService {
             template.addContent(content);
         }
 
-        // Save template
+        // Save template (initially INACTIVE for provider-sync channels)
         template = templateRepository.save(template);
-        log.info("Template created successfully with id: {}", template.getId());
+        log.info("Template created with id: {} (isActive: {})", template.getId(), template.getIsActive());
 
         // Auto-sync with provider (SMS, WhatsApp, Email) via communication-service
-        if (request.getChannel() == ChannelType.SMS ||
-            request.getChannel() == ChannelType.WHATSAPP ||
-            request.getChannel() == ChannelType.EMAIL) {
+        if (requiresProviderSync) {
             try {
                 syncWithProvider(template.getId());
-                log.info("Template auto-synced with provider (MSG91) for channel: {}", request.getChannel());
+                // Sync successful - mark template as ACTIVE
+                template.setIsActive(true);
+                template = templateRepository.save(template);
+                log.info("Template synced with provider (MSG91) and marked as ACTIVE for channel: {}", request.getChannel());
             } catch (Exception e) {
-                log.warn("Failed to auto-sync template with provider: {}. Template created but not synced with MSG91.", e.getMessage());
-                // Don't fail the request - template is created in DB, sync can be retried manually
+                log.warn("Failed to sync template with provider: {}. Template remains INACTIVE until sync succeeds.", e.getMessage());
+                // Template stays INACTIVE - user needs to retry sync or manually activate after fixing provider issues
             }
         }
 
@@ -619,11 +649,15 @@ public class TemplateServiceImpl implements TemplateService {
         template.setDescription(request.getDescription());
         template.setProviderTemplateId(request.getProviderTemplateId());
 
-        // Extract and update variables from content
+        // Extract variables from content
         List<String> extractedVariables = extractVariablesFromContent(request.getContent());
 
-        // Clear existing variables and add new ones
+        // Delete existing variables from database first and flush to ensure deletion is committed
         template.getVariables().clear();
+        templateVariableRepository.deleteByTemplateId(id);
+        entityManager.flush();
+
+        // Add new variables
         int order = 1;
         for (String varName : extractedVariables) {
             TemplateVariable variable = TemplateVariable.builder()
@@ -781,8 +815,8 @@ public class TemplateServiceImpl implements TemplateService {
         if (template.getDmsDocumentId() != null) {
             try {
                 CommonResponse<DmsDocumentDTO> existingDoc = dmsServiceClient.getDocumentByDocumentId(template.getDmsDocumentId());
-                if (existingDoc != null && existingDoc.getData() != null) {
-                    dmsServiceClient.permanentlyDeleteDocument(existingDoc.getData().getId());
+                if (existingDoc != null && existingDoc.getPayload() != null) {
+                    dmsServiceClient.permanentlyDeleteDocument(existingDoc.getPayload().getId());
                     log.info("Deleted existing document from DMS: {}", template.getDmsDocumentId());
                 }
             } catch (Exception e) {
@@ -802,11 +836,11 @@ public class TemplateServiceImpl implements TemplateService {
 
         CommonResponse<DmsDocumentDTO> dmsResponse = dmsServiceClient.uploadDocument(uploadRequest, document);
 
-        if (dmsResponse == null || dmsResponse.getData() == null) {
+        if (dmsResponse == null || dmsResponse.getPayload() == null) {
             throw new BusinessException("Failed to upload document to DMS");
         }
 
-        DmsDocumentDTO dmsDoc = dmsResponse.getData();
+        DmsDocumentDTO dmsDoc = dmsResponse.getPayload();
 
         // Update template with DMS document info
         template.setDmsDocumentId(dmsDoc.getDocumentId());
@@ -899,8 +933,8 @@ public class TemplateServiceImpl implements TemplateService {
         if (template.getDmsDocumentId() != null) {
             try {
                 CommonResponse<DmsDocumentDTO> existingDoc = dmsServiceClient.getDocumentByDocumentId(template.getDmsDocumentId());
-                if (existingDoc != null && existingDoc.getData() != null) {
-                    dmsServiceClient.permanentlyDeleteDocument(existingDoc.getData().getId());
+                if (existingDoc != null && existingDoc.getPayload() != null) {
+                    dmsServiceClient.permanentlyDeleteDocument(existingDoc.getPayload().getId());
                     log.info("Deleted existing document from DMS: {}", template.getDmsDocumentId());
                 }
             } catch (Exception e) {
@@ -920,11 +954,11 @@ public class TemplateServiceImpl implements TemplateService {
 
         CommonResponse<DmsDocumentDTO> dmsResponse = dmsServiceClient.uploadDocument(uploadRequest, document);
 
-        if (dmsResponse == null || dmsResponse.getData() == null) {
+        if (dmsResponse == null || dmsResponse.getPayload() == null) {
             throw new BusinessException("Failed to upload document to DMS");
         }
 
-        DmsDocumentDTO dmsDoc = dmsResponse.getData();
+        DmsDocumentDTO dmsDoc = dmsResponse.getPayload();
 
         // Update template with DMS document info
         template.setDmsDocumentId(dmsDoc.getDocumentId());
@@ -970,8 +1004,8 @@ public class TemplateServiceImpl implements TemplateService {
         if (template.getDmsDocumentId() != null) {
             try {
                 CommonResponse<DmsDocumentDTO> existingDoc = dmsServiceClient.getDocumentByDocumentId(template.getDmsDocumentId());
-                if (existingDoc != null && existingDoc.getData() != null) {
-                    dmsServiceClient.permanentlyDeleteDocument(existingDoc.getData().getId());
+                if (existingDoc != null && existingDoc.getPayload() != null) {
+                    dmsServiceClient.permanentlyDeleteDocument(existingDoc.getPayload().getId());
                     log.info("Deleted document from DMS: {}", template.getDmsDocumentId());
                 }
             } catch (Exception e) {
@@ -1038,6 +1072,7 @@ public class TemplateServiceImpl implements TemplateService {
         TemplateResolveResponse.TemplateResolveResponseBuilder responseBuilder = TemplateResolveResponse.builder()
                 .templateId(templateId)
                 .templateCode(template.getTemplateCode())
+                .providerTemplateId(template.getProviderTemplateId()) // MSG91 template_id - use this for sending messages
                 .channel(template.getChannel() != null ? template.getChannel().name() : null)
                 .languageShortCode(template.getLanguage() != null ? template.getLanguage().getShortCode() : "En_US")
                 .resolvedVariables(resolvedVariables)

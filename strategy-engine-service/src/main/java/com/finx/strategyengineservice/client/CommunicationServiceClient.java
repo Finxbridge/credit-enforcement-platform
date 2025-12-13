@@ -14,7 +14,7 @@ import org.springframework.web.bind.annotation.RequestBody;
  */
 @FeignClient(
     name = "communication-service",
-    path = "/api/v1"
+    url = "${COMMUNICATION_SERVICE_URL:http://localhost:8085}"
 )
 public interface CommunicationServiceClient {
 

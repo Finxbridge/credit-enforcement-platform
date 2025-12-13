@@ -10,6 +10,7 @@ import java.util.Map;
 
 /**
  * Request to resolve template variables for a specific case
+ * Note: templateId is optional in the request body since it's provided in the URL path
  */
 @Data
 @Builder
@@ -17,7 +18,8 @@ import java.util.Map;
 @AllArgsConstructor
 public class TemplateResolveRequest {
 
-    @NotNull(message = "Template ID is required")
+    // Optional - templateId is already in the URL path (/templates/{id}/resolve)
+    // Kept for backward compatibility but not validated
     private Long templateId;
 
     @NotNull(message = "Case ID is required")

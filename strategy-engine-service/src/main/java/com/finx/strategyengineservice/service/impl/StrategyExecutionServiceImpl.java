@@ -232,6 +232,9 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
 
     /**
      * Send SMS via communication service
+     *
+     * IMPORTANT: If template resolution fails, we DO NOT send the message.
+     * Messages should only be sent with properly resolved template data.
      */
     private void sendSMS(com.finx.strategyengineservice.domain.entity.Case caseEntity,
             com.finx.strategyengineservice.domain.entity.StrategyAction action) {
@@ -241,86 +244,80 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
             throw new BusinessException("Mobile number not available for case: " + caseEntity.getId());
         }
 
-        // Build SMS recipient with dynamic variables
+        // Add India country code (91) if not present - MSG91 requires country code
+        mobile = formatMobileWithCountryCode(mobile);
+
+        // Template ID is required for SMS
+        if (action.getTemplateId() == null || action.getTemplateId().isEmpty()) {
+            throw new BusinessException("Template ID is required for SMS action on case: " + caseEntity.getId());
+        }
+
+        // Resolve template - this MUST succeed for message to be sent
+        com.finx.strategyengineservice.client.dto.TemplateResolveRequest resolveRequest =
+            com.finx.strategyengineservice.client.dto.TemplateResolveRequest.builder()
+                .caseId(caseEntity.getId())
+                .additionalContext(null)
+                .build();
+
+        Long templateId = Long.parseLong(action.getTemplateId());
+
+        com.finx.strategyengineservice.domain.dto.CommonResponse<com.finx.strategyengineservice.client.dto.TemplateResolveResponse> response;
+        try {
+            response = templateServiceClient.resolveTemplate(templateId, resolveRequest);
+        } catch (Exception e) {
+            log.error("Failed to resolve template {} for SMS case {}: {}", templateId, caseEntity.getId(), e.getMessage());
+            throw new BusinessException("Template resolution failed for SMS case " + caseEntity.getId() + ": " + e.getMessage());
+        }
+
+        if (response == null || response.getPayload() == null) {
+            throw new BusinessException("Template resolution returned empty response for SMS case: " + caseEntity.getId());
+        }
+
+        com.finx.strategyengineservice.client.dto.TemplateResolveResponse resolveResponse = response.getPayload();
+
+        // Validate providerTemplateId - MSG91 template_id
+        String msg91TemplateId = resolveResponse.getProviderTemplateId();
+        if (msg91TemplateId == null || msg91TemplateId.isEmpty()) {
+            throw new BusinessException("MSG91 provider template ID is missing in resolution response for SMS case: " + caseEntity.getId() +
+                ". Make sure the template was synced with MSG91 and has a valid provider_template_id.");
+        }
+
+        // Get resolved variables
+        java.util.Map<String, Object> resolvedVariables = resolveResponse.getResolvedVariables();
+        if (resolvedVariables == null || resolvedVariables.isEmpty()) {
+            log.warn("No resolved variables found for SMS template {} case {}", templateId, caseEntity.getId());
+            resolvedVariables = new java.util.HashMap<>();
+        }
+
+        log.info("Resolved {} variables for SMS template {} case {}", resolvedVariables.size(), templateId, caseEntity.getId());
+
+        // Build SMS recipient with resolved variables
         com.finx.strategyengineservice.client.dto.SMSRequest.SmsRecipient recipient =
                 com.finx.strategyengineservice.client.dto.SMSRequest.SmsRecipient.builder()
                 .mobile(mobile)
-                .variables(buildDynamicVariables(caseEntity, action, "SMS"))
+                .variables(resolvedVariables)
                 .build();
 
-        // Build SMS request aligned with communication-service format
+        // Build SMS request - use MSG91 template_id
         com.finx.strategyengineservice.client.dto.SMSRequest request =
                 com.finx.strategyengineservice.client.dto.SMSRequest.builder()
-                .templateId(action.getTemplateId() != null ? action.getTemplateId().toString() : null)
-                .shortUrl("0") // Disable short URL by default
+                .templateId(msg91TemplateId) // MSG91 template_id returned during template creation
+                .shortUrl("0")
                 .recipients(java.util.Collections.singletonList(recipient))
                 .caseId(caseEntity.getId())
                 .build();
 
+        log.info("Sending SMS for case: {} using MSG91 template ID: {}", caseEntity.getId(), msg91TemplateId);
+
         communicationClient.sendSMS(request);
-        log.debug("SMS sent successfully for case: {}", caseEntity.getId());
+        log.info("SMS sent successfully for case: {} using MSG91 template ID: {}", caseEntity.getId(), msg91TemplateId);
     }
 
     /**
-     * Build dynamic variables from case data using centralized template resolution API
-     * Uses template-management-service for variable resolution with transformers
-     */
-    private java.util.Map<String, Object> buildDynamicVariables(
-            com.finx.strategyengineservice.domain.entity.Case caseEntity,
-            com.finx.strategyengineservice.domain.entity.StrategyAction action,
-            String channel) {
-
-        // If templateId is set, use centralized template resolution API
-        if (action.getTemplateId() != null) {
-            try {
-                // Call template resolution API
-                com.finx.strategyengineservice.client.dto.TemplateResolveRequest resolveRequest =
-                    com.finx.strategyengineservice.client.dto.TemplateResolveRequest.builder()
-                        .caseId(caseEntity.getId())
-                        .additionalContext(null) // Can be extended for additional context
-                        .build();
-
-                Long templateId = Long.parseLong(action.getTemplateId());
-                com.finx.strategyengineservice.client.dto.TemplateResolveResponse resolveResponse =
-                    templateServiceClient.resolveTemplate(templateId, resolveRequest).getPayload();
-
-                if (resolveResponse != null && resolveResponse.getResolvedVariables() != null) {
-                    log.debug("Resolved {} variables using centralized template resolution for template ID: {}",
-                            resolveResponse.getResolvedVariables().size(), action.getTemplateId());
-                    return resolveResponse.getResolvedVariables();
-                }
-
-            } catch (Exception e) {
-                log.error("Error resolving template variables via API, falling back to defaults", e);
-                // Fall back to default hardcoded variables
-                return buildDefaultVariables(caseEntity, channel);
-            }
-        }
-
-        // Fall back to default hardcoded variables
-        return buildDefaultVariables(caseEntity, channel);
-    }
-
-    /**
-     * Build default hardcoded variables (backward compatibility)
-     * Used when template resolution API is unavailable or templateId is not set
-     */
-    private java.util.Map<String, Object> buildDefaultVariables(
-            com.finx.strategyengineservice.domain.entity.Case caseEntity, String channel) {
-        java.util.Map<String, Object> variables = new java.util.HashMap<>();
-
-        if ("SMS".equals(channel)) {
-            variables.put("VAR1", caseEntity.getLoan().getPrimaryCustomer().getFullName());
-            variables.put("VAR2", caseEntity.getLoan().getLoanAccountNumber());
-            variables.put("VAR3", caseEntity.getLoan().getTotalOutstanding() != null
-                    ? caseEntity.getLoan().getTotalOutstanding().toString() : "0");
-        }
-
-        return variables;
-    }
-
-    /**
-     * Send Email via communication service using dynamic variable resolution
+     * Send Email via communication service
+     *
+     * IMPORTANT: If template resolution fails, we DO NOT send the message.
+     * Messages should only be sent with properly resolved template data.
      */
     private void sendEmail(com.finx.strategyengineservice.domain.entity.Case caseEntity,
             com.finx.strategyengineservice.domain.entity.StrategyAction action) {
@@ -330,14 +327,54 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
             throw new BusinessException("Email not available for case: " + caseEntity.getId());
         }
 
-        // Build dynamic variables using centralized template resolution
-        Map<String, Object> resolvedVariables = buildDynamicVariables(caseEntity, action, "EMAIL");
-
-        // Convert Map<String, Object> to Map<String, String> for EmailRequest
-        Map<String, String> variables = new HashMap<>();
-        for (Map.Entry<String, Object> entry : resolvedVariables.entrySet()) {
-            variables.put(entry.getKey(), entry.getValue() != null ? entry.getValue().toString() : "");
+        // Template ID is required for Email
+        if (action.getTemplateId() == null || action.getTemplateId().isEmpty()) {
+            throw new BusinessException("Template ID is required for Email action on case: " + caseEntity.getId());
         }
+
+        // Resolve template - this MUST succeed for message to be sent
+        com.finx.strategyengineservice.client.dto.TemplateResolveRequest resolveRequest =
+            com.finx.strategyengineservice.client.dto.TemplateResolveRequest.builder()
+                .caseId(caseEntity.getId())
+                .additionalContext(null)
+                .build();
+
+        Long templateId = Long.parseLong(action.getTemplateId());
+
+        com.finx.strategyengineservice.domain.dto.CommonResponse<com.finx.strategyengineservice.client.dto.TemplateResolveResponse> response;
+        try {
+            response = templateServiceClient.resolveTemplate(templateId, resolveRequest);
+        } catch (Exception e) {
+            log.error("Failed to resolve template {} for Email case {}: {}", templateId, caseEntity.getId(), e.getMessage());
+            throw new BusinessException("Template resolution failed for Email case " + caseEntity.getId() + ": " + e.getMessage());
+        }
+
+        if (response == null || response.getPayload() == null) {
+            throw new BusinessException("Template resolution returned empty response for Email case: " + caseEntity.getId());
+        }
+
+        com.finx.strategyengineservice.client.dto.TemplateResolveResponse resolveResponse = response.getPayload();
+
+        // Validate providerTemplateId - MSG91 template_id
+        String msg91TemplateId = resolveResponse.getProviderTemplateId();
+        if (msg91TemplateId == null || msg91TemplateId.isEmpty()) {
+            throw new BusinessException("MSG91 provider template ID is missing in resolution response for Email case: " + caseEntity.getId() +
+                ". Make sure the template was synced with MSG91 and has a valid provider_template_id.");
+        }
+
+        // Get resolved variables and convert to Map<String, String>
+        Map<String, String> variables = new HashMap<>();
+        if (resolveResponse.getResolvedVariables() != null) {
+            for (Map.Entry<String, Object> entry : resolveResponse.getResolvedVariables().entrySet()) {
+                variables.put(entry.getKey(), entry.getValue() != null ? entry.getValue().toString() : "");
+            }
+        }
+
+        if (variables.isEmpty()) {
+            log.warn("No resolved variables found for Email template {} case {}", templateId, caseEntity.getId());
+        }
+
+        log.info("Resolved {} variables for Email template {} case {}", variables.size(), templateId, caseEntity.getId());
 
         String customerName = caseEntity.getLoan().getPrimaryCustomer().getFullName();
 
@@ -345,17 +382,26 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
                 .builder()
                 .toEmail(email)
                 .toName(customerName)
-                .templateId(action.getTemplateId() != null ? action.getTemplateId().toString() : null)
+                .templateId(msg91TemplateId) // MSG91 template_id returned during template creation
                 .variables(variables)
                 .caseId(caseEntity.getId())
                 .build();
 
+        log.info("Sending Email for case: {} to: {} using MSG91 template ID: {}", caseEntity.getId(), email, msg91TemplateId);
+
         communicationClient.sendEmail(request);
-        log.debug("Email sent successfully for case: {}", caseEntity.getId());
+        log.info("Email sent successfully for case: {} using MSG91 template ID: {}", caseEntity.getId(), msg91TemplateId);
     }
 
     /**
      * Send WhatsApp via communication service
+     * Uses template resolution to get:
+     * - providerTemplateId (MSG91 template_id returned during template creation)
+     * - languageShortCode for the correct language
+     * - resolvedVariables for dynamic components
+     *
+     * IMPORTANT: If template resolution fails, we DO NOT send the message.
+     * Messages should only be sent with properly resolved template data.
      */
     private void sendWhatsApp(com.finx.strategyengineservice.domain.entity.Case caseEntity,
             com.finx.strategyengineservice.domain.entity.StrategyAction action) {
@@ -365,34 +411,71 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
             throw new BusinessException("Mobile number not available for case: " + caseEntity.getId());
         }
 
-        // Get language code from template resolution
-        String languageCode = "En_US"; // Default to English
-        if (action.getTemplateId() != null) {
-            try {
-                com.finx.strategyengineservice.client.dto.TemplateResolveRequest resolveRequest =
-                    com.finx.strategyengineservice.client.dto.TemplateResolveRequest.builder()
-                        .caseId(caseEntity.getId())
-                        .additionalContext(null)
-                        .build();
+        // Add India country code (91) if not present - MSG91 requires country code
+        mobile = formatMobileWithCountryCode(mobile);
 
-                Long templateId = Long.parseLong(action.getTemplateId());
-                com.finx.strategyengineservice.client.dto.TemplateResolveResponse resolveResponse =
-                    templateServiceClient.resolveTemplate(templateId, resolveRequest).getPayload();
-
-                if (resolveResponse != null && resolveResponse.getLanguageShortCode() != null) {
-                    languageCode = resolveResponse.getLanguageShortCode();
-                }
-            } catch (Exception e) {
-                log.warn("Error getting language code from template, using default: En_US", e);
-            }
+        // Template ID is required for WhatsApp
+        if (action.getTemplateId() == null || action.getTemplateId().isEmpty()) {
+            throw new BusinessException("Template ID is required for WhatsApp action on case: " + caseEntity.getId());
         }
 
-        // Build WhatsApp request aligned with communication-service format
+        // Resolve template - this MUST succeed for message to be sent
+        com.finx.strategyengineservice.client.dto.TemplateResolveRequest resolveRequest =
+            com.finx.strategyengineservice.client.dto.TemplateResolveRequest.builder()
+                .caseId(caseEntity.getId())
+                .additionalContext(null)
+                .build();
+
+        Long templateId = Long.parseLong(action.getTemplateId());
+
+        com.finx.strategyengineservice.domain.dto.CommonResponse<com.finx.strategyengineservice.client.dto.TemplateResolveResponse> response;
+        try {
+            response = templateServiceClient.resolveTemplate(templateId, resolveRequest);
+        } catch (Exception e) {
+            log.error("Failed to resolve template {} for case {}: {}", templateId, caseEntity.getId(), e.getMessage());
+            throw new BusinessException("Template resolution failed for case " + caseEntity.getId() + ": " + e.getMessage());
+        }
+
+        if (response == null || response.getPayload() == null) {
+            throw new BusinessException("Template resolution returned empty response for case: " + caseEntity.getId());
+        }
+
+        com.finx.strategyengineservice.client.dto.TemplateResolveResponse resolveResponse = response.getPayload();
+
+        // Validate required fields from resolution
+        // Use providerTemplateId (MSG91 template_id) for sending messages, NOT templateCode
+        String msg91TemplateId = resolveResponse.getProviderTemplateId();
+        if (msg91TemplateId == null || msg91TemplateId.isEmpty()) {
+            throw new BusinessException("MSG91 provider template ID is missing in resolution response for case: " + caseEntity.getId() +
+                ". Make sure the template was synced with MSG91 and has a valid provider_template_id.");
+        }
+
+        String languageCode = resolveResponse.getLanguageShortCode();
+        if (languageCode == null || languageCode.isEmpty()) {
+            languageCode = "en_US"; // Default language is acceptable
+            log.warn("Language code not found in template resolution, using default: en_US");
+        }
+
+        // Build components from resolved variables
+        java.util.Map<String, java.util.Map<String, String>> components = new java.util.HashMap<>();
+        if (resolveResponse.getResolvedVariables() != null && !resolveResponse.getResolvedVariables().isEmpty()) {
+            for (java.util.Map.Entry<String, Object> entry : resolveResponse.getResolvedVariables().entrySet()) {
+                java.util.Map<String, String> component = new java.util.HashMap<>();
+                component.put("type", "text");
+                component.put("value", entry.getValue() != null ? entry.getValue().toString() : "");
+                components.put(entry.getKey(), component);
+            }
+            log.info("Built {} WhatsApp components from template resolution for case: {}", components.size(), caseEntity.getId());
+        } else {
+            log.warn("No resolved variables found for template {} case {}, sending without components", templateId, caseEntity.getId());
+        }
+
+        // Build and send WhatsApp request
         com.finx.strategyengineservice.client.dto.WhatsAppRequest request =
                 com.finx.strategyengineservice.client.dto.WhatsAppRequest.builder()
-                .templateId(action.getTemplateId() != null ? action.getTemplateId().toString() : null)
+                .templateId(msg91TemplateId) // MSG91 template_id returned during template creation
                 .to(java.util.Collections.singletonList(mobile))
-                .components(buildWhatsAppComponents(caseEntity, action))
+                .components(components)
                 .language(com.finx.strategyengineservice.client.dto.WhatsAppRequest.WhatsAppLanguage.builder()
                         .code(languageCode)
                         .policy("deterministic")
@@ -400,84 +483,11 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
                 .caseId(caseEntity.getId())
                 .build();
 
+        log.info("Sending WhatsApp for case: {} using MSG91 template ID: {} with {} components",
+                caseEntity.getId(), msg91TemplateId, components.size());
+
         communicationClient.sendWhatsApp(request);
-        log.debug("WhatsApp sent successfully for case: {}", caseEntity.getId());
-    }
-
-    /**
-     * Build WhatsApp components from case data using centralized template resolution API
-     */
-    private java.util.Map<String, java.util.Map<String, String>> buildWhatsAppComponents(
-            com.finx.strategyengineservice.domain.entity.Case caseEntity,
-            com.finx.strategyengineservice.domain.entity.StrategyAction action) {
-
-        java.util.Map<String, java.util.Map<String, String>> components = new java.util.HashMap<>();
-
-        // If templateId is set, use centralized template resolution API
-        if (action.getTemplateId() != null) {
-            try {
-                // Call template resolution API
-                com.finx.strategyengineservice.client.dto.TemplateResolveRequest resolveRequest =
-                    com.finx.strategyengineservice.client.dto.TemplateResolveRequest.builder()
-                        .caseId(caseEntity.getId())
-                        .additionalContext(null)
-                        .build();
-
-                Long templateId = Long.parseLong(action.getTemplateId());
-                com.finx.strategyengineservice.client.dto.TemplateResolveResponse resolveResponse =
-                    templateServiceClient.resolveTemplate(templateId, resolveRequest).getPayload();
-
-                if (resolveResponse != null && resolveResponse.getResolvedVariables() != null) {
-                    // Convert resolved variables to WhatsApp component format
-                    for (java.util.Map.Entry<String, Object> entry : resolveResponse.getResolvedVariables().entrySet()) {
-                        java.util.Map<String, String> component = new java.util.HashMap<>();
-                        component.put("type", "text");
-                        component.put("value", entry.getValue() != null ? entry.getValue().toString() : "");
-                        components.put(entry.getKey(), component);
-                    }
-
-                    log.debug("Built {} WhatsApp components using centralized template resolution", components.size());
-                    return components;
-                }
-
-            } catch (Exception e) {
-                log.error("Error resolving template variables via API, falling back to defaults", e);
-                // Fall back to default hardcoded components
-                return buildDefaultWhatsAppComponents(caseEntity);
-            }
-        }
-
-        // Fall back to default hardcoded components
-        return buildDefaultWhatsAppComponents(caseEntity);
-    }
-
-    /**
-     * Build default WhatsApp components (backward compatibility)
-     */
-    private java.util.Map<String, java.util.Map<String, String>> buildDefaultWhatsAppComponents(
-            com.finx.strategyengineservice.domain.entity.Case caseEntity) {
-        java.util.Map<String, java.util.Map<String, String>> components = new java.util.HashMap<>();
-
-        // body_1: Customer name
-        java.util.Map<String, String> body1 = new java.util.HashMap<>();
-        body1.put("type", "text");
-        body1.put("value", caseEntity.getLoan().getPrimaryCustomer().getFullName());
-        components.put("body_1", body1);
-
-        // body_2: Loan account number
-        java.util.Map<String, String> body2 = new java.util.HashMap<>();
-        body2.put("type", "text");
-        body2.put("value", caseEntity.getLoan().getLoanAccountNumber());
-        components.put("body_2", body2);
-
-        // body_3: Outstanding amount
-        java.util.Map<String, String> body3 = new java.util.HashMap<>();
-        body3.put("type", "text");
-        body3.put("value", caseEntity.getLoan().getTotalOutstanding() != null
-                ? caseEntity.getLoan().getTotalOutstanding().toString() : "0");
-        components.put("body_3", body3);
-
-        return components;
+        log.info("WhatsApp sent successfully for case: {} using MSG91 template ID: {}", caseEntity.getId(), msg91TemplateId);
     }
 
     /**
@@ -638,7 +648,10 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
     @Transactional(readOnly = true)
     public List<ExecutionDTO> getAllExecutions() {
         log.info("Fetching all strategy executions");
-        List<StrategyExecution> executions = executionRepository.findAllByOrderByStartedAtDesc(null).getContent();
+        // Use Pageable.unpaged() to get all results, or use a large page size
+        List<StrategyExecution> executions = executionRepository
+                .findAllByOrderByStartedAtDesc(org.springframework.data.domain.PageRequest.of(0, 1000))
+                .getContent();
 
         return executions.stream()
                 .map(this::convertToExecutionDTO)
@@ -709,5 +722,39 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
                 .executionId(execution.getExecutionId())
                 .details(details)
                 .build();
+    }
+
+    /**
+     * Format mobile number with India country code (91) for MSG91
+     * MSG91 requires phone numbers with country code prefix
+     *
+     * @param mobile the mobile number (may or may not have country code)
+     * @return mobile number with 91 prefix
+     */
+    private String formatMobileWithCountryCode(String mobile) {
+        if (mobile == null || mobile.isEmpty()) {
+            return mobile;
+        }
+
+        // Remove any spaces, dashes, or special characters
+        String cleanMobile = mobile.replaceAll("[^0-9+]", "");
+
+        // If already has + prefix with country code, just remove the +
+        if (cleanMobile.startsWith("+")) {
+            return cleanMobile.substring(1);
+        }
+
+        // If already starts with 91 and is 12 digits (91 + 10 digit number), return as is
+        if (cleanMobile.startsWith("91") && cleanMobile.length() == 12) {
+            return cleanMobile;
+        }
+
+        // If it's a 10-digit Indian number, add 91 prefix
+        if (cleanMobile.length() == 10) {
+            return "91" + cleanMobile;
+        }
+
+        // Return as is for other cases (might be international number)
+        return cleanMobile;
     }
 }

@@ -788,9 +788,10 @@ public class StrategyServiceImpl implements StrategyService {
                 .orElseThrow(() -> new ResourceNotFoundException("Strategy not found: " + strategyId));
         ActionType actionType = mapChannelTypeToActionType(channel.getType());
 
-        // Use provider template ID directly (MSG91 template ID like "691c17bde616b476516180c8")
-        String templateId = channel.getTemplateId();
-        if (templateId == null || templateId.isBlank()) {
+        // Use numeric template ID from template-management-service
+        Long templateId = channel.getTemplateId();
+        String templateIdStr = templateId != null ? String.valueOf(templateId) : null;
+        if (templateId == null) {
             log.warn("Template ID not provided for channel: {}, templateName: {}",
                     channel.getType(), channel.getTemplateName());
         }
@@ -804,7 +805,7 @@ public class StrategyServiceImpl implements StrategyService {
                 .strategy(strategy)
                 .actionType(actionType)
                 .actionOrder(0)
-                .templateId(templateId)
+                .templateId(templateIdStr)  // Store as String in entity (for backward compatibility)
                 .channel(channel.getType())
                 .priority(0)
                 .actionConfig(actionConfig)
@@ -959,41 +960,61 @@ public class StrategyServiceImpl implements StrategyService {
             String fieldValue = rule.getFieldValue();
             RuleOperator operator = rule.getOperator();
 
-            // DPD Range
+            // DPD Range - matches mapFilterFieldToDbField output "loan.dpd"
             if ("loan.dpd".equals(fieldName)) {
                 if (RuleOperator.BETWEEN.equals(operator)) {
                     String[] parts = fieldValue.split(",");
                     filters.setDpdRange(parts[0] + "-" + parts[1]);
                 } else {
-                    filters.setDpdRange(operator + " " + fieldValue);
+                    filters.setDpdRange(getOperatorSymbol(operator) + " " + fieldValue);
                 }
             }
-            // Outstanding Amount
-            else if ("loan.total_outstanding".equals(fieldName)) {
+            // Outstanding Amount - matches mapFilterFieldToDbField output "loan.totalOutstanding"
+            else if ("loan.totalOutstanding".equals(fieldName)) {
                 if (RuleOperator.BETWEEN.equals(operator)) {
                     String[] parts = fieldValue.split(",");
                     filters.setOutstandingAmount(parts[0] + "-" + parts[1]);
                 } else if (RuleOperator.GREATER_THAN_OR_EQUAL.equals(operator)) {
                     filters.setOutstandingAmount("≥ " + fieldValue);
                 } else {
-                    filters.setOutstandingAmount(operator + " " + fieldValue);
+                    filters.setOutstandingAmount(getOperatorSymbol(operator) + " " + fieldValue);
                 }
             }
-            // Text filters (singular names)
-            else if ("case.language".equals(fieldName)) {
+            // Text filters - matches mapFilterFieldToDbField outputs
+            else if ("language".equals(fieldName)) {
                 filters.setLanguage(Arrays.asList(fieldValue.split(",")));
-            } else if ("loan.product_code".equals(fieldName)) {
+            } else if ("loan.productType".equals(fieldName) || "loan.productCode".equals(fieldName)) {
                 filters.setProduct(Arrays.asList(fieldValue.split(",")));
             } else if ("customer.pincode".equals(fieldName)) {
                 filters.setPincode(Arrays.asList(fieldValue.split(",")));
             } else if ("customer.state".equals(fieldName)) {
                 filters.setState(Arrays.asList(fieldValue.split(",")));
+            } else if ("customer.city".equals(fieldName)) {
+                filters.setCity(Arrays.asList(fieldValue.split(",")));
             } else if ("loan.bucket".equals(fieldName)) {
                 filters.setBucket(Arrays.asList(fieldValue.split(",")));
+            } else if ("caseStatus".equals(fieldName)) {
+                filters.setStatus(Arrays.asList(fieldValue.split(",")));
             }
         }
 
         return filters;
+    }
+
+    /**
+     * Convert RuleOperator enum to display symbol
+     */
+    private String getOperatorSymbol(RuleOperator operator) {
+        return switch (operator) {
+            case GREATER_THAN -> ">";
+            case LESS_THAN -> "<";
+            case GREATER_THAN_OR_EQUAL -> "≥";
+            case LESS_THAN_OR_EQUAL -> "≤";
+            case EQUALS -> "=";
+            case BETWEEN -> "RANGE";
+            case IN -> "IN";
+            default -> operator.name();
+        };
     }
 
     private StrategyResponse.Schedule buildScheduleInfo(ScheduledJob job, Strategy strategy) {

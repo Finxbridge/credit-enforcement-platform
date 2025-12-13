@@ -10,7 +10,7 @@ import org.springframework.web.bind.annotation.*;
  * Used to fetch documents from OVH S3 storage
  * Strategy Engine only needs GET operations - upload is done via template-management-service
  */
-@FeignClient(name = "dms-service", url = "${DMS_SERVICE_URL:http://dms-service:8093}")
+@FeignClient(name = "dms-service", url = "${DMS_SERVICE_URL:http://localhost:8093}")
 public interface DmsServiceClient {
 
     /**

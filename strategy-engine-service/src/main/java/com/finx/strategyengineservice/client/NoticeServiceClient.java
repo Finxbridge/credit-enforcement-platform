@@ -12,7 +12,7 @@ import java.util.List;
  * Feign Client for Notice Management Service
  * Used to create and track notices with document attachments
  */
-@FeignClient(name = "notice-management-service", url = "${NOTICE_SERVICE_URL:http://notice-management-service:8089}")
+@FeignClient(name = "notice-management-service", url = "${NOTICE_SERVICE_URL:http://localhost:8091}")
 public interface NoticeServiceClient {
 
     /**
