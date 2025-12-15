@@ -1,12 +1,16 @@
 package com.finx.dmsservice.domain.entity;
 
+import io.hypersistence.utils.hibernate.type.json.JsonType;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.Type;
 
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
 
 @Entity
 @Table(name = "audit_logs")
@@ -20,67 +24,130 @@ public class AuditLog {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "service_name", nullable = false, length = 50)
-    private String serviceName;
-
-    @Column(name = "event_type", nullable = false, length = 50)
-    private String eventType;
-
-    @Column(name = "event_category", length = 30)
-    private String eventCategory;
+    @Column(name = "audit_id", length = 50, unique = true)
+    private String auditId;
 
     @Column(name = "entity_type", nullable = false, length = 50)
     private String entityType;
 
-    @Column(name = "entity_id", length = 50)
-    private String entityId;
+    @Column(name = "entity_id")
+    private Long entityId;
 
-    @Column(name = "entity_name", length = 255)
-    private String entityName;
-
-    @Column(name = "action", nullable = false, length = 30)
+    @Column(name = "action", nullable = false, length = 50)
     private String action;
 
-    @Column(name = "old_value", columnDefinition = "TEXT")
-    private String oldValue;
+    @Column(name = "case_id")
+    private Long caseId;
 
-    @Column(name = "new_value", columnDefinition = "TEXT")
-    private String newValue;
+    @Column(name = "user_id")
+    private Long userId;
 
-    @Column(name = "change_summary", columnDefinition = "TEXT")
-    private String changeSummary;
+    @Column(name = "user_name", length = 100)
+    private String userName;
 
-    @Column(name = "actor_id")
-    private Long actorId;
+    @Column(name = "user_role", length = 50)
+    private String userRole;
 
-    @Column(name = "actor_name", length = 100)
-    private String actorName;
-
-    @Column(name = "actor_type", length = 30)
-    private String actorType;
-
-    @Column(name = "ip_address", length = 50)
+    @Column(name = "ip_address", length = 45)
     private String ipAddress;
 
-    @Column(name = "user_agent", length = 500)
+    @Column(name = "user_agent", length = 255)
     private String userAgent;
 
-    @Column(name = "trace_id", length = 50)
+    @Type(JsonType.class)
+    @Column(name = "before_value", columnDefinition = "jsonb")
+    private Map<String, Object> beforeValue;
+
+    @Type(JsonType.class)
+    @Column(name = "after_value", columnDefinition = "jsonb")
+    private Map<String, Object> afterValue;
+
+    @Column(name = "old_values", columnDefinition = "TEXT")
+    private String oldValues;
+
+    @Column(name = "new_values", columnDefinition = "TEXT")
+    private String newValues;
+
+    @Column(name = "changes", columnDefinition = "TEXT")
+    private String changes;
+
+    @Type(JsonType.class)
+    @Column(name = "changed_fields", columnDefinition = "jsonb")
+    private List<String> changedFields;
+
+    @Column(name = "description", columnDefinition = "TEXT")
+    private String description;
+
+    @Type(JsonType.class)
+    @Column(name = "metadata", columnDefinition = "jsonb")
+    private Map<String, Object> metadata;
+
+    @Column(name = "request_id", length = 50)
+    private String requestId;
+
+    @Column(name = "created_at")
+    private LocalDateTime createdAt;
+
+    // Transient fields for service compatibility (not persisted)
+    @Transient
+    private String serviceName;
+
+    @Transient
+    private String eventType;
+
+    @Transient
+    private String eventCategory;
+
+    @Transient
+    private String entityName;
+
+    @Transient
+    private Map<String, Object> oldValue;
+
+    @Transient
+    private Map<String, Object> newValue;
+
+    @Transient
+    private String changeSummary;
+
+    @Transient
+    private Long actorId;
+
+    @Transient
+    private String actorName;
+
+    @Transient
+    private String actorType;
+
+    @Transient
     private String traceId;
 
-    @Column(name = "severity", length = 20)
+    @Transient
     private String severity;
 
-    @Column(name = "event_timestamp", nullable = false)
+    @Transient
     private LocalDateTime eventTimestamp;
 
     @PrePersist
     protected void onCreate() {
-        if (eventTimestamp == null) {
-            eventTimestamp = LocalDateTime.now();
+        if (createdAt == null) {
+            createdAt = LocalDateTime.now();
         }
-        if (serviceName == null) {
-            serviceName = "dms-service";
+        // Map transient fields to persisted fields
+        if (oldValue != null && beforeValue == null) {
+            beforeValue = oldValue;
+        }
+        if (newValue != null && afterValue == null) {
+            afterValue = newValue;
+        }
+        if (actorId != null && userId == null) {
+            userId = actorId;
+        }
+        if (actorName != null && userName == null) {
+            userName = actorName;
+        }
+        if (changeSummary != null && description == null) {
+            description = changeSummary;
         }
     }
 }

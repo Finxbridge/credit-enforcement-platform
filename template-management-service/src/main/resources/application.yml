@@ -54,7 +54,7 @@ logging:
 # File Storage Configuration
 file:
   storage:
-    base-path: ${FILE_STORAGE_PATH:./uploads}
+    base-path: ${FILE_STORAGE_PATH:/app/uploads}
     base-url: ${FILE_STORAGE_URL:http://localhost:8087/api/v1/files}
 
 # External Service URLs

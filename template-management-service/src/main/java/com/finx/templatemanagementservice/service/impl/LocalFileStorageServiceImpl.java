@@ -33,12 +33,36 @@ public class LocalFileStorageServiceImpl implements FileStorageService {
 
     @PostConstruct
     public void init() {
+        // Try primary path first
         try {
             rootLocation = Paths.get(basePath).toAbsolutePath().normalize();
             Files.createDirectories(rootLocation);
-            log.info("File storage initialized at: {}", rootLocation);
-        } catch (IOException e) {
-            throw new BusinessException("Could not initialize file storage: " + e.getMessage());
+            // Verify we can write to the directory
+            if (Files.isWritable(rootLocation)) {
+                log.info("File storage initialized at: {}", rootLocation);
+                return;
+            }
+            log.warn("Primary storage path {} is not writable, trying fallback", rootLocation);
+        } catch (Exception e) {
+            log.warn("Could not initialize file storage at {}: {}", basePath, e.getMessage());
+        }
+
+        // Try fallback path in temp directory
+        try {
+            rootLocation = Paths.get(System.getProperty("java.io.tmpdir"), "template-uploads").toAbsolutePath().normalize();
+            Files.createDirectories(rootLocation);
+            log.warn("Using fallback storage location: {}", rootLocation);
+        } catch (Exception e) {
+            log.error("Could not initialize fallback file storage: {}", e.getMessage());
+            // Last resort: use current working directory
+            try {
+                rootLocation = Paths.get("uploads").toAbsolutePath().normalize();
+                Files.createDirectories(rootLocation);
+                log.warn("Using last resort storage location: {}", rootLocation);
+            } catch (Exception lastResortException) {
+                log.error("All file storage initialization attempts failed. File operations will fail at runtime.");
+                rootLocation = Paths.get(System.getProperty("java.io.tmpdir")).toAbsolutePath().normalize();
+            }
         }
     }
 

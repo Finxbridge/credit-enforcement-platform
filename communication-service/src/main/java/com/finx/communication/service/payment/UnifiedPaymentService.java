@@ -62,6 +62,9 @@ public class UnifiedPaymentService {
 
     /**
      * Check payment status
+     * FinxBridge API: POST /api/v1/service/status
+     * Request: { merchantId, provider, transactionId (TX...), serviceType }
+     * Response: { success, code, message, data: { merchantId, transactionId, amount, paymentState, paymentInstrument } }
      */
     public UnifiedPaymentResponse status(UnifiedStatusRequest request) {
         String serviceType = request.getServiceType().toUpperCase();
@@ -73,15 +76,16 @@ public class UnifiedPaymentService {
         Map<String, Object> requestBody = new HashMap<>();
         requestBody.put("merchantId", config.getConfigValueAsString("merchant_id"));
         requestBody.put("provider", config.getConfigValueAsString("provider"));
-        requestBody.put("transactionId", transaction.getGatewayOrderId() != null
-                ? transaction.getGatewayOrderId() : transaction.getTransactionId());
+        // For DQR, transactionId is stored directly (TX...), not in gatewayOrderId
+        requestBody.put("transactionId", transaction.getTransactionId());
         requestBody.put("serviceType", serviceType);
 
         String url = config.getApiEndpoint() + "/api/v1/service/status";
         Map<String, Object> response = callApi(url, requestBody, config);
 
-        // Update transaction
-        String newStatus = extractString(response, "status", "UNKNOWN").toUpperCase();
+        // Extract status from response.data.paymentState
+        String paymentState = extractString(response, "paymentState", "status");
+        String newStatus = mapPaymentState(paymentState);
         transaction.setStatus(newStatus);
         transaction.setGatewayResponse(response);
 
@@ -96,8 +100,23 @@ public class UnifiedPaymentService {
         return buildResponseFromTransaction(transaction, serviceType, response);
     }
 
+    private String mapPaymentState(String paymentState) {
+        if (paymentState == null) return "UNKNOWN";
+        return switch (paymentState.toUpperCase()) {
+            case "PENDING" -> "PENDING";
+            case "SUCCESS", "COMPLETED", "PAID" -> "SUCCESS";
+            case "FAILED", "FAILURE" -> "FAILED";
+            case "CANCELLED", "CANCELED" -> "CANCELLED";
+            case "EXPIRED" -> "EXPIRED";
+            case "REFUNDED" -> "REFUNDED";
+            default -> paymentState.toUpperCase();
+        };
+    }
+
     /**
      * Cancel payment
+     * FinxBridge API: POST /api/v1/service/cancel
+     * Request: { merchantId, transactionId (TX...), reason, provider, serviceType }
      */
     public UnifiedPaymentResponse cancel(UnifiedCancelRequest request) {
         String serviceType = request.getServiceType().toUpperCase();
@@ -115,8 +134,7 @@ public class UnifiedPaymentService {
         Map<String, Object> requestBody = new HashMap<>();
         requestBody.put("merchantId", config.getConfigValueAsString("merchant_id"));
         requestBody.put("provider", config.getConfigValueAsString("provider"));
-        requestBody.put("transactionId", transaction.getGatewayOrderId() != null
-                ? transaction.getGatewayOrderId() : transaction.getTransactionId());
+        requestBody.put("transactionId", transaction.getTransactionId()); // TX... from init
         requestBody.put("reason", request.getReason() != null ? request.getReason() : "Cancelled by user");
         requestBody.put("serviceType", serviceType);
 
@@ -133,6 +151,8 @@ public class UnifiedPaymentService {
 
     /**
      * Refund payment
+     * FinxBridge API: POST /api/v1/service/refund
+     * Request: { merchantId, originalTransactionId (TX...), amount, merchantOrderId (MO...), message, provider, serviceType }
      */
     public UnifiedPaymentResponse refund(UnifiedRefundRequest request) {
         String serviceType = request.getServiceType().toUpperCase();
@@ -152,10 +172,11 @@ public class UnifiedPaymentService {
         Map<String, Object> requestBody = new HashMap<>();
         requestBody.put("merchantId", config.getConfigValueAsString("merchant_id"));
         requestBody.put("provider", config.getConfigValueAsString("provider"));
-        requestBody.put("originalTransactionId", transaction.getGatewayOrderId() != null
-                ? transaction.getGatewayOrderId() : transaction.getTransactionId());
-        requestBody.put("amount", refundAmount.toString());
-        requestBody.put("merchantOrderId", transaction.getTransactionId());
+        // originalTransactionId is TX... (stored in transactionId field)
+        requestBody.put("originalTransactionId", transaction.getTransactionId());
+        requestBody.put("amount", refundAmount.intValue()); // FinxBridge expects integer amount in paise
+        // merchantOrderId is MO... (stored in gatewayOrderId field)
+        requestBody.put("merchantOrderId", transaction.getGatewayOrderId());
         requestBody.put("message", request.getReason() != null ? request.getReason() : "Refund requested");
         requestBody.put("serviceType", serviceType);
 
@@ -261,20 +282,36 @@ public class UnifiedPaymentService {
                                                 Map<String, Object> requestBody) {
         String url = config.getApiEndpoint() + "/api/v1/dqr/init";
         try {
-            byte[] qrImageBytes = webClient.post()
+            // Use exchangeToMono to capture both body and headers
+            var responseEntity = webClient.post()
                     .uri(url)
                     .contentType(MediaType.APPLICATION_JSON)
                     .headers(h -> addHeaders(h, config))
                     .bodyValue(requestBody)
                     .retrieve()
-                    .bodyToMono(byte[].class)
+                    .toEntity(byte[].class)
                     .block();
 
-            String transactionId = UUID.randomUUID().toString();
+            byte[] qrImageBytes = responseEntity != null ? responseEntity.getBody() : null;
+
+            // Extract gateway transaction ID and merchant order ID from response headers
+            // FinxBridge returns: transactionId (e.g., TX83455254424851) and merchantOrderId (e.g., MO83455255267768)
+            String gatewayTransactionId = null;
+            String merchantOrderId = null;
+            if (responseEntity != null && responseEntity.getHeaders() != null) {
+                gatewayTransactionId = responseEntity.getHeaders().getFirst("transactionId");
+                merchantOrderId = responseEntity.getHeaders().getFirst("merchantOrderId");
+                log.info("DQR Response Headers - transactionId: {}, merchantOrderId: {}",
+                        gatewayTransactionId, merchantOrderId);
+            }
+
+            // Use gateway's transactionId as our primary transaction identifier
+            String transactionId = gatewayTransactionId != null ? gatewayTransactionId : UUID.randomUUID().toString();
             String qrBase64 = qrImageBytes != null ? Base64.getEncoder().encodeToString(qrImageBytes) : null;
 
             PaymentGatewayTransaction transaction = PaymentGatewayTransaction.builder()
                     .transactionId(transactionId)
+                    .gatewayOrderId(merchantOrderId) // Store merchant order ID
                     .gatewayName("FINXBRIDGE")
                     .caseId(request.getCaseId())
                     .loanAccountNumber(request.getLoanAccountNumber())
@@ -287,7 +324,8 @@ public class UnifiedPaymentService {
 
             return UnifiedPaymentResponse.builder()
                     .serviceType("DYNAMIC_QR")
-                    .transactionId(transactionId)
+                    .transactionId(transactionId) // Gateway's transactionId (TX...)
+                    .gatewayOrderId(merchantOrderId) // Gateway's merchantOrderId (MO...)
                     .amount(request.getAmount())
                     .currency("INR")
                     .status("CREATED")

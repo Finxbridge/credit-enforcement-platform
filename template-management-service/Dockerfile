@@ -38,8 +38,11 @@ WORKDIR /app
 # Copy only the JAR of the specific service
 COPY --from=builder /workspace/template-management-service/target/template-management-service-*.jar app.jar
 
+# Create uploads directory for file storage
+RUN mkdir -p /app/uploads
+
 # Change ownership to non-root user
-RUN chown springuser:springuser /app/app.jar
+RUN chown -R springuser:springuser /app
 USER springuser
 
 # Expose service port

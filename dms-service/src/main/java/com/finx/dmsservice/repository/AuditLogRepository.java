@@ -14,17 +14,17 @@ import java.util.List;
 @Repository
 public interface AuditLogRepository extends JpaRepository<AuditLog, Long> {
 
-    Page<AuditLog> findByEntityTypeAndEntityId(String entityType, String entityId, Pageable pageable);
+    Page<AuditLog> findByEntityTypeAndEntityId(String entityType, Long entityId, Pageable pageable);
 
-    Page<AuditLog> findByActorId(Long actorId, Pageable pageable);
+    Page<AuditLog> findByUserId(Long userId, Pageable pageable);
 
-    Page<AuditLog> findByEventType(String eventType, Pageable pageable);
+    Page<AuditLog> findByAction(String action, Pageable pageable);
 
-    @Query("SELECT a FROM AuditLog a WHERE a.eventTimestamp BETWEEN :startDate AND :endDate ORDER BY a.eventTimestamp DESC")
+    @Query("SELECT a FROM AuditLog a WHERE a.createdAt BETWEEN :startDate AND :endDate ORDER BY a.createdAt DESC")
     Page<AuditLog> findByDateRange(
             @Param("startDate") LocalDateTime startDate,
             @Param("endDate") LocalDateTime endDate,
             Pageable pageable);
 
-    List<AuditLog> findByEntityTypeAndEntityIdOrderByEventTimestampDesc(String entityType, String entityId);
+    List<AuditLog> findByEntityTypeAndEntityIdOrderByCreatedAtDesc(String entityType, Long entityId);
 }
