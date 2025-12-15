@@ -23,6 +23,7 @@
     <module>allocation-reallocation-service</module>
     <module>strategy-engine-service</module>
     <module>template-management-service</module>
+    <module>dms-service</module>
 
   </modules>
   <properties>
