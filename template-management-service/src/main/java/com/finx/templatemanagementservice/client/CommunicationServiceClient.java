@@ -3,8 +3,7 @@ package com.finx.templatemanagementservice.client;
 import com.finx.templatemanagementservice.domain.dto.CommonResponse;
 import com.finx.templatemanagementservice.domain.dto.comm.*;
 import org.springframework.cloud.openfeign.FeignClient;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 
@@ -28,6 +27,14 @@ public interface CommunicationServiceClient {
     CommonResponse<Map<String, Object>> createSMSTemplate(@RequestBody SmsCreateTemplateRequest request);
 
     /**
+     * Add SMS Template Version (Edit/Update SMS Template)
+     * POST /api/v5/sms/addTemplateVersion
+     * Note: senderId is read from database config_json
+     */
+    @PostMapping("/comm/sms/add-template-version")
+    CommonResponse<Map<String, Object>> addSMSTemplateVersion(@RequestBody SmsAddTemplateVersionRequest request);
+
+    /**
      * Send SMS using MSG91 Flow API
      */
     @PostMapping("/comm/sms/send")
@@ -43,6 +50,24 @@ public interface CommunicationServiceClient {
     CommonResponse<Map<String, Object>> createWhatsAppTemplate(@RequestBody WhatsAppCreateTemplateRequest request);
 
     /**
+     * Edit WhatsApp Template in MSG91
+     * Note: integrated_number is read from database config_json
+     * @param templateId The MSG91 template ID (providerTemplateId)
+     * @param request The edit request with updated template details
+     */
+    @PutMapping("/comm/whatsapp/templates/{templateId}")
+    CommonResponse<Map<String, Object>> editWhatsAppTemplate(
+            @PathVariable("templateId") String templateId,
+            @RequestBody WhatsAppEditTemplateRequest request);
+
+    /**
+     * Delete WhatsApp Template from MSG91
+     * @param templateName The template name to delete
+     */
+    @DeleteMapping("/comm/whatsapp/templates")
+    CommonResponse<Map<String, Object>> deleteWhatsAppTemplate(@RequestParam("templateName") String templateName);
+
+    /**
      * Send WhatsApp message using MSG91 API
      */
     @PostMapping("/comm/whatsapp/send")
@@ -52,9 +77,10 @@ public interface CommunicationServiceClient {
 
     /**
      * Create Email Template in MSG91
+     * Note: For "edit", create new template then delete old (MSG91 doesn't have edit API)
      */
     @PostMapping("/comm/email/msg91/templates")
-    CommonResponse<Map<String, Object>> createEmailTemplate(@RequestBody Map<String, Object> request);
+    CommonResponse<Map<String, Object>> createEmailTemplate(@RequestBody EmailTemplateCreateRequest request);
 
     /**
      * Send Email via MSG91

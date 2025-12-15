@@ -227,6 +227,44 @@ services:
     networks:
       - backend-net
 
+  template-management-service:
+    build:
+      context: .
+      dockerfile: template-management-service/Dockerfile
+    container_name: template-management-service
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8087/actuator/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    ports:
+      - "8087:8087"
+    environment:
+      - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-dev}
+      - SERVER_PORT=8087
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://${POSTGRES_HOST:-host.docker.internal}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-development_db}?sslmode=${POSTGRES_SSL_MODE:-disable}&connectTimeout=${POSTGRES_CONNECT_TIMEOUT:-30}
+      - SPRING_DATASOURCE_USERNAME=${POSTGRES_USER:-admin}
+      - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD:-password}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - REDIS_USERNAME=${REDIS_USERNAME}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - REDIS_SSL_ENABLED=${REDIS_SSL_ENABLED:-false}
+      - FLYWAY_ENABLED=false
+      - JPA_DDL_AUTO=${JPA_DDL_AUTO:-validate}
+      - JPA_SHOW_SQL=${JPA_SHOW_SQL:-false}
+      - JPA_FORMAT_SQL=${JPA_FORMAT_SQL:-false}
+      - LOGGING_LEVEL_ROOT=${LOGGING_LEVEL_ROOT:-INFO}
+      - LOGGING_LEVEL_FINX=${LOGGING_LEVEL_FINX:-DEBUG}
+      - COMMUNICATION_SERVICE_URL=http://communication-service:8085
+      - DMS_SERVICE_URL=http://dms-service:8093
+    depends_on:
+      access-management-service:
+        condition: service_healthy
+    networks:
+      - backend-net
+
   api-gateway:
     build:
       context: .
@@ -270,6 +308,7 @@ services:
       - ALLOCATION_REALLOCATION_SERVICE_URL=http://allocation-reallocation-service:8084
       - COMMUNICATION_SERVICE_URL=http://communication-service:8085
       - STRATEGY_ENGINE_SERVICE_URL=http://strategy-engine-service:8086
+      - TEMPLATE_MANAGEMENT_SERVICE_URL=http://template-management-service:8087
     depends_on:
       access-management-service:
         condition: service_healthy

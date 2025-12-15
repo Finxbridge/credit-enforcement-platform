@@ -5,8 +5,11 @@ import com.finx.templatemanagementservice.client.DmsServiceClient;
 import com.finx.templatemanagementservice.client.dto.DmsDocumentDTO;
 import com.finx.templatemanagementservice.client.dto.DmsUploadRequest;
 import com.finx.templatemanagementservice.domain.dto.*;
+import com.finx.templatemanagementservice.domain.dto.comm.EmailTemplateCreateRequest;
+import com.finx.templatemanagementservice.domain.dto.comm.SmsAddTemplateVersionRequest;
 import com.finx.templatemanagementservice.domain.dto.comm.SmsCreateTemplateRequest;
 import com.finx.templatemanagementservice.domain.dto.comm.WhatsAppCreateTemplateRequest;
+import com.finx.templatemanagementservice.domain.dto.comm.WhatsAppEditTemplateRequest;
 import com.finx.templatemanagementservice.domain.entity.Template;
 import com.finx.templatemanagementservice.domain.entity.TemplateContent;
 import com.finx.templatemanagementservice.domain.entity.TemplateVariable;
@@ -486,11 +489,11 @@ public class TemplateServiceImpl implements TemplateService {
     private void syncEmailTemplate(Template template, TemplateContent content) {
         log.info("Syncing Email template: {}", template.getTemplateName());
 
-        Map<String, Object> request = Map.of(
-                "name", template.getTemplateName(),
-                "subject", content.getSubject() != null ? content.getSubject() : template.getTemplateName(),
-                "body", content.getContent()
-        );
+        EmailTemplateCreateRequest request = EmailTemplateCreateRequest.builder()
+                .name(template.getTemplateName())
+                .subject(content.getSubject() != null ? content.getSubject() : template.getTemplateName())
+                .body(content.getContent())
+                .build();
 
         CommonResponse<Map<String, Object>> response = communicationServiceClient.createEmailTemplate(request);
 
@@ -697,8 +700,161 @@ public class TemplateServiceImpl implements TemplateService {
             }
         }
 
+        // Sync with MSG91 if template has providerTemplateId (already synced before)
+        boolean requiresProviderSync = request.getChannel() == ChannelType.SMS
+                || request.getChannel() == ChannelType.WHATSAPP
+                || request.getChannel() == ChannelType.EMAIL;
+
+        if (requiresProviderSync && template.getProviderTemplateId() != null) {
+            try {
+                syncUpdateWithProvider(template, request.getContent());
+                log.info("Template update synced with provider (MSG91) for channel: {}", request.getChannel());
+            } catch (Exception e) {
+                log.warn("Failed to sync template update with provider: {}. Local update saved.", e.getMessage());
+            }
+        }
+
         log.info("Template updated successfully: {}", id);
         return mapToDetailDTO(template);
+    }
+
+    /**
+     * Sync template update with MSG91 provider
+     */
+    private void syncUpdateWithProvider(Template template, String content) {
+        log.info("Syncing template update with provider for template: {}", template.getTemplateName());
+
+        switch (template.getChannel()) {
+            case WHATSAPP -> syncWhatsAppTemplateUpdate(template, content);
+            case SMS -> syncSmsTemplateUpdate(template, content);
+            case EMAIL -> syncEmailTemplateUpdate(template, content);
+            default -> log.warn("Unsupported channel for provider sync update: {}", template.getChannel());
+        }
+    }
+
+    /**
+     * Sync WhatsApp template update with MSG91
+     */
+    private void syncWhatsAppTemplateUpdate(Template template, String content) {
+        log.info("Syncing WhatsApp template update: {}", template.getTemplateName());
+
+        if (template.getProviderTemplateId() == null || template.getProviderTemplateId().isEmpty()) {
+            log.warn("Cannot update WhatsApp template - no providerTemplateId found. Sync with provider first.");
+            return;
+        }
+
+        // Convert {{variableName}} to {{1}}, {{2}}, etc. for MSG91 WhatsApp format
+        List<String> extractedVariables = new ArrayList<>();
+        String msg91Content = convertToWhatsAppNumberedFormat(content, extractedVariables);
+
+        // Generate sample values based on extracted variable names
+        List<String> sampleValues = generateSampleValuesForVariables(extractedVariables);
+
+        // Build components based on template content
+        List<WhatsAppCreateTemplateRequest.TemplateComponent> components = new ArrayList<>();
+
+        // Build body component with example sample values
+        WhatsAppCreateTemplateRequest.TemplateComponent.TemplateComponentBuilder bodyBuilder =
+                WhatsAppCreateTemplateRequest.TemplateComponent.builder()
+                        .type("BODY")
+                        .text(msg91Content);
+
+        // Add example with sample values if variables exist
+        if (!sampleValues.isEmpty()) {
+            WhatsAppCreateTemplateRequest.ComponentExample example =
+                    WhatsAppCreateTemplateRequest.ComponentExample.builder()
+                            .bodyText(List.of(sampleValues))
+                            .build();
+            bodyBuilder.example(example);
+        }
+
+        components.add(bodyBuilder.build());
+
+        WhatsAppEditTemplateRequest request = WhatsAppEditTemplateRequest.builder()
+                .components(components)
+                .build();
+
+        CommonResponse<Map<String, Object>> response = communicationServiceClient.editWhatsAppTemplate(
+                template.getProviderTemplateId(), request);
+
+        if (response != null && response.getPayload() != null) {
+            log.info("WhatsApp template update synced successfully: {}", response.getPayload());
+        }
+    }
+
+    /**
+     * Sync SMS template update with MSG91
+     * Uses addTemplateVersion API to create a new version of the template
+     */
+    private void syncSmsTemplateUpdate(Template template, String content) {
+        log.info("Syncing SMS template update: {}", template.getTemplateName());
+
+        if (template.getProviderTemplateId() == null || template.getProviderTemplateId().isEmpty()) {
+            log.warn("Cannot update SMS template - no providerTemplateId found. Sync with provider first.");
+            return;
+        }
+
+        // Convert {{variableName}} to ##variableName## for MSG91 format
+        String msg91Content = convertToMsg91Format(content);
+
+        SmsAddTemplateVersionRequest request = SmsAddTemplateVersionRequest.builder()
+                .templateId(template.getProviderTemplateId())
+                .template(msg91Content)
+                .dltTemplateId(template.getProviderTemplateId()) // Using providerTemplateId as DLT ID
+                .build();
+
+        CommonResponse<Map<String, Object>> response = communicationServiceClient.addSMSTemplateVersion(request);
+
+        if (response != null && response.getPayload() != null) {
+            log.info("SMS template version added successfully: {}", response.getPayload());
+        }
+    }
+
+    /**
+     * Sync Email template update with MSG91
+     * MSG91 doesn't have email edit API - we create a new template
+     * Note: Old template is NOT deleted automatically - handled manually if needed
+     */
+    private void syncEmailTemplateUpdate(Template template, String content) {
+        log.info("Syncing Email template update: {}", template.getTemplateName());
+
+        // Get subject from template content
+        String subject = "Email Template Update";
+        if (template.getContents() != null && !template.getContents().isEmpty()) {
+            TemplateContent templateContent = template.getContents().iterator().next();
+            if (templateContent.getSubject() != null) {
+                subject = templateContent.getSubject();
+            }
+        }
+
+        // Generate new slug with timestamp to avoid conflicts
+        String slug = template.getTemplateCode().toLowerCase().replace(" ", "_") + "_" + System.currentTimeMillis();
+
+        EmailTemplateCreateRequest request = EmailTemplateCreateRequest.builder()
+                .name(template.getTemplateName())
+                .slug(slug)
+                .subject(subject)
+                .body(content)
+                .build();
+
+        CommonResponse<Map<String, Object>> response = communicationServiceClient.createEmailTemplate(request);
+
+        if (response != null && response.getPayload() != null) {
+            // Extract new template ID from response and update providerTemplateId
+            Object dataObj = response.getPayload().get("data");
+            if (dataObj instanceof Map) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> data = (Map<String, Object>) dataObj;
+                Object newTemplateId = data.get("id");
+                if (newTemplateId != null) {
+                    String oldTemplateId = template.getProviderTemplateId();
+                    template.setProviderTemplateId(newTemplateId.toString());
+                    templateRepository.save(template);
+                    log.info("Email template updated: old={}, new={}", oldTemplateId, newTemplateId);
+                }
+            }
+            log.info("Email template update synced successfully: {}", response.getPayload());
+        }
     }
 
     /**
