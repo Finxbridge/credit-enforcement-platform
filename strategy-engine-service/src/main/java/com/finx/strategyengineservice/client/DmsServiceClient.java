@@ -40,10 +40,8 @@ public interface DmsServiceClient {
             @RequestParam(value = "userId", required = false) Long userId);
 
     /**
-     * Get presigned URL for direct S3 access
+     * Get presigned URL for direct S3 access (valid 60 min)
      */
-    @GetMapping("/documents/{id}/presigned-url")
-    CommonResponse<String> getPresignedUrl(
-            @PathVariable("id") Long id,
-            @RequestParam(value = "expirationMinutes", defaultValue = "60") int expirationMinutes);
+    @GetMapping("/documents/{id}/url")
+    CommonResponse<String> getPresignedUrl(@PathVariable("id") Long id);
 }

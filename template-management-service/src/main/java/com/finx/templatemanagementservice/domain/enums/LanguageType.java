@@ -5,9 +5,16 @@ package com.finx.templatemanagementservice.domain.enums;
  * The shortCode is used when communicating with external providers (MSG91, etc.)
  */
 public enum LanguageType {
-    TELUGU("Telugu", "te"),
+    ENGLISH("English", "en"),
     HINDI("Hindi", "hi"),
-    ENGLISH("English", "en_US");
+    TAMIL("Tamil", "ta"),
+    TELUGU("Telugu", "te"),
+    KANNADA("Kannada", "kn"),
+    MALAYALAM("Malayalam", "ml"),
+    MARATHI("Marathi", "mr"),
+    GUJARATI("Gujarati", "gu"),
+    BENGALI("Bengali", "bn"),
+    PUNJABI("Punjabi", "pa");
 
     private final String displayName;
     private final String shortCode;
@@ -21,17 +28,10 @@ public enum LanguageType {
         return displayName;
     }
 
-    /**
-     * Short code for communication service (MSG91, etc.)
-     * TELUGU -> te, HINDI -> hi, ENGLISH -> en_US
-     */
     public String getShortCode() {
         return shortCode;
     }
 
-    /**
-     * Get LanguageType from short code
-     */
     public static LanguageType fromShortCode(String shortCode) {
         for (LanguageType lang : values()) {
             if (lang.shortCode.equalsIgnoreCase(shortCode)) {

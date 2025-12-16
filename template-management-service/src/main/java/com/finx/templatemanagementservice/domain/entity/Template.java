@@ -60,18 +60,27 @@ public class Template {
     @Column(name = "is_active")
     private Boolean isActive = true;
 
-    // Document attachment fields - stored in DMS service
-    @Column(name = "dms_document_id", length = 50)
+    // Document attachment fields - stored in DMS service (OVH S3)
+    @Column(name = "dms_document_id", length = 100)
     private String dmsDocumentId; // Reference to DMS service document
 
-    @Column(name = "document_url", length = 500)
-    private String documentUrl;
+    @Column(name = "document_url", length = 1000)
+    private String documentUrl; // Full URL to access document
 
-    @Column(name = "document_original_name", length = 255)
+    @Column(name = "document_storage_path", length = 500)
+    private String documentStoragePath; // S3 storage path: templates/{channel}/{template_id}/{filename}
+
+    @Column(name = "document_storage_bucket", length = 100)
+    private String documentStorageBucket; // S3 bucket name
+
+    @Column(name = "document_original_name", length = 500)
     private String documentOriginalName;
 
     @Column(name = "document_type", length = 50)
     private String documentType; // PDF, DOC, DOCX
+
+    @Column(name = "document_content_type", length = 100)
+    private String documentContentType; // MIME type
 
     @Column(name = "document_size_bytes")
     private Long documentSizeBytes;

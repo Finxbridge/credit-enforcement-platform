@@ -39,6 +39,7 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
 
     private final FileStorageService fileStorageService;
     private final LocalFileStorageServiceImpl localFileStorage;
+    private final com.finx.templatemanagementservice.client.DmsServiceClient dmsServiceClient;
 
     @Value("${file.storage.base-path:./uploads}")
     private String basePath;
@@ -503,19 +504,112 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
     }
 
     /**
-     * Save processed document to storage
+     * Save processed document to DMS (OVH S3) for tracking what was sent to customers
+     * This creates a permanent record of the processed document with replaced placeholders
      */
     private String saveProcessedDocument(byte[] document, String filename, String documentType) throws IOException {
-        // Create processed folder path
-        Path processedFolder = localFileStorage.getFilePath("processed");
-        Files.createDirectories(processedFolder);
+        try {
+            // Create MultipartFile from byte array for DMS upload
+            org.springframework.web.multipart.MultipartFile multipartFile =
+                new ByteArrayMultipartFile(document, filename, getContentType(documentType));
 
-        // Save file
-        Path filePath = localFileStorage.getFilePath(filename);
-        Files.write(filePath, document);
+            // Generate document name with timestamp for uniqueness
+            // Format: PROCESSED_{caseId}_{timestamp}_{originalFilename}
+            String documentName = "PROCESSED_" + filename;
 
-        log.info("Processed document saved: {}", filename);
-        return filename;
+            // Upload to DMS (OVH S3 storage)
+            var response = dmsServiceClient.uploadDocument(multipartFile, documentName);
+
+            if (response != null && response.getPayload() != null) {
+                String dmsUrl = response.getPayload().getFileUrl();
+                log.info("Processed document uploaded to DMS: {} -> {}", filename, dmsUrl);
+                return dmsUrl;
+            } else {
+                throw new IOException("DMS upload returned empty response");
+            }
+
+        } catch (Exception e) {
+            log.error("Failed to upload processed document to DMS: {}. Falling back to local storage.", e.getMessage());
+
+            // Fallback to local storage if DMS upload fails
+            Path processedFolder = localFileStorage.getFilePath("processed");
+            Files.createDirectories(processedFolder);
+            Path filePath = localFileStorage.getFilePath(filename);
+            Files.write(filePath, document);
+            log.info("Processed document saved locally (fallback): {}", filename);
+            return filename;
+        }
+    }
+
+    /**
+     * Custom MultipartFile implementation for byte array content
+     * Used to upload processed documents to DMS without requiring file on disk
+     */
+    private static class ByteArrayMultipartFile implements org.springframework.web.multipart.MultipartFile {
+        private final byte[] content;
+        private final String filename;
+        private final String contentType;
+
+        public ByteArrayMultipartFile(byte[] content, String filename, String contentType) {
+            this.content = content;
+            this.filename = filename;
+            this.contentType = contentType;
+        }
+
+        @Override
+        public String getName() {
+            return "file";
+        }
+
+        @Override
+        public String getOriginalFilename() {
+            return filename;
+        }
+
+        @Override
+        public String getContentType() {
+            return contentType;
+        }
+
+        @Override
+        public boolean isEmpty() {
+            return content == null || content.length == 0;
+        }
+
+        @Override
+        public long getSize() {
+            return content != null ? content.length : 0;
+        }
+
+        @Override
+        public byte[] getBytes() throws IOException {
+            return content;
+        }
+
+        @Override
+        public InputStream getInputStream() throws IOException {
+            return new ByteArrayInputStream(content);
+        }
+
+        @Override
+        public void transferTo(java.io.File dest) throws IOException, IllegalStateException {
+            Files.write(dest.toPath(), content);
+        }
+    }
+
+    /**
+     * Get content type based on document type
+     */
+    private String getContentType(String documentType) {
+        if (documentType == null) {
+            return "application/octet-stream";
+        }
+        return switch (documentType.toUpperCase()) {
+            case "PDF" -> "application/pdf";
+            case "DOCX" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+            case "DOC" -> "application/msword";
+            default -> "application/octet-stream";
+        };
     }
 
     /**

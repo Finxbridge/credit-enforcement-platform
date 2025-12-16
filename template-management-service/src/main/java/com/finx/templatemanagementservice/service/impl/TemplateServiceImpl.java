@@ -3,7 +3,6 @@ package com.finx.templatemanagementservice.service.impl;
 import com.finx.templatemanagementservice.client.CommunicationServiceClient;
 import com.finx.templatemanagementservice.client.DmsServiceClient;
 import com.finx.templatemanagementservice.client.dto.DmsDocumentDTO;
-import com.finx.templatemanagementservice.client.dto.DmsUploadRequest;
 import com.finx.templatemanagementservice.domain.dto.*;
 import com.finx.templatemanagementservice.domain.dto.comm.EmailTemplateCreateRequest;
 import com.finx.templatemanagementservice.domain.dto.comm.SmsAddTemplateVersionRequest;
@@ -980,17 +979,13 @@ public class TemplateServiceImpl implements TemplateService {
             }
         }
 
-        // Upload document to DMS (OVH S3 storage)
-        DmsUploadRequest uploadRequest = DmsUploadRequest.builder()
-                .documentType("TEMPLATE_DOC")
-                .documentSubtype(getDocumentType(document.getOriginalFilename()))
-                .entityType("TEMPLATE")
-                .entityId(templateId)
-                .documentName(template.getTemplateName() + " - Document")
-                .description("Document attachment for template: " + template.getTemplateCode())
-                .build();
+        // Generate document name: {templateId}_{channel}_{timestamp}_{originalFilename}
+        String channelName = template.getChannel() != null ? template.getChannel().name() : "GENERAL";
+        String timestamp = String.valueOf(System.currentTimeMillis());
+        String generatedDocName = String.format("%d_%s_%s_%s", templateId, channelName, timestamp, document.getOriginalFilename());
 
-        CommonResponse<DmsDocumentDTO> dmsResponse = dmsServiceClient.uploadDocument(uploadRequest, document);
+        // Upload document to DMS - simple API with just file and documentName
+        CommonResponse<DmsDocumentDTO> dmsResponse = dmsServiceClient.uploadDocument(document, generatedDocName);
 
         if (dmsResponse == null || dmsResponse.getPayload() == null) {
             throw new BusinessException("Failed to upload document to DMS");
@@ -1001,8 +996,11 @@ public class TemplateServiceImpl implements TemplateService {
         // Update template with DMS document info
         template.setDmsDocumentId(dmsDoc.getDocumentId());
         template.setDocumentUrl(dmsDoc.getFileUrl());
+        template.setDocumentStoragePath(dmsDoc.getStoragePath());
+        template.setDocumentStorageBucket(dmsDoc.getStorageBucket());
         template.setDocumentOriginalName(dmsDoc.getFileName());
         template.setDocumentType(getDocumentType(dmsDoc.getFileName()));
+        template.setDocumentContentType(dmsDoc.getFileType());
         template.setDocumentSizeBytes(dmsDoc.getFileSizeBytes());
 
         // Extract and store document placeholders
@@ -1098,17 +1096,13 @@ public class TemplateServiceImpl implements TemplateService {
             }
         }
 
-        // Upload document to DMS (OVH S3 storage)
-        DmsUploadRequest uploadRequest = DmsUploadRequest.builder()
-                .documentType("TEMPLATE_DOC")
-                .documentSubtype(getDocumentType(document.getOriginalFilename()))
-                .entityType("TEMPLATE")
-                .entityId(templateId)
-                .documentName(template.getTemplateName() + " - Document")
-                .description("Document attachment for template: " + template.getTemplateCode())
-                .build();
+        // Generate document name: {templateId}_{channel}_{timestamp}_{originalFilename}
+        String channelName = template.getChannel() != null ? template.getChannel().name() : "GENERAL";
+        String timestamp = String.valueOf(System.currentTimeMillis());
+        String generatedDocName = String.format("%d_%s_%s_%s", templateId, channelName, timestamp, document.getOriginalFilename());
 
-        CommonResponse<DmsDocumentDTO> dmsResponse = dmsServiceClient.uploadDocument(uploadRequest, document);
+        // Upload document to DMS - simple API with just file and documentName
+        CommonResponse<DmsDocumentDTO> dmsResponse = dmsServiceClient.uploadDocument(document, generatedDocName);
 
         if (dmsResponse == null || dmsResponse.getPayload() == null) {
             throw new BusinessException("Failed to upload document to DMS");
@@ -1119,14 +1113,15 @@ public class TemplateServiceImpl implements TemplateService {
         // Update template with DMS document info
         template.setDmsDocumentId(dmsDoc.getDocumentId());
         template.setDocumentUrl(dmsDoc.getFileUrl());
+        template.setDocumentStoragePath(dmsDoc.getStoragePath());
+        template.setDocumentStorageBucket(dmsDoc.getStorageBucket());
         template.setDocumentOriginalName(dmsDoc.getFileName());
         template.setDocumentType(getDocumentType(dmsDoc.getFileName()));
+        template.setDocumentContentType(dmsDoc.getFileType());
         template.setDocumentSizeBytes(dmsDoc.getFileSizeBytes());
 
-        // Check if document has placeholders (download content from DMS first)
+        // Check if document has placeholders
         try {
-            byte[] docContent = dmsServiceClient.getDocumentContent(dmsDoc.getId(), null);
-            // Store temporarily for placeholder checking
             String tempPath = fileStorageService.uploadFile(document, "temp/" + templateId);
             boolean hasPlaceholders = documentProcessingService.hasPlaceholders(tempPath);
             template.setHasDocumentVariables(hasPlaceholders);
@@ -1170,8 +1165,11 @@ public class TemplateServiceImpl implements TemplateService {
 
             template.setDmsDocumentId(null);
             template.setDocumentUrl(null);
+            template.setDocumentStoragePath(null);
+            template.setDocumentStorageBucket(null);
             template.setDocumentOriginalName(null);
             template.setDocumentType(null);
+            template.setDocumentContentType(null);
             template.setDocumentSizeBytes(null);
             template.setHasDocumentVariables(false);
 
@@ -1366,11 +1364,14 @@ public class TemplateServiceImpl implements TemplateService {
                 .isActive(template.getIsActive())
                 .variables(variableDTOs)
                 .content(contentDTO)
-                // Document fields (stored in DMS)
+                // Document fields (stored in DMS - OVH S3)
                 .dmsDocumentId(template.getDmsDocumentId())
                 .documentUrl(template.getDocumentUrl())
+                .documentStoragePath(template.getDocumentStoragePath())
+                .documentStorageBucket(template.getDocumentStorageBucket())
                 .documentOriginalName(template.getDocumentOriginalName())
                 .documentType(template.getDocumentType())
+                .documentContentType(template.getDocumentContentType())
                 .documentSizeBytes(template.getDocumentSizeBytes())
                 .hasDocumentVariables(template.getHasDocumentVariables())
                 .documentPlaceholders(documentPlaceholders)
