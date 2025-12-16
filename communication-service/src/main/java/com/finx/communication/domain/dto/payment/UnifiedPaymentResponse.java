@@ -24,6 +24,9 @@ public class UnifiedPaymentResponse {
     private String gatewayTransactionId;
     private String providerReferenceId;
 
+    private Long caseId;
+    private String loanAccountNumber;
+
     private BigDecimal amount;
     private String currency;
     private String status;

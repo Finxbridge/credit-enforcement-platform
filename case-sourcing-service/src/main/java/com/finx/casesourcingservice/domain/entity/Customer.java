@@ -126,8 +126,8 @@ public class Customer {
     @Column(name = "is_active")
     private Boolean isActive;
 
-    @Column(name = "language_preference", length = 10)
-    private String languagePreference; // LANGUAGE
+    @Column(name = "language_preference", length = 50)
+    private String languagePreference; // LANGUAGE - can be code (te, hi) or full name (Telugu, Hindi)
 
     // ==================== TIMESTAMPS ====================
 

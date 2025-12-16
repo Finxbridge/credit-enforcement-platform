@@ -23,7 +23,7 @@ public class CaseValidationService {
     private final CaseRepository caseRepository;
 
     private static final Pattern MOBILE_PATTERN = Pattern.compile("^[6-9]\\d{9}$");
-    private static final List<String> SUPPORTED_LANGUAGES = List.of("en", "hi", "ta", "te", "mr", "kn", "ml", "gu", "bn", "pa");
+    // Language validation removed - users can provide any language value (e.g., "Telugu", "te", "TU", etc.)
 
     /**
      * Validate a single CSV row for case sourcing
@@ -125,10 +125,8 @@ public class CaseValidationService {
             result.addError("mobileNo", "Invalid mobile number format (should be 10 digits starting with 6-9)");
         }
 
-        // Language validation
-        if (!isNullOrEmpty(row.getLanguage()) && !SUPPORTED_LANGUAGES.contains(row.getLanguage().toLowerCase())) {
-            result.addError("language", "Invalid language code. Supported: " + String.join(", ", SUPPORTED_LANGUAGES));
-        }
+        // Language validation removed - accepting any language value
+        // Users can provide full names (Telugu, Hindi) or codes (te, hi, TU, etc.)
 
         // Pincode validation (6 digits)
         if (!isNullOrEmpty(row.getPincode()) && !row.getPincode().matches("^\\d{6}$")) {

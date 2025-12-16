@@ -444,11 +444,11 @@ public class StrategyServiceImpl implements StrategyService {
             case "STATUS" -> "caseStatus";
             case "SOURCE_TYPE" -> "sourceType";
             case "OWNERSHIP" -> "ownership";
-            case "LANGUAGE" -> "language";
-            case "LOCATION" -> "customer.location";
-            case "CITY" -> "customer.city";
-            case "STATE" -> "customer.state";
-            case "PINCODE" -> "customer.pincode";
+            case "LANGUAGE" -> "loan.primaryCustomer.language";
+            case "LOCATION" -> "loan.primaryCustomer.location";
+            case "CITY" -> "loan.primaryCustomer.city";
+            case "STATE" -> "loan.primaryCustomer.state";
+            case "PINCODE" -> "loan.primaryCustomer.pincode";
 
             // Numeric filters
             case "OVERDUE_AMOUNT", "OD_VAL" -> "loan.totalOutstanding";
