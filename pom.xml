@@ -24,6 +24,8 @@
     <module>strategy-engine-service</module>
     <module>template-management-service</module>
     <module>dms-service</module>
+    <module>my-workflow-service</module>
+    <module>collections-service</module>
 
   </modules>
   <properties>

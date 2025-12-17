@@ -1,0 +1,89 @@
+server:
+  port: 8089
+
+spring:
+  application:
+    name: my-workflow-service
+
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/development_db}
+    username: ${SPRING_DATASOURCE_USERNAME:admin}
+    password: ${SPRING_DATASOURCE_PASSWORD:password}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 5
+      idle-timeout: 300000
+      connection-timeout: 20000
+      max-lifetime: 1200000
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+        jdbc:
+          time_zone: UTC
+    open-in-view: false
+
+  flyway:
+    enabled: false
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: 2000ms
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 2
+          max-wait: -1ms
+
+  cache:
+    type: redis
+    redis:
+      time-to-live: 21600000
+      cache-null-values: false
+
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    deserialization:
+      fail-on-unknown-properties: false
+    default-property-inclusion: non_null
+
+logging:
+  level:
+    root: INFO
+    com.finx.myworkflow: DEBUG
+    org.springframework.cache: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,caches
+  endpoint:
+    health:
+      show-details: when_authorized
+
+# Service URLs for inter-service communication
+services:
+  case-sourcing-service:
+    url: ${CASE_SOURCING_SERVICE_URL:http://localhost:8083}
+  allocation-reallocation-service:
+    url: ${ALLOCATION_REALLOCATION_SERVICE_URL:http://localhost:8084}
+  collections-service:
+    url: ${COLLECTIONS_SERVICE_URL:http://localhost:8090}
+  notice-management-service:
+    url: ${NOTICE_MANAGEMENT_SERVICE_URL:http://localhost:8091}
+  dms-service:
+    url: ${DMS_SERVICE_URL:http://localhost:8093}
