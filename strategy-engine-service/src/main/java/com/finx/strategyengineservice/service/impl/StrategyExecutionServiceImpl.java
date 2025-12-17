@@ -456,16 +456,51 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
             log.warn("Language code not found in template resolution, using default: en_US");
         }
 
-        // Build components from resolved variables
-        java.util.Map<String, java.util.Map<String, String>> components = new java.util.HashMap<>();
+        // Build components from resolved variables using body_1, body_2, body_3 format for MSG91
+        // MSG91 expects components keyed as body_1, body_2, etc. based on the order of variables in template
+        java.util.Map<String, java.util.Map<String, String>> components = new java.util.LinkedHashMap<>();
         if (resolveResponse.getResolvedVariables() != null && !resolveResponse.getResolvedVariables().isEmpty()) {
-            for (java.util.Map.Entry<String, Object> entry : resolveResponse.getResolvedVariables().entrySet()) {
-                java.util.Map<String, String> component = new java.util.HashMap<>();
-                component.put("type", "text");
-                component.put("value", entry.getValue() != null ? entry.getValue().toString() : "");
-                components.put(entry.getKey(), component);
+            java.util.List<String> variableOrder = resolveResponse.getVariableOrder();
+
+            if (variableOrder != null && !variableOrder.isEmpty()) {
+                // Use variable order to map to body_1, body_2, etc.
+                log.info("Variable order from template: {}", variableOrder);
+                log.info("Resolved variables: {}", resolveResponse.getResolvedVariables());
+
+                for (int i = 0; i < variableOrder.size(); i++) {
+                    String varName = variableOrder.get(i);
+                    Object value = resolveResponse.getResolvedVariables().get(varName);
+
+                    // Also try with {{varName}} format in case keys are stored that way
+                    if (value == null) {
+                        value = resolveResponse.getResolvedVariables().get("{{" + varName + "}}");
+                    }
+
+                    java.util.Map<String, String> component = new java.util.LinkedHashMap<>();
+                    component.put("type", "text");
+                    String valueStr = (value != null && !value.toString().isEmpty()) ? value.toString() : "";
+                    component.put("value", valueStr);
+
+                    // MSG91 expects body_1, body_2, body_3, etc.
+                    String componentKey = "body_" + (i + 1);
+                    components.put(componentKey, component);
+
+                    log.info("Mapped variable '{}' to '{}' with value: '{}'", varName, componentKey, valueStr);
+                }
+                log.info("Built {} WhatsApp components (body_1 to body_{}) from template resolution for case: {}",
+                        components.size(), components.size(), caseEntity.getId());
+            } else {
+                // Fallback: if no variable order, use resolved variables directly (may not work with MSG91)
+                log.warn("No variable order found, falling back to direct variable mapping (may not work with MSG91)");
+                int index = 1;
+                for (java.util.Map.Entry<String, Object> entry : resolveResponse.getResolvedVariables().entrySet()) {
+                    java.util.Map<String, String> component = new java.util.LinkedHashMap<>();
+                    component.put("type", "text");
+                    component.put("value", entry.getValue() != null ? entry.getValue().toString() : "");
+                    components.put("body_" + index, component);
+                    index++;
+                }
             }
-            log.info("Built {} WhatsApp components from template resolution for case: {}", components.size(), caseEntity.getId());
         } else {
             log.warn("No resolved variables found for template {} case {}, sending without components", templateId, caseEntity.getId());
         }

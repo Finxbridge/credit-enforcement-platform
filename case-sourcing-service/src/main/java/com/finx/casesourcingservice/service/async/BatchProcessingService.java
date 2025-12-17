@@ -45,7 +45,16 @@ public class BatchProcessingService {
     private final CaseRepository caseRepository;
     private final ObjectMapper objectMapper;
 
-    private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+    // Support multiple date formats commonly used in CSV uploads
+    private static final DateTimeFormatter[] DATE_FORMATTERS = {
+        DateTimeFormatter.ofPattern("yyyy-MM-dd"),    // ISO format: 2024-12-05
+        DateTimeFormatter.ofPattern("dd-MM-yyyy"),    // Indian format: 05-12-2024
+        DateTimeFormatter.ofPattern("dd/MM/yyyy"),    // Slash format: 05/12/2024
+        DateTimeFormatter.ofPattern("MM-dd-yyyy"),    // US format: 12-05-2024
+        DateTimeFormatter.ofPattern("MM/dd/yyyy"),    // US slash format: 12/05/2024
+        DateTimeFormatter.ofPattern("d-M-yyyy"),      // Single digit: 5-12-2024
+        DateTimeFormatter.ofPattern("d/M/yyyy")       // Single digit slash: 5/12/2024
+    };
 
     /**
      * Process batch asynchronously
@@ -337,12 +346,19 @@ public class BatchProcessingService {
         if (value == null || value.trim().isEmpty()) {
             return null;
         }
-        try {
-            return LocalDate.parse(value.trim(), DATE_FORMATTER);
-        } catch (DateTimeParseException e) {
-            log.warn("Failed to parse date: {}", value);
-            return null;
+        String trimmedValue = value.trim();
+
+        // Try each date format until one works
+        for (DateTimeFormatter formatter : DATE_FORMATTERS) {
+            try {
+                return LocalDate.parse(trimmedValue, formatter);
+            } catch (DateTimeParseException e) {
+                // Continue to next format
+            }
         }
+
+        log.warn("Failed to parse date with any supported format: {}", value);
+        return null;
     }
 
     /**

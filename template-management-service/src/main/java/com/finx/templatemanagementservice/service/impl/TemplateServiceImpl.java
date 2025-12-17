@@ -343,32 +343,13 @@ public class TemplateServiceImpl implements TemplateService {
         CommonResponse<Map<String, Object>> response = communicationServiceClient.createWhatsAppTemplate(request);
 
         if (response != null && response.getPayload() != null) {
-            // Extract provider template ID from MSG91 response
-            // MSG91 response structure: { "data": { "template_id": "...", "message": "..." }, "status": "success" }
-            Object templateId = null;
-
-            // First try to get template_id from data object (MSG91 structure)
-            Object dataObj = response.getPayload().get("data");
-            if (dataObj instanceof Map) {
-                @SuppressWarnings("unchecked")
-                Map<String, Object> data = (Map<String, Object>) dataObj;
-                templateId = data.get("template_id");
-            }
-
-            // Fallback: try direct "template_id" key
-            if (templateId == null) {
-                templateId = response.getPayload().get("template_id");
-            }
-
-            // Fallback: try "id" key
-            if (templateId == null) {
-                templateId = response.getPayload().get("id");
-            }
-
-            if (templateId != null && template.getProviderTemplateId() == null) {
-                template.setProviderTemplateId(templateId.toString());
+            // MSG91 expects the template NAME (not numeric ID) when sending messages
+            // Store the msg91TemplateName we used to create the template as the providerTemplateId
+            // This is what we need to use in the "template.name" field when sending WhatsApp messages
+            if (template.getProviderTemplateId() == null) {
+                template.setProviderTemplateId(msg91TemplateName);
                 templateRepository.save(template);
-                log.info("Stored MSG91 template_id: {} for template: {}", templateId, template.getTemplateName());
+                log.info("Stored MSG91 template name: {} for template: {}", msg91TemplateName, template.getTemplateName());
             }
             log.info("WhatsApp template synced successfully: {}", response.getPayload());
         }
@@ -858,6 +839,7 @@ public class TemplateServiceImpl implements TemplateService {
 
     /**
      * Extract variable names from content using {{variableName}} pattern
+     * Returns variables in order of first appearance (for MSG91 body_1, body_2 mapping)
      */
     private List<String> extractVariablesFromContent(String content) {
         List<String> variables = new ArrayList<>();
@@ -876,6 +858,14 @@ public class TemplateServiceImpl implements TemplateService {
         }
 
         return variables;
+    }
+
+    /**
+     * Extract variable order from template content for MSG91 body_1, body_2 mapping
+     * Variables are extracted in order of first appearance in the content
+     */
+    private List<String> extractVariableOrder(String content) {
+        return extractVariablesFromContent(content);
     }
 
     /**
@@ -1213,14 +1203,21 @@ public class TemplateServiceImpl implements TemplateService {
                 .orElseThrow(() -> new TemplateNotFoundException(templateId));
 
         String renderedSubject = null;
+        String templateContent = null;
 
-        // Render subject if available
+        // Render subject if available and extract template content
         if (template.getContents() != null && !template.getContents().isEmpty()) {
-            String subject = template.getContents().iterator().next().getSubject();
+            TemplateContent contentEntity = template.getContents().iterator().next();
+            templateContent = contentEntity.getContent();
+            String subject = contentEntity.getSubject();
             if (subject != null && !subject.isEmpty()) {
                 renderedSubject = renderingService.renderSubject(subject, resolvedVariables);
             }
         }
+
+        // Extract variable order from template content (order of appearance for MSG91 body_1, body_2 mapping)
+        List<String> variableOrder = extractVariableOrder(templateContent);
+        log.info("Extracted variable order for template {}: {}", templateId, variableOrder);
 
         // Build response
         TemplateResolveResponse.TemplateResolveResponseBuilder responseBuilder = TemplateResolveResponse.builder()
@@ -1230,6 +1227,7 @@ public class TemplateServiceImpl implements TemplateService {
                 .channel(template.getChannel() != null ? template.getChannel().name() : null)
                 .languageShortCode(template.getLanguage() != null ? template.getLanguage().getShortCode() : "En_US")
                 .resolvedVariables(resolvedVariables)
+                .variableOrder(variableOrder) // Order of variables for MSG91 body_1, body_2 mapping
                 .renderedContent(renderedContent)
                 .subject(renderedSubject)
                 .variableCount(template.getVariables() != null ? template.getVariables().size() : 0)

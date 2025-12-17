@@ -6,6 +6,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -48,6 +49,14 @@ public class TemplateResolveResponse {
      * Resolved variables (variable name -> value)
      */
     private Map<String, Object> resolvedVariables;
+
+    /**
+     * Order of variables as they appear in template content
+     * Used for MSG91 body_1, body_2, body_3 mapping
+     * Example: ["customer_name", "loan_account_number", "total_outstanding", "due_date"]
+     * Maps to: body_1 = customer_name value, body_2 = loan_account_number value, etc.
+     */
+    private List<String> variableOrder;
 
     /**
      * Rendered template content with substituted variables

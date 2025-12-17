@@ -6,6 +6,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -24,6 +25,7 @@ public class TemplateResolveResponse {
     private String channel; // SMS, WHATSAPP, EMAIL, NOTICE, IVR
     private String languageShortCode; // Language short code for communication service (En_US, Hi, Te)
     private Map<String, Object> resolvedVariables;
+    private List<String> variableOrder; // Order of variables as they appear in template content (for MSG91 body_1, body_2 mapping)
     private String renderedContent;
     private String subject; // For email templates
     private Integer variableCount;
