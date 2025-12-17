@@ -28,6 +28,8 @@ public class SimulationCaseDTO {
     private String mobileNumber;
     private String city;
     private String state;
+    private String pincode;
+    private String language;
 
     // Loan Information
     private String loanAccountNumber;

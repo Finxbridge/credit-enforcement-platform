@@ -208,6 +208,14 @@ public class StrategyServiceImpl implements StrategyService {
 
         List<StrategyRule> rules = ruleRepository.findByStrategyIdOrderByRuleOrderAsc(strategyId);
 
+        // Log retrieved rules for debugging
+        log.info("Retrieved {} rules for strategy {}", rules.size(), strategyId);
+        for (StrategyRule rule : rules) {
+            log.info("Rule: id={}, field={}, operator={}, value={}, isActive={}",
+                    rule.getId(), rule.getFieldName(), rule.getOperator(),
+                    rule.getFieldValue(), rule.getIsActive());
+        }
+
         // Filter cases to get count
         List<Case> matchedCases = rules.isEmpty() ? Collections.emptyList()
                 : caseFilterService.filterCasesByRules(rules);
@@ -253,7 +261,9 @@ public class StrategyServiceImpl implements StrategyService {
                 builder.customerName(caseEntity.getLoan().getPrimaryCustomer().getFullName())
                         .mobileNumber(caseEntity.getLoan().getPrimaryCustomer().getMobileNumber())
                         .city(caseEntity.getLoan().getPrimaryCustomer().getCity())
-                        .state(caseEntity.getLoan().getPrimaryCustomer().getState());
+                        .state(caseEntity.getLoan().getPrimaryCustomer().getState())
+                        .pincode(caseEntity.getLoan().getPrimaryCustomer().getPincode())
+                        .language(caseEntity.getLoan().getPrimaryCustomer().getLanguagePreference());
             }
         }
 
@@ -435,59 +445,77 @@ public class StrategyServiceImpl implements StrategyService {
 
     /**
      * Maps filter field codes to database field names
+     * Field paths must match exactly with Case -> LoanDetails -> Customer entity relationships
      */
     private String mapFilterFieldToDbField(String filterField) {
         return switch (filterField.toUpperCase()) {
-            // Text filters
-            case "CHANNEL" -> "channel";
-            case "STRATEGY" -> "strategy";
-            case "STATUS" -> "caseStatus";
-            case "SOURCE_TYPE" -> "sourceType";
-            case "OWNERSHIP" -> "ownership";
-            case "LANGUAGE" -> "loan.primaryCustomer.language";
-            case "LOCATION" -> "loan.primaryCustomer.location";
+            // Text filters - Customer fields (via loan.primaryCustomer)
+            case "LANGUAGE" -> "loan.primaryCustomer.languagePreference";
             case "CITY" -> "loan.primaryCustomer.city";
             case "STATE" -> "loan.primaryCustomer.state";
             case "PINCODE" -> "loan.primaryCustomer.pincode";
 
-            // Numeric filters
-            case "OVERDUE_AMOUNT", "OD_VAL" -> "loan.totalOutstanding";
+            // Text filters - Loan fields
+            case "PRODUCT", "PRODUCT_TYPE" -> "loan.productType";
+            case "PRODUCT_CODE" -> "loan.productCode";
+            case "SCHEME_CODE" -> "loan.schemeCode";
+            case "LENDER" -> "loan.lender";
+            case "CO_LENDER" -> "loan.coLender";
+            case "BUCKET" -> "loan.bucket";
+            case "RISK_BUCKET" -> "loan.riskBucket";
+            case "SOM_BUCKET" -> "loan.somBucket";
+            case "CYCLE_DUE", "CYCLEDUE" -> "loan.cycleDue";
+            case "CARD_STATUS" -> "loan.cardStatus";
+            case "STATEMENT_MONTH" -> "loan.statementMonth";
+            case "LAST_PAYMENT_MODE" -> "loan.lastPaymentMode";
+            case "BLOCK_1" -> "loan.block1";
+            case "BLOCK_2" -> "loan.block2";
+            case "LAST_4_DIGITS", "LAST4DIGITS" -> "loan.last4Digits";
+
+            // Text filters - Case fields
+            case "STATUS", "CASE_STATUS" -> "caseStatus";
+
+            // Numeric filters - Loan amounts
+            case "OVERDUE_AMOUNT", "OD_VAL", "TOTAL_OUTSTANDING" -> "loan.totalOutstanding";
             case "POS" -> "loan.pos";
             case "TOS" -> "loan.tos";
-            case "LOAN_AMOUNT", "LOAN_AMT" -> "loan.principalAmount";
+            case "LOAN_AMOUNT", "LOAN_AMT" -> "loan.loanAmount";
+            case "PRINCIPAL_AMOUNT" -> "loan.principalAmount";
             case "EMI_AMOUNT", "EMI_AMT" -> "loan.emiAmount";
-            case "PAID_EMI", "PAIDEMI" -> "loan.paidEmi";
-            case "PENDING_EMI", "PENDINGEMI" -> "loan.pendingEmi";
             case "PENALTY_AMOUNT", "AMT_PENALTY" -> "loan.penaltyAmount";
             case "CHARGES" -> "loan.charges";
-            case "LATE_FEES", "LATEFEES" -> "loan.lateFees";
             case "OD_INTEREST", "OD_INT", "ODINT" -> "loan.odInterest";
-            case "RESI_PHONE", "LANDLINE" -> "customer.alternateMobile";
-            case "MIN_DUE_AMT", "MINDUEAMT" -> "loan.minDueAmt";
-            case "CARD_OS", "CARDOS" -> "loan.cardOs";
-            case "CYCLE_DUE", "CYCLEDUE" -> "loan.cycleDue";
-            case "LAST_BILLED_AMT", "LASTBILLEDAMT" -> "loan.lastBilledAmt";
-            case "LAST_PAID_AMT", "LASTPAIDAMOUNT" -> "loan.lastPaidAmount";
+            case "MIN_DUE_AMT", "MINDUEAMT", "MINIMUM_AMOUNT_DUE" -> "loan.minimumAmountDue";
+            case "CARD_OS", "CARDOS", "CARD_OUTSTANDING" -> "loan.cardOutstanding";
+            case "LAST_BILLED_AMT", "LASTBILLEDAMT", "LAST_BILLED_AMOUNT" -> "loan.lastBilledAmount";
+            case "LAST_PAID_AMT", "LASTPAIDAMOUNT", "LAST_PAID_AMOUNT" -> "loan.lastPaidAmount";
+
+            // Numeric filters - EMI counts
+            case "PAID_EMI", "PAIDEMI", "NO_OF_PAID_EMI" -> "loan.noOfPaidEmi";
+            case "PENDING_EMI", "PENDINGEMI", "NO_OF_PENDING_EMI" -> "loan.noOfPendingEmi";
+
+            // Numeric filters - DPD
             case "DPD" -> "loan.dpd";
-            case "LAST_4_DIGITS", "LAST4DIGITS" -> "card.last4Digits";
             case "SOM_DPD", "SOMDPD" -> "loan.somDpd";
-            case "BUREAU_SCORE", "BUREAUSCORE" -> "customer.bureauScore";
-            case "PRINCIPAL_OD", "PRINCIPALOVERDUE" -> "loan.principalOverdue";
-            case "INTEREST_OD", "INTERESTOVERDUE" -> "loan.interestOverdue";
-            case "FEES_OD", "FEESOVERDUE" -> "loan.feesOverdue";
-            case "PENALTY_OD", "PENALTYOVERDUE" -> "loan.penaltyOverdue";
+
+            // Numeric filters - Overdue breakdown
+            case "PRINCIPAL_OD", "PRINCIPALOVERDUE", "PRINCIPAL_OVERDUE" -> "loan.principalOverdue";
+            case "INTEREST_OD", "INTERESTOVERDUE", "INTEREST_OVERDUE" -> "loan.interestOverdue";
+            case "FEES_OD", "FEESOVERDUE", "FEES_OVERDUE" -> "loan.feesOverdue";
+            case "PENALTY_OD", "PENALTYOVERDUE", "PENALTY_OVERDUE" -> "loan.penaltyOverdue";
 
             // Date filters
             case "EMI_START_DATE", "EMISTARTDATE" -> "loan.emiStartDate";
-            case "DISB_DATE", "LOANDISBDATE" -> "loan.loanDisbursementDate";
-            case "MATURITY_DATE", "MATURITYDATE" -> "loan.loanMaturityDate";
+            case "DISB_DATE", "LOANDISBDATE", "LOAN_DISBURSEMENT_DATE" -> "loan.loanDisbursementDate";
+            case "MATURITY_DATE", "MATURITYDATE", "LOAN_MATURITY_DATE" -> "loan.loanMaturityDate";
             case "STATEMENT_DATE", "STATEMENTDATE" -> "loan.statementDate";
             case "DUE_DATE", "DUEDATE" -> "loan.dueDate";
             case "LAST_PAYMENT_DATE", "LASTPAYMENTDATE" -> "loan.lastPaymentDate";
-            case "BLOCK_1_DATE", "BLOCKCODE1DATE" -> "loan.blockCode1Date";
-            case "BLOCK_2_DATE", "BLOCKCODE2DATE" -> "loan.blockCode2Date";
-            case "EMI_OD_FROM", "EMIOVERDUEFROM" -> "loan.emiOverdueFrom";
+            case "BLOCK_1_DATE", "BLOCKCODE1DATE" -> "loan.block1Date";
+            case "BLOCK_2_DATE", "BLOCKCODE2DATE" -> "loan.block2Date";
+            case "EMI_OD_FROM", "EMIOVERDUEFROM", "EMI_OVERDUE_FROM" -> "loan.emiOverdueFrom";
             case "NEXT_EMI_DATE", "NEXTEMIDATE" -> "loan.nextEmiDate";
+            case "WRITEOFF_DATE" -> "loan.writeoffDate";
 
             default -> filterField.toLowerCase();
         };
@@ -981,15 +1009,15 @@ public class StrategyServiceImpl implements StrategyService {
                 }
             }
             // Text filters - matches mapFilterFieldToDbField outputs
-            else if ("language".equals(fieldName)) {
+            else if ("loan.primaryCustomer.languagePreference".equals(fieldName)) {
                 filters.setLanguage(Arrays.asList(fieldValue.split(",")));
             } else if ("loan.productType".equals(fieldName) || "loan.productCode".equals(fieldName)) {
                 filters.setProduct(Arrays.asList(fieldValue.split(",")));
-            } else if ("customer.pincode".equals(fieldName)) {
+            } else if ("loan.primaryCustomer.pincode".equals(fieldName)) {
                 filters.setPincode(Arrays.asList(fieldValue.split(",")));
-            } else if ("customer.state".equals(fieldName)) {
+            } else if ("loan.primaryCustomer.state".equals(fieldName)) {
                 filters.setState(Arrays.asList(fieldValue.split(",")));
-            } else if ("customer.city".equals(fieldName)) {
+            } else if ("loan.primaryCustomer.city".equals(fieldName)) {
                 filters.setCity(Arrays.asList(fieldValue.split(",")));
             } else if ("loan.bucket".equals(fieldName)) {
                 filters.setBucket(Arrays.asList(fieldValue.split(",")));
