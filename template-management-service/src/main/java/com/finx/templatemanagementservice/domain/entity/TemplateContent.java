@@ -4,7 +4,9 @@ import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
+import lombok.ToString;
 
 import java.time.LocalDateTime;
 
@@ -19,6 +21,8 @@ import java.time.LocalDateTime;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@EqualsAndHashCode(exclude = "template")
+@ToString(exclude = "template")
 public class TemplateContent {
 
     @Id
@@ -32,7 +36,7 @@ public class TemplateContent {
     @Column(name = "language_code", length = 10)
     private String languageCode = "en";
 
-    @Column(name = "subject", length = 255)
+    @Column(name = "subject", length = 500)
     private String subject; // For Email templates
 
     @Column(name = "content", nullable = false, columnDefinition = "TEXT")

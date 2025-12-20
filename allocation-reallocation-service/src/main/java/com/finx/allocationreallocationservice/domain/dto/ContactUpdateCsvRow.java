@@ -7,12 +7,13 @@ import lombok.Data;
 /**
  * Unified CSV row for contact updates
  * Supports MOBILE_UPDATE, EMAIL_UPDATE, and ADDRESS_UPDATE
+ * Uses loan_id for consistency with case sourcing and allocation CSVs
  */
 @Data
 public class ContactUpdateCsvRow {
 
-    @CsvBindByName(column = "case_id", required = true)
-    private String caseId;
+    @CsvBindByName(column = "loan_id", required = true)
+    private String loanId;
 
     @CsvBindByName(column = "update_type", required = true)
     private String updateType;

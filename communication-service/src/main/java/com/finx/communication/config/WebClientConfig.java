@@ -2,7 +2,7 @@ package com.finx.communication.config;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.finx.common.service.ConfigCacheService;
+import com.finx.communication.service.ConfigCacheService;
 import io.netty.channel.ChannelOption;
 import io.netty.handler.timeout.ReadTimeoutHandler;
 import io.netty.handler.timeout.WriteTimeoutHandler;

@@ -5,7 +5,9 @@ import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
+import lombok.ToString;
 
 import java.time.LocalDateTime;
 
@@ -20,6 +22,8 @@ import java.time.LocalDateTime;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@EqualsAndHashCode(exclude = "template")
+@ToString(exclude = "template")
 public class TemplateVariable {
 
     @Id
@@ -30,10 +34,10 @@ public class TemplateVariable {
     @JoinColumn(name = "template_id", nullable = false)
     private Template template;
 
-    @Column(name = "variable_name", nullable = false, length = 50)
+    @Column(name = "variable_name", nullable = false, length = 255)
     private String variableName; // VAR1, VAR2, body_1, header_1, etc.
 
-    @Column(name = "variable_key", nullable = false, length = 50)
+    @Column(name = "variable_key", nullable = false, length = 255)
     private String variableKey; // customer_name, loan_account, outstanding_amount
 
     @Enumerated(EnumType.STRING)

@@ -24,6 +24,8 @@ public class Case {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    // ==================== CASE IDENTIFICATION ====================
+
     @Column(name = "case_number", unique = true, nullable = false, length = 50)
     private String caseNumber;
 
@@ -33,6 +35,8 @@ public class Case {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "loan_id", nullable = false)
     private LoanDetails loan;
+
+    // ==================== CASE STATUS ====================
 
     @Column(name = "case_status", length = 20)
     private String caseStatus;
@@ -49,14 +53,30 @@ public class Case {
     @Column(name = "case_closure_reason", length = 100)
     private String caseClosureReason;
 
+    // ==================== ALLOCATION ====================
+
     @Column(name = "allocated_to_user_id")
     private Long allocatedToUserId;
+
+    @Column(name = "primary_agent", length = 100)
+    private String primaryAgent; // PRIMARY AGENT
+
+    @Column(name = "secondary_agent", length = 100)
+    private String secondaryAgent; // SECONDARY AGENT
+
+    @Column(name = "reallocate_to_agent", length = 100)
+    private String reallocateToAgent; // REALLOCATE TO AGENT - for reallocation workflow
 
     @Column(name = "allocated_to_agency_id")
     private Long allocatedToAgencyId;
 
+    @Column(name = "agency_name", length = 255)
+    private String agencyName; // AGENCY NAME
+
     @Column(name = "allocated_at")
     private LocalDateTime allocatedAt;
+
+    // ==================== GEOGRAPHY ====================
 
     @Column(name = "geography_code", length = 50)
     private String geographyCode;
@@ -66,6 +86,14 @@ public class Case {
 
     @Column(name = "state_code", length = 50)
     private String stateCode;
+
+    @Column(name = "location", length = 100)
+    private String location; // LOCATION
+
+    @Column(name = "zone", length = 50)
+    private String zone; // ZONE
+
+    // ==================== PTP TRACKING ====================
 
     @Column(name = "ptp_date")
     private LocalDate ptpDate;
@@ -78,6 +106,41 @@ public class Case {
 
     @Column(name = "next_followup_date")
     private LocalDate nextFollowupDate;
+
+    // ==================== ASSET DETAILS ====================
+
+    @Column(name = "asset_details", length = 500)
+    private String assetDetails; // ASSET DETAILS
+
+    @Column(name = "vehicle_registration_number", length = 50)
+    private String vehicleRegistrationNumber; // VEHICLE REGISTRATION NUMBER
+
+    @Column(name = "vehicle_identification_number", length = 50)
+    private String vehicleIdentificationNumber; // VEHICLE IDENTIFICATION NUMBER
+
+    @Column(name = "chassis_number", length = 50)
+    private String chassisNumber; // CHASSIS NUMBER
+
+    @Column(name = "model_make", length = 100)
+    private String modelMake; // MODEL MAKE
+
+    @Column(name = "battery_id", length = 50)
+    private String batteryId; // BATTERY ID
+
+    // ==================== DEALER INFORMATION ====================
+
+    @Column(name = "dealer_name", length = 255)
+    private String dealerName; // DEALER NAME
+
+    @Column(name = "dealer_address", length = 500)
+    private String dealerAddress; // DEALER ADDRESS
+
+    // ==================== FLAGS ====================
+
+    @Column(name = "review_flag", length = 20)
+    private String reviewFlag; // REVIEW FLAG
+
+    // ==================== SOURCE TRACKING ====================
 
     @Column(name = "source_type", length = 20)
     private String sourceType;
@@ -93,6 +156,17 @@ public class Case {
 
     @Column(name = "is_archived")
     private Boolean isArchived;
+
+    /**
+     * Numeric status code for case lifecycle
+     * 200 = ACTIVE (default for new cases)
+     * 400 = CLOSED
+     */
+    @Column(name = "status")
+    @Builder.Default
+    private Integer status = 200;
+
+    // ==================== TIMESTAMPS ====================
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)

@@ -1,5 +1,6 @@
 package com.finx.casesourcingservice.service.impl;
 
+import com.finx.casesourcingservice.config.RestPage;
 import com.finx.casesourcingservice.domain.dto.*;
 import com.finx.casesourcingservice.domain.entity.CaseBatch;
 import com.finx.casesourcingservice.domain.entity.Case;
@@ -247,13 +248,17 @@ public class CaseSourcingServiceImpl implements CaseSourcingService {
 
         @Override
         @Transactional(readOnly = true)
-        @Cacheable(value = "unallocatedCases", key = "#pageable.pageNumber + '-' + #pageable.pageSize")
         public Page<UnallocatedCaseDTO> getUnallocatedCases(Pageable pageable) {
-                log.info("Fetching unallocated cases");
+                log.info("Fetching unallocated ACTIVE cases (no caching - fresh data every time)");
 
-                Page<Case> cases = caseRepository.findByCaseStatus("UNALLOCATED", pageable);
+                // Use findByCaseStatusAndActive to get only ACTIVE (status=200) unallocated cases
+                Page<Case> cases = caseRepository.findByCaseStatusAndActive("UNALLOCATED", pageable);
 
-                return cases.map(this::mapToUnallocatedCaseDTO);
+                // Map to DTOs
+                Page<UnallocatedCaseDTO> mappedPage = cases.map(this::mapToUnallocatedCaseDTO);
+
+                // Wrap in RestPage for proper Redis serialization/deserialization
+                return new RestPage<>(mappedPage.getContent(), pageable, mappedPage.getTotalElements());
         }
 
         @SuppressWarnings("null")
@@ -349,18 +354,31 @@ public class CaseSourcingServiceImpl implements CaseSourcingService {
         @Override
         @Transactional(readOnly = true)
         public byte[] exportBatchCases(String batchId) {
-                log.info("Exporting cases for batch: {}", batchId);
+                log.info("Exporting ALL cases (success + failure) for batch: {}", batchId);
 
-                // Find all cases for this batch
-                List<Case> cases = caseRepository.findAll().stream()
-                                .filter(c -> batchId.equals(c.getImportBatchId()))
-                                .collect(Collectors.toList());
-
-                if (cases.isEmpty()) {
-                        throw new BusinessException("No cases found for batch: " + batchId);
+                // Verify batch exists
+                if (!caseBatchRepository.existsByBatchId(batchId)) {
+                        throw new BusinessException("Batch not found: " + batchId);
                 }
 
-                return csvExporter.exportCases(cases);
+                // Find all ACTIVE/SUCCESS cases for this batch (status=200)
+                List<Case> successCases = caseRepository.findAll().stream()
+                                .filter(c -> batchId.equals(c.getImportBatchId()) && Integer.valueOf(200).equals(c.getStatus()))
+                                .collect(Collectors.toList());
+
+                // Find all errors for this batch
+                List<BatchError> errors = batchErrorRepository.findByBatchId(batchId);
+
+                // Check if there's anything to export
+                if (successCases.isEmpty() && errors.isEmpty()) {
+                        throw new BusinessException("No records found for batch: " + batchId);
+                }
+
+                log.info("Exporting batch {}: {} success cases, {} failure records",
+                         batchId, successCases.size(), errors.size());
+
+                // Export all data - success cases with STATUS="SUCCESS", errors with STATUS="FAILURE"
+                return csvExporter.exportAllBatchData(successCases, errors);
         }
 
         @Override
@@ -576,5 +594,42 @@ public class CaseSourcingServiceImpl implements CaseSourcingService {
                                                 .brokenPTPs(0)
                                                 .build())
                                 .build();
+        }
+
+        @Override
+        @Transactional(readOnly = true)
+        public Page<RecentUploadDTO> getAllBatches(String status, Pageable pageable) {
+                log.info("Fetching all batches with status filter: {}", status);
+
+                Page<CaseBatch> batchPage;
+
+                if (status != null && !status.trim().isEmpty()) {
+                        try {
+                                BatchStatus batchStatus = BatchStatus.valueOf(status.toUpperCase());
+                                batchPage = caseBatchRepository.findByStatusOrderByCreatedAtDesc(batchStatus, pageable);
+                        } catch (IllegalArgumentException e) {
+                                log.warn("Invalid batch status: {}. Returning all batches.", status);
+                                batchPage = caseBatchRepository.findAllByOrderByCreatedAtDesc(pageable);
+                        }
+                } else {
+                        batchPage = caseBatchRepository.findAllByOrderByCreatedAtDesc(pageable);
+                }
+
+                return batchPage.map(batch -> RecentUploadDTO.builder()
+                                .batchId(batch.getBatchId())
+                                .source(batch.getSourceType().name())
+                                .uploadedBy(batch.getUploadedBy())
+                                .uploadedAt(batch.getCreatedAt())
+                                .totalCases(batch.getTotalCases())
+                                .status(batch.getStatus().name())
+                                .build());
+        }
+
+        // NOTE: Case Closure operations moved to Collections Service (CycleClosureService)
+
+        @Override
+        @CacheEvict(value = { "unallocatedCases", "unallocatedCaseDetails", "unallocatedCasesReport", "dashboardSummary" }, allEntries = true)
+        public void evictUnallocatedCasesCache() {
+                log.info("Evicting unallocated cases cache - triggered by allocation service");
         }
 }

@@ -5,43 +5,33 @@ spring:
     active: ${SPRING_PROFILES_ACTIVE:dev}
 
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/staging_db}
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/development_db}
     username: ${SPRING_DATASOURCE_USERNAME:admin}
     password: ${SPRING_DATASOURCE_PASSWORD:password}
     driver-class-name: org.postgresql.Driver
 
   jpa:
     hibernate:
-      ddl-auto: ${JPA_DDL_AUTO:validate}
-    show-sql: ${JPA_SHOW_SQL:false}
+      ddl-auto: validate
+    show-sql: ${JPA_SHOW_SQL:true}
     properties:
       hibernate:
         format_sql: ${JPA_FORMAT_SQL:false}
 
   flyway:
-    enabled: ${FLYWAY_ENABLED:true}
-    baseline-on-migrate: ${FLYWAY_BASELINE_ON_MIGRATE:true}
-    out-of-order: ${FLYWAY_OUT_OF_ORDER:false}
-    validate-on-migrate: ${FLYWAY_VALIDATE_ON_MIGRATE:false}
-    clean-disabled: ${FLYWAY_CLEAN_DISABLED:true}
+    enabled: false
 
   data:
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
+      username: ${REDIS_USERNAME:}
+      password: ${REDIS_PASSWORD:}
+      ssl:
+        enabled: ${REDIS_SSL_ENABLED:false}
 
 server:
-  port: ${SERVER_PORT:8082}
-
-eureka:
-  client:
-    service-url:
-      defaultZone: ${EUREKA_SERVER_URL:http://localhost:8761/eureka/}
-    fetch-registry: true
-    register-with-eureka: true
-  instance:
-    hostname: ${EUREKA_INSTANCE_HOSTNAME:localhost}
-    prefer-ip-address: ${EUREKA_INSTANCE_PREFER_IP_ADDRESS:false}
+  port: ${SERVER_PORT:8083}
 
 management:
   endpoints:
@@ -56,3 +46,9 @@ logging:
   level:
     root: ${LOGGING_LEVEL_ROOT:INFO}
     com.finx: ${LOGGING_LEVEL_FINX:DEBUG}
+    org.springframework.cache: ${LOGGING_LEVEL_CACHE:WARN}
+    org.springframework.data.redis: ${LOGGING_LEVEL_REDIS:WARN}
+    io.lettuce.core: ${LOGGING_LEVEL_LETTUCE:WARN}
+    io.lettuce.core.protocol: WARN
+    org.hibernate.SQL: ${LOGGING_LEVEL_HIBERNATE_SQL:INFO}
+    org.hibernate.type.descriptor.sql: ${LOGGING_LEVEL_HIBERNATE_TYPE:INFO}

@@ -8,6 +8,7 @@ import lombok.NoArgsConstructor;
 
 /**
  * Request to add a new version to an existing SMS template in Msg91
+ * Note: senderId is read from database config_json
  */
 @Data
 @Builder
@@ -17,9 +18,6 @@ public class SmsAddTemplateVersionRequest {
 
     @NotBlank(message = "Template ID is required")
     private String templateId;
-
-    @NotBlank(message = "Sender ID is required")
-    private String senderId;
 
     @NotBlank(message = "Template content is required")
     private String template;

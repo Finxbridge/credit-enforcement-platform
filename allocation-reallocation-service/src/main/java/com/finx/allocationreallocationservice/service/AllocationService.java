@@ -15,6 +15,8 @@ public interface AllocationService {
 
     byte[] exportFailedAllocationRows(String batchId);
 
+    byte[] exportAllocationBatch(String batchId);
+
     List<AllocationBatchDTO> getAllBatches(String status, LocalDate startDate, LocalDate endDate, int page, int size);
 
     // Allocation Summary
@@ -48,6 +50,9 @@ public interface AllocationService {
 
     // Agent Workload
     List<AgentWorkloadDTO> getAgentWorkload(List<Long> agentIds, List<String> geographies);
+
+    // Allocated Cases
+    List<CaseAllocationDTO> getAllAllocatedCases(Long agentId, String geography, int page, int size);
 
     // Contact Update Operations
     AllocationBatchUploadResponseDTO uploadContactUpdateBatch(MultipartFile file);

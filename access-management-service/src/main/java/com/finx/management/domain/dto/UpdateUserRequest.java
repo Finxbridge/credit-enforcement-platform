@@ -30,10 +30,25 @@ public class UpdateUserRequest {
 
     private String status;
     private Long userGroupId;
-    private List<String> assignedGeographies;
+
+    // Geography fields
+    @Size(max = 100)
+    private String state;
+
+    @Size(max = 100)
+    private String city;
+
+    private List<String> assignedGeographies; // Optional additional geographies
     private Integer maxCaseCapacity;
     private Double allocationPercentage;
     private String allocationBucket;
     private Long teamId;
+
+    /**
+     * Agency ID - Required when updating a user to have AGENT role.
+     * Must reference an existing active agency.
+     */
+    private Long agencyId;
+
     private Set<Long> roleIds;
 }

@@ -19,12 +19,16 @@ public class UserDTO {
     private String status;
     private Long userGroupId;
     private String userGroupName;
+    private String state;
+    private String city;
     private List<String> assignedGeographies;
     private Integer maxCaseCapacity;
     private Integer currentCaseCount;
     private Double allocationPercentage;
     private String allocationBucket;
     private Long teamId;
+    private Long agencyId;
+    private String agencyName;
     private Boolean isFirstLogin;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

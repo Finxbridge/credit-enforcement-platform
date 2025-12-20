@@ -16,6 +16,11 @@ import com.finx.allocationreallocationservice.repository.AllocationBatchReposito
 import com.finx.allocationreallocationservice.repository.AllocationHistoryRepository;
 import com.finx.allocationreallocationservice.repository.BatchErrorRepository;
 import com.finx.allocationreallocationservice.repository.CaseAllocationRepository;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.opencsv.CSVParserBuilder;
+import com.opencsv.CSVReader;
+import com.opencsv.CSVReaderBuilder;
 import com.opencsv.bean.CsvToBean;
 import com.opencsv.bean.CsvToBeanBuilder;
 import lombok.RequiredArgsConstructor;
@@ -54,6 +59,7 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
     private final com.finx.allocationreallocationservice.repository.CaseReadRepository caseReadRepository;
     private final com.finx.allocationreallocationservice.repository.CustomerRepository customerRepository;
     private final org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
+    private final ObjectMapper objectMapper;
 
     private static final Pattern EMAIL_PATTERN = Pattern.compile("^[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,6}$",
             Pattern.CASE_INSENSITIVE);
@@ -74,12 +80,33 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
         java.util.Map<Long, Integer> agentCaseCount = new java.util.HashMap<>(); // Track cases allocated to each agent
 
         try (BufferedReader reader = Files.newBufferedReader(path)) {
-            CsvToBean<AllocationCsvRow> csvToBean = new CsvToBeanBuilder<AllocationCsvRow>(reader)
+            // Configure CSV parser to properly handle quoted fields with commas
+            var csvParser = new CSVParserBuilder()
+                    .withSeparator(',')
+                    .withQuoteChar('"')
+                    .withIgnoreQuotations(false)
+                    .withStrictQuotes(false)
+                    .build();
+
+            CSVReader csvReader = new CSVReaderBuilder(reader)
+                    .withCSVParser(csvParser)
+                    .build();
+
+            CsvToBean<AllocationCsvRow> csvToBean = new CsvToBeanBuilder<AllocationCsvRow>(csvReader)
                     .withType(AllocationCsvRow.class)
                     .withIgnoreLeadingWhiteSpace(true)
+                    .withThrowExceptions(false)
                     .build();
 
             List<AllocationCsvRow> rows = csvToBean.parse();
+
+            // Log any captured exceptions for debugging
+            var exceptions = csvToBean.getCapturedExceptions();
+            if (!exceptions.isEmpty()) {
+                log.warn("Allocation CSV parsing completed with {} warnings/errors", exceptions.size());
+                exceptions.forEach(ex -> log.warn("CSV parsing issue at line {}: {}",
+                        ex.getLineNumber(), ex.getMessage()));
+            }
             batch.setTotalCases(rows.size());
 
             AtomicInteger successfulAllocations = new AtomicInteger(0);
@@ -87,31 +114,33 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
             final int[] rowNumber = { 1 };
 
             rows.forEach(row -> {
+                row.setRowNumber(rowNumber[0]);
                 String validationError = getValidationError(row);
                 if (validationError == null) {
-                    // Lookup case_id by loan_id (user-friendly identifier)
-                    Case caseEntity = caseReadRepository.findByLoanId(row.getLoanId())
-                            .orElseThrow(() -> new RuntimeException("Case not found for loan_id: " + row.getLoanId()));
+                    // Lookup case by ACCOUNT NO (loan account number)
+                    Case caseEntity = caseReadRepository.findByLoanAccountNumber(row.getAccountNo())
+                            .orElseThrow(() -> new RuntimeException("Case not found for ACCOUNT NO: " + row.getAccountNo()));
                     Long caseId = caseEntity.getId();
-                    Long primaryAgentId = Long.parseLong(row.getPrimaryAgentId());
+
+                    // Resolve primary agent (can be ID or username)
+                    Long primaryAgentId = resolveAgentId(row.getPrimaryAgent());
+
+                    // Resolve secondary agent if provided
+                    Long secondaryAgentId = null;
+                    if (row.getSecondaryAgent() != null && !row.getSecondaryAgent().trim().isEmpty()) {
+                        secondaryAgentId = resolveAgentId(row.getSecondaryAgent());
+                    }
 
                     allocations.add(CaseAllocation.builder()
                             .caseId(caseId)
                             .externalCaseId(caseEntity.getExternalCaseId())
                             .primaryAgentId(primaryAgentId)
-                            .secondaryAgentId(row.getSecondaryAgentId() != null && !row.getSecondaryAgentId().isEmpty()
-                                    ? Long.parseLong(row.getSecondaryAgentId())
-                                    : null)
+                            .secondaryAgentId(secondaryAgentId)
                             .allocatedToType("USER")
-                            .allocationType(row.getAllocationType() != null && !row.getAllocationType().isEmpty()
-                                    ? row.getAllocationType().toUpperCase()
-                                    : "PRIMARY")
-                            .workloadPercentage(
-                                    row.getAllocationPercentage() != null && !row.getAllocationPercentage().isEmpty()
-                                            ? new java.math.BigDecimal(row.getAllocationPercentage())
-                                            : null)
-                            .geographyCode(row.getGeography() != null && !row.getGeography().isEmpty()
-                                    ? row.getGeography().toUpperCase()
+                            .allocationType("PRIMARY")
+                            .workloadPercentage(new java.math.BigDecimal("100.00"))
+                            .geographyCode(row.getLocation() != null && !row.getLocation().isEmpty()
+                                    ? row.getLocation().toUpperCase()
                                     : null)
                             .status(AllocationStatus.ALLOCATED)
                             .batchId(batchId)
@@ -136,13 +165,7 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
                     successfulAllocations.incrementAndGet();
                 } else {
                     log.error("Validation failed for row {}: {}", rowNumber[0], validationError);
-                    errors.add(BatchError.builder()
-                            .batchId(batchId)
-                            .rowNumber(rowNumber[0])
-                            .errorType(ErrorType.VALIDATION)
-                            .errorMessage(validationError)
-                            .externalCaseId(row.getCaseId())
-                            .build());
+                    errors.add(buildErrorWithData(batchId, rowNumber[0], validationError, row));
                     failedAllocations.incrementAndGet();
                 }
                 rowNumber[0]++;
@@ -150,7 +173,17 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
 
             batch.setSuccessfulAllocations(successfulAllocations.get());
             batch.setFailedAllocations(failedAllocations.get());
-            batch.setStatus(BatchStatus.COMPLETED);
+
+            // Determine batch status based on success/failure counts
+            BatchStatus finalStatus;
+            if (failedAllocations.get() == 0) {
+                finalStatus = BatchStatus.COMPLETED;
+            } else if (successfulAllocations.get() == 0) {
+                finalStatus = BatchStatus.FAILED;
+            } else {
+                finalStatus = BatchStatus.PARTIALLY_COMPLETED;
+            }
+            batch.setStatus(finalStatus);
             batch.setCompletedAt(LocalDateTime.now());
 
             allocationBatchRepository.save(batch);
@@ -164,14 +197,30 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
             // Update user statistics for allocated agents
             updateUserStatisticsForAllocation(agentCaseCount);
 
-            log.info("Finished processing allocation batch: {}. Total: {}, Success: {}, Failed: {}",
-                    batchId, rows.size(), successfulAllocations.get(), failedAllocations.get());
+            log.info("Finished processing allocation batch: {}. Total: {}, Success: {}, Failed: {}, Status: {}",
+                    batchId, rows.size(), successfulAllocations.get(), failedAllocations.get(), finalStatus);
 
         } catch (Exception e) {
             log.error("Fatal error processing allocation batch {}: {}", batchId, e.getMessage(), e);
             batch.setStatus(BatchStatus.FAILED);
             batch.setCompletedAt(LocalDateTime.now());
             allocationBatchRepository.save(batch);
+
+            // Save fatal error to batch_errors table so it can be exported
+            BatchError fatalError = BatchError.builder()
+                    .errorId("ERR_FATAL_" + batchId + "_" + System.currentTimeMillis())
+                    .batchId(batchId)
+                    .rowNumber(0)
+                    .errorType(ErrorType.SYSTEM)
+                    .errorMessage("Fatal error during batch processing: " + e.getMessage())
+                    .originalRowData("{\"error\": \"" + e.getMessage().replace("\"", "'") + "\"}")
+                    .build();
+            batchErrorRepository.save(fatalError);
+
+            // Also save any validation errors that were collected before the fatal error
+            if (!errors.isEmpty()) {
+                batchErrorRepository.saveAll(errors);
+            }
         } finally {
             try {
                 Files.deleteIfExists(path);
@@ -182,55 +231,112 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
     }
 
     private String getValidationError(AllocationCsvRow row) {
-        // Validate loan_id is provided
-        if (row.getLoanId() == null || row.getLoanId().trim().isEmpty()) {
-            return "loan_id is required";
+        // Validate ACCOUNT NO is provided
+        if (row.getAccountNo() == null || row.getAccountNo().trim().isEmpty()) {
+            return "ACCOUNT NO is required";
         }
 
-        // CRITICAL: Validate case exists in cases table by loan_id
-        Optional<Case> caseOpt = caseReadRepository.findByLoanId(row.getLoanId());
+        // CRITICAL: Validate case exists in cases table by loan account number
+        Optional<Case> caseOpt = caseReadRepository.findByLoanAccountNumber(row.getAccountNo());
         if (!caseOpt.isPresent()) {
-            return "Case not found for loan_id: " + row.getLoanId() +
-                   ". Please ensure case with this loan ID exists in cases table before allocation.";
+            return "Case not found for ACCOUNT NO: " + row.getAccountNo() +
+                   ". Please ensure case with this account number exists in cases table before allocation.";
         }
 
-        // Validate primary_agent_id format
-        Long primaryAgentId;
+        // CRITICAL: Validate case is in UNALLOCATED status (prevent duplicate allocation)
+        Case caseEntity = caseOpt.get();
+        String caseStatus = caseEntity.getCaseStatus();
+        if (caseStatus != null && !"UNALLOCATED".equalsIgnoreCase(caseStatus)) {
+            return "Case with ACCOUNT NO: " + row.getAccountNo() + " is already allocated (current status: " + caseStatus +
+                   "). Only UNALLOCATED cases can be allocated. Use reallocation to change agent assignment.";
+        }
+
+        // Validate PRIMARY AGENT is provided
+        if (row.getPrimaryAgent() == null || row.getPrimaryAgent().trim().isEmpty()) {
+            return "PRIMARY AGENT is required";
+        }
+
+        // Validate PRIMARY AGENT exists (can be ID or username)
         try {
-            primaryAgentId = Long.parseLong(row.getPrimaryAgentId());
-        } catch (NumberFormatException e) {
-            return "Invalid primary_agent_id: " + row.getPrimaryAgentId();
+            Long agentId = resolveAgentId(row.getPrimaryAgent());
+            if (agentId == null) {
+                return "User not found for PRIMARY AGENT: " + row.getPrimaryAgent();
+            }
+        } catch (Exception e) {
+            return "Invalid PRIMARY AGENT: " + row.getPrimaryAgent() + ". " + e.getMessage();
         }
 
-        // Validate primary_agent_id exists in users table
-        if (!userRepository.existsById(primaryAgentId)) {
-            return "User not found for primary_agent_id: " + row.getPrimaryAgentId();
-        }
-
-        // Validate secondary_agent_id format and existence (if provided)
-        if (row.getSecondaryAgentId() != null && !row.getSecondaryAgentId().isEmpty()) {
-            Long secondaryAgentId;
+        // Validate SECONDARY AGENT if provided
+        if (row.getSecondaryAgent() != null && !row.getSecondaryAgent().trim().isEmpty()) {
             try {
-                secondaryAgentId = Long.parseLong(row.getSecondaryAgentId());
-            } catch (NumberFormatException e) {
-                return "Invalid secondary_agent_id: " + row.getSecondaryAgentId();
-            }
-
-            // Validate secondary_agent_id exists in users table
-            if (!userRepository.existsById(secondaryAgentId)) {
-                return "User not found for secondary_agent_id: " + row.getSecondaryAgentId();
+                Long agentId = resolveAgentId(row.getSecondaryAgent());
+                if (agentId == null) {
+                    return "User not found for SECONDARY AGENT: " + row.getSecondaryAgent();
+                }
+            } catch (Exception e) {
+                return "Invalid SECONDARY AGENT: " + row.getSecondaryAgent() + ". " + e.getMessage();
             }
         }
 
-        // Validate allocation_percentage format (if provided)
-        if (row.getAllocationPercentage() != null && !row.getAllocationPercentage().isEmpty()) {
-            try {
-                Double.parseDouble(row.getAllocationPercentage());
-            } catch (NumberFormatException e) {
-                return "Invalid allocation_percentage: " + row.getAllocationPercentage();
+        return null;
+    }
+
+    /**
+     * Resolve agent ID from either numeric ID, username, or full name
+     * @param agentIdentifier Either a numeric ID, username, or full name (firstName lastName)
+     * @return The agent's user ID, or null if not found
+     */
+    private Long resolveAgentId(String agentIdentifier) {
+        if (agentIdentifier == null || agentIdentifier.trim().isEmpty()) {
+            return null;
+        }
+
+        String trimmed = agentIdentifier.trim();
+
+        // First, try to parse as numeric ID
+        try {
+            Long id = Long.parseLong(trimmed);
+            if (userRepository.existsById(id)) {
+                log.debug("Resolved agent '{}' as numeric ID: {}", agentIdentifier, id);
+                return id;
+            }
+        } catch (NumberFormatException ignored) {
+            // Not a numeric ID, try as username/name
+        }
+
+        // Try to find by username (exact match)
+        Optional<com.finx.allocationreallocationservice.domain.entity.User> userOpt =
+                userRepository.findByUsername(trimmed);
+        if (userOpt.isPresent()) {
+            log.debug("Resolved agent '{}' by username: {}", agentIdentifier, userOpt.get().getId());
+            return userOpt.get().getId();
+        }
+
+        // Try case-insensitive username search
+        userOpt = userRepository.findByUsernameIgnoreCase(trimmed);
+        if (userOpt.isPresent()) {
+            log.debug("Resolved agent '{}' by username (case-insensitive): {}", agentIdentifier, userOpt.get().getId());
+            return userOpt.get().getId();
+        }
+
+        // Try to find by full name (firstName + lastName)
+        userOpt = userRepository.findByFullNameIgnoreCase(trimmed);
+        if (userOpt.isPresent()) {
+            log.debug("Resolved agent '{}' by full name: {}", agentIdentifier, userOpt.get().getId());
+            return userOpt.get().getId();
+        }
+
+        // Try to find by first name only (if single word and matches exactly one user)
+        if (!trimmed.contains(" ")) {
+            java.util.List<com.finx.allocationreallocationservice.domain.entity.User> usersByFirstName =
+                    userRepository.findByFirstNameIgnoreCase(trimmed);
+            if (usersByFirstName.size() == 1) {
+                log.debug("Resolved agent '{}' by first name: {}", agentIdentifier, usersByFirstName.get(0).getId());
+                return usersByFirstName.get(0).getId();
             }
         }
 
+        log.warn("Could not resolve agent identifier: {}", agentIdentifier);
         return null;
     }
 
@@ -251,12 +357,33 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
         java.util.Map<Long, Integer> agentIncrements = new java.util.HashMap<>(); // Track cases added to agents
 
         try (BufferedReader reader = Files.newBufferedReader(path)) {
-            CsvToBean<ReallocationCsvRow> csvToBean = new CsvToBeanBuilder<ReallocationCsvRow>(reader)
+            // Configure CSV parser to properly handle quoted fields with commas
+            var csvParser = new CSVParserBuilder()
+                    .withSeparator(',')
+                    .withQuoteChar('"')
+                    .withIgnoreQuotations(false)
+                    .withStrictQuotes(false)
+                    .build();
+
+            CSVReader csvReader = new CSVReaderBuilder(reader)
+                    .withCSVParser(csvParser)
+                    .build();
+
+            CsvToBean<ReallocationCsvRow> csvToBean = new CsvToBeanBuilder<ReallocationCsvRow>(csvReader)
                     .withType(ReallocationCsvRow.class)
                     .withIgnoreLeadingWhiteSpace(true)
+                    .withThrowExceptions(false)
                     .build();
 
             List<ReallocationCsvRow> rows = csvToBean.parse();
+
+            // Log any captured exceptions for debugging
+            var exceptions = csvToBean.getCapturedExceptions();
+            if (!exceptions.isEmpty()) {
+                log.warn("Reallocation CSV parsing completed with {} warnings/errors", exceptions.size());
+                exceptions.forEach(ex -> log.warn("CSV parsing issue at line {}: {}",
+                        ex.getLineNumber(), ex.getMessage()));
+            }
             batch.setTotalCases(rows.size());
 
             AtomicInteger successfulAllocations = new AtomicInteger(0);
@@ -266,66 +393,21 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
             for (ReallocationCsvRow row : rows) {
                 String validationError = getValidationError(row);
                 if (validationError == null) {
-                    Long caseId = Long.parseLong(row.getCaseId());
-                    Long currentAgentId = Long.parseLong(row.getCurrentAgentId());
-                    Long newAgentId = Long.parseLong(row.getNewAgentId());
+                    // Determine if using new format or legacy format
+                    boolean isNewFormat = row.getAccountNo() != null && !row.getAccountNo().trim().isEmpty()
+                            && row.getReallocateToAgent() != null && !row.getReallocateToAgent().trim().isEmpty();
 
-                    Optional<CaseAllocation> allocationOpt = caseAllocationRepository
-                            .findFirstByCaseIdOrderByAllocatedAtDesc(caseId);
-                    if (allocationOpt.isPresent()) {
-                        CaseAllocation allocation = allocationOpt.get();
-                        if (allocation.getPrimaryAgentId().equals(currentAgentId)) {
-                            // Fetch case entity to get geography code
-                            String geographyCode = allocation.getGeographyCode(); // Keep existing if available
-                            try {
-                                Optional<com.finx.allocationreallocationservice.domain.entity.Case> caseOpt = caseReadRepository
-                                        .findById(caseId);
-                                if (caseOpt.isPresent()) {
-                                    geographyCode = caseOpt.get().getGeographyCode();
-                                }
-                            } catch (Exception e) {
-                                log.warn("Failed to fetch case entity for caseId {}: {}", caseId, e.getMessage());
-                            }
-
-                            // Update allocation
-                            allocation.setPrimaryAgentId(newAgentId);
-                            // Maintain workload_percentage (default 100.00 if not set)
-                            if (allocation.getWorkloadPercentage() == null) {
-                                allocation.setWorkloadPercentage(new java.math.BigDecimal("100.00"));
-                            }
-                            // Update geography code
-                            if (geographyCode != null) {
-                                allocation.setGeographyCode(geographyCode);
-                            }
-                            allocationsToUpdate.add(allocation);
-
-                            // Track agent statistics changes
-                            agentDecrements.put(currentAgentId, agentDecrements.getOrDefault(currentAgentId, 0) + 1);
-                            agentIncrements.put(newAgentId, agentIncrements.getOrDefault(newAgentId, 0) + 1);
-
-                            historyToSave.add(AllocationHistory.builder()
-                                    .caseId(allocation.getCaseId())
-                                    .allocatedToUserId(newAgentId)
-                                    .allocatedFromUserId(currentAgentId)
-                                    .newOwnerType("USER")
-                                    .previousOwnerType("USER")
-                                    .allocatedAt(LocalDateTime.now())
-                                    .action(AllocationAction.REALLOCATED)
-                                    .reason(row.getReallocationReason())
-                                    .batchId(batchId)
-                                    .build());
-                            successfulAllocations.incrementAndGet();
-                        } else {
-                            errors.add(buildError(batchId, rowNumber[0], "Case not allocated to current_agent_id",
-                                    row.getCaseId()));
-                            failedAllocations.incrementAndGet();
-                        }
+                    if (isNewFormat) {
+                        // NEW FORMAT: ACCOUNT NO + REALLOCATE TO AGENT
+                        processNewFormatReallocation(row, batchId, rowNumber[0], allocationsToUpdate, historyToSave,
+                                errors, agentDecrements, agentIncrements, successfulAllocations, failedAllocations);
                     } else {
-                        errors.add(buildError(batchId, rowNumber[0], "Case allocation not found", row.getCaseId()));
-                        failedAllocations.incrementAndGet();
+                        // LEGACY FORMAT: case_id, current_agent_id, new_agent_id
+                        processLegacyFormatReallocation(row, batchId, rowNumber[0], allocationsToUpdate, historyToSave,
+                                errors, agentDecrements, agentIncrements, successfulAllocations, failedAllocations);
                     }
                 } else {
-                    errors.add(buildError(batchId, rowNumber[0], validationError, row.getCaseId()));
+                    errors.add(buildErrorWithData(batchId, rowNumber[0], validationError, row));
                     failedAllocations.incrementAndGet();
                 }
                 rowNumber[0]++;
@@ -333,7 +415,17 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
 
             batch.setSuccessfulAllocations(successfulAllocations.get());
             batch.setFailedAllocations(failedAllocations.get());
-            batch.setStatus(BatchStatus.COMPLETED);
+
+            // Determine batch status based on success/failure counts
+            BatchStatus finalStatus;
+            if (failedAllocations.get() == 0) {
+                finalStatus = BatchStatus.COMPLETED;
+            } else if (successfulAllocations.get() == 0) {
+                finalStatus = BatchStatus.FAILED;
+            } else {
+                finalStatus = BatchStatus.PARTIALLY_COMPLETED;
+            }
+            batch.setStatus(finalStatus);
             batch.setCompletedAt(LocalDateTime.now());
 
             allocationBatchRepository.save(batch);
@@ -347,14 +439,30 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
             // Update user statistics for both old and new agents
             updateUserStatisticsForReallocation(agentDecrements, agentIncrements);
 
-            log.info("Finished processing reallocation batch: {}. Total: {}, Success: {}, Failed: {}",
-                    batchId, rows.size(), successfulAllocations.get(), failedAllocations.get());
+            log.info("Finished processing reallocation batch: {}. Total: {}, Success: {}, Failed: {}, Status: {}",
+                    batchId, rows.size(), successfulAllocations.get(), failedAllocations.get(), finalStatus);
 
         } catch (Exception e) {
             log.error("Fatal error processing reallocation batch {}: {}", batchId, e.getMessage(), e);
             batch.setStatus(BatchStatus.FAILED);
             batch.setCompletedAt(LocalDateTime.now());
             allocationBatchRepository.save(batch);
+
+            // Save fatal error to batch_errors table so it can be exported
+            BatchError fatalError = BatchError.builder()
+                    .errorId("ERR_FATAL_" + batchId + "_" + System.currentTimeMillis())
+                    .batchId(batchId)
+                    .rowNumber(0)
+                    .errorType(ErrorType.SYSTEM)
+                    .errorMessage("Fatal error during batch processing: " + e.getMessage())
+                    .originalRowData("{\"error\": \"" + e.getMessage().replace("\"", "'") + "\"}")
+                    .build();
+            batchErrorRepository.save(fatalError);
+
+            // Also save any validation errors that were collected before the fatal error
+            if (!errors.isEmpty()) {
+                batchErrorRepository.saveAll(errors);
+            }
         } finally {
             try {
                 Files.deleteIfExists(path);
@@ -365,6 +473,58 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
     }
 
     private String getValidationError(ReallocationCsvRow row) {
+        // Check if using new unified CSV format (with ACCOUNT NO and REALLOCATE TO AGENT)
+        boolean hasAccountNo = row.getAccountNo() != null && !row.getAccountNo().trim().isEmpty();
+        boolean hasReallocateToAgent = row.getReallocateToAgent() != null && !row.getReallocateToAgent().trim().isEmpty();
+
+        if (hasAccountNo || hasReallocateToAgent) {
+            // NEW FORMAT: Unified CSV with ACCOUNT NO and REALLOCATE TO AGENT (mandatory)
+            return validateNewFormatReallocation(row);
+        } else {
+            // LEGACY FORMAT: case_id, current_agent_id, new_agent_id
+            return validateLegacyFormatReallocation(row);
+        }
+    }
+
+    /**
+     * Validate new unified CSV format for reallocation.
+     * Required fields: ACCOUNT NO, REALLOCATE TO AGENT (mandatory)
+     */
+    private String validateNewFormatReallocation(ReallocationCsvRow row) {
+        // Validate ACCOUNT NO is provided
+        if (row.getAccountNo() == null || row.getAccountNo().trim().isEmpty()) {
+            return "ACCOUNT NO is required for reallocation";
+        }
+
+        // Validate REALLOCATE TO AGENT is provided (MANDATORY for reallocation)
+        if (row.getReallocateToAgent() == null || row.getReallocateToAgent().trim().isEmpty()) {
+            return "REALLOCATE TO AGENT is required for reallocation";
+        }
+
+        // Validate case exists by loan account number
+        Optional<Case> caseOpt = caseReadRepository.findByLoanAccountNumber(row.getAccountNo());
+        if (!caseOpt.isPresent()) {
+            return "Case not found for ACCOUNT NO: " + row.getAccountNo();
+        }
+
+        // Validate REALLOCATE TO AGENT exists (can be ID or username)
+        try {
+            Long newAgentId = resolveAgentId(row.getReallocateToAgent());
+            if (newAgentId == null) {
+                return "User not found for REALLOCATE TO AGENT: " + row.getReallocateToAgent();
+            }
+        } catch (Exception e) {
+            return "Invalid REALLOCATE TO AGENT: " + row.getReallocateToAgent() + ". " + e.getMessage();
+        }
+
+        return null;
+    }
+
+    /**
+     * Validate legacy CSV format for reallocation.
+     * Required fields: case_id, current_agent_id, new_agent_id
+     */
+    private String validateLegacyFormatReallocation(ReallocationCsvRow row) {
         // Validate case_id format
         try {
             Long.parseLong(row.getCaseId());
@@ -410,6 +570,171 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
         return null;
     }
 
+    /**
+     * Process reallocation using NEW unified CSV format (ACCOUNT NO + REALLOCATE TO AGENT)
+     * Looks up case by ACCOUNT NO, finds existing allocation, and reallocates to new agent
+     */
+    private void processNewFormatReallocation(ReallocationCsvRow row, String batchId, int rowNumber,
+                                               List<CaseAllocation> allocationsToUpdate, List<AllocationHistory> historyToSave,
+                                               List<BatchError> errors, java.util.Map<Long, Integer> agentDecrements,
+                                               java.util.Map<Long, Integer> agentIncrements,
+                                               AtomicInteger successfulAllocations, AtomicInteger failedAllocations) {
+        try {
+            // 1. Find case by ACCOUNT NO (loan account number)
+            Case caseEntity = caseReadRepository.findByLoanAccountNumber(row.getAccountNo())
+                    .orElseThrow(() -> new RuntimeException("Case not found for ACCOUNT NO: " + row.getAccountNo()));
+            Long caseId = caseEntity.getId();
+
+            // 2. Find existing allocation for this case
+            Optional<CaseAllocation> existingAllocationOpt = caseAllocationRepository.findFirstByCaseIdOrderByAllocatedAtDesc(caseId);
+            if (!existingAllocationOpt.isPresent()) {
+                errors.add(buildErrorWithData(batchId, rowNumber,
+                        "No existing allocation found for case. Please allocate the case first.", row));
+                failedAllocations.incrementAndGet();
+                return;
+            }
+
+            CaseAllocation existingAllocation = existingAllocationOpt.get();
+            Long previousAgentId = existingAllocation.getPrimaryAgentId();
+
+            // 3. Resolve new agent from REALLOCATE TO AGENT
+            Long newAgentId = resolveAgentId(row.getReallocateToAgent());
+            if (newAgentId == null) {
+                errors.add(buildErrorWithData(batchId, rowNumber,
+                        "User not found for REALLOCATE TO AGENT: " + row.getReallocateToAgent(), row));
+                failedAllocations.incrementAndGet();
+                return;
+            }
+
+            // 4. Skip if reallocating to the same agent
+            if (previousAgentId != null && previousAgentId.equals(newAgentId)) {
+                log.info("Skipping reallocation for case {} - already assigned to agent {}", caseId, newAgentId);
+                errors.add(buildErrorWithData(batchId, rowNumber,
+                        "Case is already assigned to agent: " + row.getReallocateToAgent(), row));
+                failedAllocations.incrementAndGet();
+                return;
+            }
+
+            // 5. Update existing allocation
+            existingAllocation.setPrimaryAgentId(newAgentId);
+            existingAllocation.setAllocatedAt(LocalDateTime.now());
+            existingAllocation.setStatus(AllocationStatus.ALLOCATED); // Keep as ALLOCATED so workload counts it
+            existingAllocation.setBatchId(batchId);
+            allocationsToUpdate.add(existingAllocation);
+
+            // 6. Create history entry
+            historyToSave.add(AllocationHistory.builder()
+                    .caseId(caseId)
+                    .allocatedToUserId(newAgentId)
+                    .allocatedFromUserId(previousAgentId)
+                    .newOwnerType("USER")
+                    .previousOwnerType("USER")
+                    .allocatedAt(LocalDateTime.now())
+                    .action(AllocationAction.REALLOCATED)
+                    .reason(row.getRemarksFromCsv() != null && !row.getRemarksFromCsv().isEmpty()
+                            ? row.getRemarksFromCsv()
+                            : "Batch reallocation: " + batchId)
+                    .batchId(batchId)
+                    .build());
+
+            // 7. Track agent statistics changes
+            if (previousAgentId != null) {
+                agentDecrements.put(previousAgentId, agentDecrements.getOrDefault(previousAgentId, 0) + 1);
+            }
+            agentIncrements.put(newAgentId, agentIncrements.getOrDefault(newAgentId, 0) + 1);
+
+            successfulAllocations.incrementAndGet();
+            log.debug("New format reallocation: case {} from agent {} to agent {}",
+                    caseId, previousAgentId, newAgentId);
+
+        } catch (Exception e) {
+            log.error("Failed to process new format reallocation for row {}: {}", rowNumber, e.getMessage());
+            errors.add(buildErrorWithData(batchId, rowNumber, "Processing error: " + e.getMessage(), row));
+            failedAllocations.incrementAndGet();
+        }
+    }
+
+    /**
+     * Process reallocation using LEGACY CSV format (case_id, current_agent_id, new_agent_id)
+     * Original reallocation logic for backward compatibility
+     */
+    private void processLegacyFormatReallocation(ReallocationCsvRow row, String batchId, int rowNumber,
+                                                  List<CaseAllocation> allocationsToUpdate, List<AllocationHistory> historyToSave,
+                                                  List<BatchError> errors, java.util.Map<Long, Integer> agentDecrements,
+                                                  java.util.Map<Long, Integer> agentIncrements,
+                                                  AtomicInteger successfulAllocations, AtomicInteger failedAllocations) {
+        try {
+            Long caseId = Long.parseLong(row.getCaseId());
+            Long currentAgentId = Long.parseLong(row.getCurrentAgentId());
+            Long newAgentId = Long.parseLong(row.getNewAgentId());
+
+            // Find existing allocation
+            Optional<CaseAllocation> existingAllocationOpt = caseAllocationRepository.findFirstByCaseIdOrderByAllocatedAtDesc(caseId);
+            if (!existingAllocationOpt.isPresent()) {
+                errors.add(buildErrorWithData(batchId, rowNumber,
+                        "No existing allocation found for case_id: " + caseId, row));
+                failedAllocations.incrementAndGet();
+                return;
+            }
+
+            CaseAllocation existingAllocation = existingAllocationOpt.get();
+
+            // Verify current agent matches
+            if (existingAllocation.getPrimaryAgentId() != null &&
+                    !existingAllocation.getPrimaryAgentId().equals(currentAgentId)) {
+                errors.add(buildErrorWithData(batchId, rowNumber,
+                        "Current agent mismatch. Expected: " + existingAllocation.getPrimaryAgentId() +
+                                ", Provided: " + currentAgentId, row));
+                failedAllocations.incrementAndGet();
+                return;
+            }
+
+            // Skip if reallocating to the same agent
+            if (currentAgentId.equals(newAgentId)) {
+                log.info("Skipping reallocation for case {} - already assigned to agent {}", caseId, newAgentId);
+                errors.add(buildErrorWithData(batchId, rowNumber,
+                        "Case is already assigned to agent: " + newAgentId, row));
+                failedAllocations.incrementAndGet();
+                return;
+            }
+
+            // Update allocation
+            existingAllocation.setPrimaryAgentId(newAgentId);
+            existingAllocation.setAllocatedAt(LocalDateTime.now());
+            existingAllocation.setStatus(AllocationStatus.ALLOCATED); // Keep as ALLOCATED so workload counts it
+            existingAllocation.setBatchId(batchId);
+            allocationsToUpdate.add(existingAllocation);
+
+            // Create history entry
+            historyToSave.add(AllocationHistory.builder()
+                    .caseId(caseId)
+                    .allocatedToUserId(newAgentId)
+                    .allocatedFromUserId(currentAgentId)
+                    .newOwnerType("USER")
+                    .previousOwnerType("USER")
+                    .allocatedAt(LocalDateTime.now())
+                    .action(AllocationAction.REALLOCATED)
+                    .reason(row.getReallocationReason() != null && !row.getReallocationReason().isEmpty()
+                            ? row.getReallocationReason()
+                            : "Batch reallocation: " + batchId)
+                    .batchId(batchId)
+                    .build());
+
+            // Track agent statistics changes
+            agentDecrements.put(currentAgentId, agentDecrements.getOrDefault(currentAgentId, 0) + 1);
+            agentIncrements.put(newAgentId, agentIncrements.getOrDefault(newAgentId, 0) + 1);
+
+            successfulAllocations.incrementAndGet();
+            log.debug("Legacy format reallocation: case {} from agent {} to agent {}",
+                    caseId, currentAgentId, newAgentId);
+
+        } catch (Exception e) {
+            log.error("Failed to process legacy format reallocation for row {}: {}", rowNumber, e.getMessage());
+            errors.add(buildErrorWithData(batchId, rowNumber, "Processing error: " + e.getMessage(), row));
+            failedAllocations.incrementAndGet();
+        }
+    }
+
     @SuppressWarnings("null")
     @Override
     @Async("batchProcessingExecutor")
@@ -424,12 +749,33 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
         List<BatchError> errors = new ArrayList<>();
 
         try (BufferedReader reader = Files.newBufferedReader(path)) {
-            CsvToBean<ContactUpdateCsvRow> csvToBean = new CsvToBeanBuilder<ContactUpdateCsvRow>(reader)
+            // Configure CSV parser to properly handle quoted fields with commas
+            var csvParser = new CSVParserBuilder()
+                    .withSeparator(',')
+                    .withQuoteChar('"')
+                    .withIgnoreQuotations(false)
+                    .withStrictQuotes(false)
+                    .build();
+
+            CSVReader csvReader = new CSVReaderBuilder(reader)
+                    .withCSVParser(csvParser)
+                    .build();
+
+            CsvToBean<ContactUpdateCsvRow> csvToBean = new CsvToBeanBuilder<ContactUpdateCsvRow>(csvReader)
                     .withType(ContactUpdateCsvRow.class)
                     .withIgnoreLeadingWhiteSpace(true)
+                    .withThrowExceptions(false)
                     .build();
 
             List<ContactUpdateCsvRow> rows = csvToBean.parse();
+
+            // Log any captured exceptions for debugging
+            var exceptions = csvToBean.getCapturedExceptions();
+            if (!exceptions.isEmpty()) {
+                log.warn("Contact update CSV parsing completed with {} warnings/errors", exceptions.size());
+                exceptions.forEach(ex -> log.warn("CSV parsing issue at line {}: {}",
+                        ex.getLineNumber(), ex.getMessage()));
+            }
             batch.setTotalRecords(rows.size());
 
             AtomicInteger successfulUpdates = new AtomicInteger(0);
@@ -440,12 +786,12 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
                 String validationError = getValidationError(row);
                 if (validationError == null) {
                     try {
-                        Long caseId = Long.parseLong(row.getCaseId());
+                        String loanId = row.getLoanId();
 
-                        // 1. Find the Case entity
+                        // 1. Find the Case entity by loan account number
                         com.finx.allocationreallocationservice.domain.entity.Case caseEntity = caseReadRepository
-                                .findById(caseId)
-                                .orElseThrow(() -> new RuntimeException("Case not found for ID: " + caseId));
+                                .findByLoanId(loanId)
+                                .orElseThrow(() -> new RuntimeException("Case not found for loan_id: " + loanId));
 
                         // 2. Get the primary customer from the LoanDetails associated with the case
                         // Assuming contact updates are always for the primary customer of the loan
@@ -503,24 +849,22 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
 
                         if (updated) {
                             customerRepository.save(customer);
-                            log.debug("Contact updated successfully for case {}: {}", row.getCaseId(),
+                            log.debug("Contact updated successfully for loan {}: {}", row.getLoanId(),
                                     row.getUpdateType());
                             successfulUpdates.incrementAndGet();
                         } else {
-                            errors.add(buildError(batchId, rowNumber[0],
-                                    "No contact information provided for update type: " + row.getUpdateType(),
-                                    row.getCaseId()));
+                            errors.add(buildErrorWithData(batchId, rowNumber[0],
+                                    "No contact information provided for update type: " + row.getUpdateType(), row));
                             failedUpdates.incrementAndGet();
                         }
 
                     } catch (Exception e) {
-                        log.error("Failed to update contact for case {}: {}", row.getCaseId(), e.getMessage());
-                        errors.add(
-                                buildError(batchId, rowNumber[0], "Service error: " + e.getMessage(), row.getCaseId()));
+                        log.error("Failed to update contact for loan {}: {}", row.getLoanId(), e.getMessage());
+                        errors.add(buildErrorWithData(batchId, rowNumber[0], "Service error: " + e.getMessage(), row));
                         failedUpdates.incrementAndGet();
                     }
                 } else {
-                    errors.add(buildError(batchId, rowNumber[0], validationError, row.getCaseId()));
+                    errors.add(buildErrorWithData(batchId, rowNumber[0], validationError, row));
                     failedUpdates.incrementAndGet();
                 }
                 rowNumber[0]++;
@@ -528,20 +872,46 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
 
             batch.setSuccessfulUpdates(successfulUpdates.get());
             batch.setFailedUpdates(failedUpdates.get());
-            batch.setStatus(BatchStatus.COMPLETED);
+
+            // Determine batch status based on success/failure counts
+            BatchStatus finalStatus;
+            if (failedUpdates.get() == 0) {
+                finalStatus = BatchStatus.COMPLETED;
+            } else if (successfulUpdates.get() == 0) {
+                finalStatus = BatchStatus.FAILED;
+            } else {
+                finalStatus = BatchStatus.PARTIALLY_COMPLETED;
+            }
+            batch.setStatus(finalStatus);
             batch.setCompletedAt(LocalDateTime.now());
 
             contactUpdateBatchRepository.save(batch);
             batchErrorRepository.saveAll(errors);
 
-            log.info("Finished processing contact update batch: {}. Total: {}, Success: {}, Failed: {}",
-                    batchId, rows.size(), successfulUpdates.get(), failedUpdates.get());
+            log.info("Finished processing contact update batch: {}. Total: {}, Success: {}, Failed: {}, Status: {}",
+                    batchId, rows.size(), successfulUpdates.get(), failedUpdates.get(), finalStatus);
 
         } catch (Exception e) {
             log.error("Fatal error processing contact update batch {}: {}", batchId, e.getMessage(), e);
             batch.setStatus(BatchStatus.FAILED);
             batch.setCompletedAt(LocalDateTime.now());
             contactUpdateBatchRepository.save(batch);
+
+            // Save fatal error to batch_errors table so it can be exported
+            BatchError fatalError = BatchError.builder()
+                    .errorId("ERR_FATAL_" + batchId + "_" + System.currentTimeMillis())
+                    .batchId(batchId)
+                    .rowNumber(0)
+                    .errorType(ErrorType.SYSTEM)
+                    .errorMessage("Fatal error during batch processing: " + e.getMessage())
+                    .originalRowData("{\"error\": \"" + e.getMessage().replace("\"", "'") + "\"}")
+                    .build();
+            batchErrorRepository.save(fatalError);
+
+            // Also save any validation errors that were collected before the fatal error
+            if (!errors.isEmpty()) {
+                batchErrorRepository.saveAll(errors);
+            }
         } finally {
             try {
                 Files.deleteIfExists(path);
@@ -552,11 +922,9 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
     }
 
     private String getValidationError(ContactUpdateCsvRow row) {
-        // Validate case_id
-        try {
-            Long.parseLong(row.getCaseId());
-        } catch (NumberFormatException e) {
-            return "Invalid case_id: " + row.getCaseId();
+        // Validate loan_id
+        if (row.getLoanId() == null || row.getLoanId().trim().isEmpty()) {
+            return "loan_id is required";
         }
 
         // Validate update_type
@@ -852,11 +1220,76 @@ public class AllocationBatchProcessingServiceImpl implements AllocationBatchProc
 
     private BatchError buildError(String batchId, int rowNumber, String message, String caseId) {
         return BatchError.builder()
+                .errorId(generateErrorId(batchId, rowNumber))
                 .batchId(batchId)
                 .rowNumber(rowNumber)
                 .errorType(ErrorType.VALIDATION)
                 .errorMessage(message)
                 .externalCaseId(caseId)
                 .build();
+    }
+
+    /**
+     * Build error with original row data for allocation rows
+     */
+    private BatchError buildErrorWithData(String batchId, int rowNumber, String message, AllocationCsvRow row) {
+        return BatchError.builder()
+                .errorId(generateErrorId(batchId, rowNumber))
+                .batchId(batchId)
+                .rowNumber(rowNumber)
+                .errorType(ErrorType.VALIDATION)
+                .errorMessage(message)
+                .externalCaseId(row.getAccountNo())
+                .originalRowData(convertToJson(row))
+                .build();
+    }
+
+    /**
+     * Build error with original row data for reallocation rows
+     */
+    private BatchError buildErrorWithData(String batchId, int rowNumber, String message, ReallocationCsvRow row) {
+        return BatchError.builder()
+                .errorId(generateErrorId(batchId, rowNumber))
+                .batchId(batchId)
+                .rowNumber(rowNumber)
+                .errorType(ErrorType.VALIDATION)
+                .errorMessage(message)
+                .externalCaseId(row.getCaseId())
+                .originalRowData(convertToJson(row))
+                .build();
+    }
+
+    /**
+     * Build error with original row data for contact update rows
+     */
+    private BatchError buildErrorWithData(String batchId, int rowNumber, String message, ContactUpdateCsvRow row) {
+        return BatchError.builder()
+                .errorId(generateErrorId(batchId, rowNumber))
+                .batchId(batchId)
+                .rowNumber(rowNumber)
+                .errorType(ErrorType.VALIDATION)
+                .errorMessage(message)
+                .externalCaseId(row.getLoanId())
+                .originalRowData(convertToJson(row))
+                .build();
+    }
+
+    /**
+     * Generate unique error ID for batch errors
+     */
+    private String generateErrorId(String batchId, int rowNumber) {
+        return String.format("ERR_%s_%d_%d", batchId, rowNumber, System.currentTimeMillis());
+    }
+
+    /**
+     * Convert object to JSON string for storage
+     */
+    private String convertToJson(Object row) {
+        try {
+            return objectMapper.writeValueAsString(row);
+        } catch (JsonProcessingException e) {
+            log.warn("Failed to convert row to JSON: {}", e.getMessage());
+            return null;
+        }
     }
 }

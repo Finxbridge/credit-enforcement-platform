@@ -4,8 +4,11 @@ import com.finx.strategyengineservice.domain.dto.ExecutionDTO;
 import com.finx.strategyengineservice.domain.dto.ExecutionDetailDTO;
 import com.finx.strategyengineservice.domain.dto.ExecutionInitiatedDTO;
 import com.finx.strategyengineservice.domain.dto.ExecutionRunDetailsDTO;
+import com.finx.strategyengineservice.domain.entity.CommunicationHistory;
 import com.finx.strategyengineservice.domain.entity.Strategy;
 import com.finx.strategyengineservice.domain.entity.StrategyExecution;
+import com.finx.strategyengineservice.domain.enums.CommunicationChannel;
+import com.finx.strategyengineservice.domain.enums.CommunicationStatus;
 import com.finx.strategyengineservice.domain.enums.ExecutionStatus;
 import com.finx.strategyengineservice.domain.enums.ExecutionType;
 import com.finx.strategyengineservice.exception.BusinessException;
@@ -37,7 +40,10 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
     private final com.finx.strategyengineservice.repository.StrategyActionRepository strategyActionRepository;
     private final com.finx.strategyengineservice.client.CommunicationServiceClient communicationClient;
     private final com.finx.strategyengineservice.client.TemplateServiceClient templateServiceClient;
+    private final com.finx.strategyengineservice.client.DmsServiceClient dmsServiceClient;
+    private final com.finx.strategyengineservice.client.NoticeServiceClient noticeServiceClient;
     private final com.finx.strategyengineservice.repository.CaseRepository caseRepository;
+    private final com.finx.strategyengineservice.repository.CommunicationHistoryRepository communicationHistoryRepository;
 
     @SuppressWarnings("null")
     @Override
@@ -226,6 +232,9 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
 
     /**
      * Send SMS via communication service
+     *
+     * IMPORTANT: If template resolution fails, we DO NOT send the message.
+     * Messages should only be sent with properly resolved template data.
      */
     private void sendSMS(com.finx.strategyengineservice.domain.entity.Case caseEntity,
             com.finx.strategyengineservice.domain.entity.StrategyAction action) {
@@ -235,137 +244,260 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
             throw new BusinessException("Mobile number not available for case: " + caseEntity.getId());
         }
 
-        // Build SMS recipient with dynamic variables
+        // Add India country code (91) if not present - MSG91 requires country code
+        mobile = formatMobileWithCountryCode(mobile);
+
+        // Template ID is required for SMS
+        if (action.getTemplateId() == null || action.getTemplateId().isEmpty()) {
+            throw new BusinessException("Template ID is required for SMS action on case: " + caseEntity.getId());
+        }
+
+        // Resolve template - this MUST succeed for message to be sent
+        com.finx.strategyengineservice.client.dto.TemplateResolveRequest resolveRequest =
+            com.finx.strategyengineservice.client.dto.TemplateResolveRequest.builder()
+                .caseId(caseEntity.getId())
+                .additionalContext(null)
+                .build();
+
+        Long templateId = Long.parseLong(action.getTemplateId());
+
+        com.finx.strategyengineservice.domain.dto.CommonResponse<com.finx.strategyengineservice.client.dto.TemplateResolveResponse> response;
+        try {
+            response = templateServiceClient.resolveTemplate(templateId, resolveRequest);
+        } catch (Exception e) {
+            log.error("Failed to resolve template {} for SMS case {}: {}", templateId, caseEntity.getId(), e.getMessage());
+            throw new BusinessException("Template resolution failed for SMS case " + caseEntity.getId() + ": " + e.getMessage());
+        }
+
+        if (response == null || response.getPayload() == null) {
+            throw new BusinessException("Template resolution returned empty response for SMS case: " + caseEntity.getId());
+        }
+
+        com.finx.strategyengineservice.client.dto.TemplateResolveResponse resolveResponse = response.getPayload();
+
+        // Validate providerTemplateId - MSG91 template_id
+        String msg91TemplateId = resolveResponse.getProviderTemplateId();
+        if (msg91TemplateId == null || msg91TemplateId.isEmpty()) {
+            throw new BusinessException("MSG91 provider template ID is missing in resolution response for SMS case: " + caseEntity.getId() +
+                ". Make sure the template was synced with MSG91 and has a valid provider_template_id.");
+        }
+
+        // Get resolved variables
+        java.util.Map<String, Object> resolvedVariables = resolveResponse.getResolvedVariables();
+        if (resolvedVariables == null || resolvedVariables.isEmpty()) {
+            log.warn("No resolved variables found for SMS template {} case {}", templateId, caseEntity.getId());
+            resolvedVariables = new java.util.HashMap<>();
+        }
+
+        log.info("Resolved {} variables for SMS template {} case {}", resolvedVariables.size(), templateId, caseEntity.getId());
+
+        // Build SMS recipient with resolved variables
         com.finx.strategyengineservice.client.dto.SMSRequest.SmsRecipient recipient =
                 com.finx.strategyengineservice.client.dto.SMSRequest.SmsRecipient.builder()
                 .mobile(mobile)
-                .variables(buildDynamicVariables(caseEntity, action, "SMS"))
+                .variables(resolvedVariables)
                 .build();
 
-        // Build SMS request aligned with communication-service format
+        // Build SMS request - use MSG91 template_id
         com.finx.strategyengineservice.client.dto.SMSRequest request =
                 com.finx.strategyengineservice.client.dto.SMSRequest.builder()
-                .templateId(action.getTemplateId() != null ? action.getTemplateId().toString() : null)
-                .shortUrl("0") // Disable short URL by default
+                .templateId(msg91TemplateId) // MSG91 template_id returned during template creation
+                .shortUrl("0")
                 .recipients(java.util.Collections.singletonList(recipient))
                 .caseId(caseEntity.getId())
                 .build();
 
+        log.info("Sending SMS for case: {} using MSG91 template ID: {}", caseEntity.getId(), msg91TemplateId);
+
         communicationClient.sendSMS(request);
-        log.debug("SMS sent successfully for case: {}", caseEntity.getId());
+        log.info("SMS sent successfully for case: {} using MSG91 template ID: {}", caseEntity.getId(), msg91TemplateId);
     }
 
     /**
-     * Build dynamic variables from case data based on template variable mapping
+     * Send Email via communication service
+     *
+     * IMPORTANT: If template resolution fails, we DO NOT send the message.
+     * Messages should only be sent with properly resolved template data.
      */
-    private java.util.Map<String, Object> buildDynamicVariables(
-            com.finx.strategyengineservice.domain.entity.Case caseEntity,
-            com.finx.strategyengineservice.domain.entity.StrategyAction action,
-            String channel) {
+    private void sendEmail(com.finx.strategyengineservice.domain.entity.Case caseEntity,
+            com.finx.strategyengineservice.domain.entity.StrategyAction action) {
 
-        java.util.Map<String, Object> variables = new java.util.HashMap<>();
-
-        // If templateId and variableMapping are set, use dynamic mapping
-        if (action.getTemplateId() != null && action.getVariableMapping() != null && !action.getVariableMapping().isEmpty()) {
-            try {
-                // Fetch template details
-                com.finx.strategyengineservice.client.dto.TemplateDetailDTO template =
-                    templateServiceClient.getTemplate(action.getTemplateId()).getPayload();
-
-                if (template != null && template.getVariables() != null) {
-                    // Map each template variable to case entity value
-                    for (com.finx.strategyengineservice.client.dto.TemplateDetailDTO.TemplateVariableDTO templateVar : template.getVariables()) {
-                        String variableKey = templateVar.getVariableKey();
-                        String entityPath = action.getVariableMapping().get(variableKey);
-
-                        if (entityPath != null) {
-                            Object value = extractValueFromCase(caseEntity, entityPath);
-                            variables.put(variableKey, value != null ? value : templateVar.getDefaultValue());
-                        }
-                    }
-                }
-            } catch (Exception e) {
-                log.error("Error fetching template or building dynamic variables, falling back to defaults", e);
-                // Fall back to default hardcoded variables
-                return buildDefaultVariables(caseEntity, channel);
-            }
-        } else {
-            // Fall back to default hardcoded variables
-            return buildDefaultVariables(caseEntity, channel);
+        String email = caseEntity.getLoan().getPrimaryCustomer().getEmail();
+        if (email == null || email.isEmpty()) {
+            throw new BusinessException("Email not available for case: " + caseEntity.getId());
         }
 
-        return variables;
-    }
-
-    /**
-     * Build default hardcoded variables (backward compatibility)
-     */
-    private java.util.Map<String, Object> buildDefaultVariables(
-            com.finx.strategyengineservice.domain.entity.Case caseEntity, String channel) {
-        java.util.Map<String, Object> variables = new java.util.HashMap<>();
-
-        if ("SMS".equals(channel)) {
-            variables.put("VAR1", caseEntity.getLoan().getPrimaryCustomer().getFullName());
-            variables.put("VAR2", caseEntity.getLoan().getLoanAccountNumber());
-            variables.put("VAR3", caseEntity.getLoan().getOutstandingAmount() != null
-                    ? caseEntity.getLoan().getOutstandingAmount().toString() : "0");
+        // Template ID is required for Email
+        if (action.getTemplateId() == null || action.getTemplateId().isEmpty()) {
+            throw new BusinessException("Template ID is required for Email action on case: " + caseEntity.getId());
         }
 
-        return variables;
-    }
+        // Resolve template - this MUST succeed for message to be sent
+        com.finx.strategyengineservice.client.dto.TemplateResolveRequest resolveRequest =
+            com.finx.strategyengineservice.client.dto.TemplateResolveRequest.builder()
+                .caseId(caseEntity.getId())
+                .additionalContext(null)
+                .build();
 
-    /**
-     * Extract value from case entity using property path (e.g., "loan.primaryCustomer.customerName")
-     */
-    private Object extractValueFromCase(com.finx.strategyengineservice.domain.entity.Case caseEntity, String propertyPath) {
+        Long templateId = Long.parseLong(action.getTemplateId());
+
+        com.finx.strategyengineservice.domain.dto.CommonResponse<com.finx.strategyengineservice.client.dto.TemplateResolveResponse> response;
         try {
-            String[] parts = propertyPath.split("\\.");
-            Object current = caseEntity;
+            response = templateServiceClient.resolveTemplate(templateId, resolveRequest);
+        } catch (Exception e) {
+            log.error("Failed to resolve template {} for Email case {}: {}", templateId, caseEntity.getId(), e.getMessage());
+            throw new BusinessException("Template resolution failed for Email case " + caseEntity.getId() + ": " + e.getMessage());
+        }
 
-            for (String part : parts) {
-                if (current == null) {
-                    return null;
-                }
+        if (response == null || response.getPayload() == null) {
+            throw new BusinessException("Template resolution returned empty response for Email case: " + caseEntity.getId());
+        }
 
-                // Use reflection to get property value
-                String methodName = "get" + part.substring(0, 1).toUpperCase() + part.substring(1);
-                current = current.getClass().getMethod(methodName).invoke(current);
+        com.finx.strategyengineservice.client.dto.TemplateResolveResponse resolveResponse = response.getPayload();
+
+        // Validate providerTemplateId - MSG91 template_id
+        String msg91TemplateId = resolveResponse.getProviderTemplateId();
+        if (msg91TemplateId == null || msg91TemplateId.isEmpty()) {
+            throw new BusinessException("MSG91 provider template ID is missing in resolution response for Email case: " + caseEntity.getId() +
+                ". Make sure the template was synced with MSG91 and has a valid provider_template_id.");
+        }
+
+        // Get resolved variables and convert to Map<String, String>
+        Map<String, String> variables = new HashMap<>();
+        if (resolveResponse.getResolvedVariables() != null) {
+            for (Map.Entry<String, Object> entry : resolveResponse.getResolvedVariables().entrySet()) {
+                variables.put(entry.getKey(), entry.getValue() != null ? entry.getValue().toString() : "");
+            }
+        }
+
+        if (variables.isEmpty()) {
+            log.warn("No resolved variables found for Email template {} case {}", templateId, caseEntity.getId());
+        }
+
+        log.info("Resolved {} variables for Email template {} case {}", variables.size(), templateId, caseEntity.getId());
+
+        String customerName = caseEntity.getLoan().getPrimaryCustomer().getFullName();
+
+        // Build email request
+        com.finx.strategyengineservice.client.dto.EmailRequest.EmailRequestBuilder requestBuilder =
+            com.finx.strategyengineservice.client.dto.EmailRequest.builder()
+                .toEmail(email)
+                .toName(customerName)
+                .templateId(msg91TemplateId) // MSG91 template_id returned during template creation
+                .variables(variables)
+                .caseId(caseEntity.getId());
+
+        // Add document attachment if template has a document
+        Boolean hasDocument = resolveResponse.getHasDocument();
+        if (Boolean.TRUE.equals(hasDocument)) {
+            String documentUrl = resolveResponse.getProcessedDocumentUrl();
+            if (documentUrl == null || documentUrl.isEmpty()) {
+                documentUrl = resolveResponse.getOriginalDocumentUrl();
             }
 
-            return current;
+            if (documentUrl != null && !documentUrl.isEmpty()) {
+                try {
+                    // Download document content
+                    byte[] documentContent = downloadDocumentFromUrl(documentUrl);
+
+                    if (documentContent != null && documentContent.length > 0) {
+                        // Base64 encode the document
+                        String base64Content = java.util.Base64.getEncoder().encodeToString(documentContent);
+
+                        // Determine filename and content type
+                        String filename = resolveResponse.getDocumentOriginalName();
+                        if (filename == null || filename.isEmpty()) {
+                            filename = "attachment." + (resolveResponse.getDocumentType() != null ?
+                                resolveResponse.getDocumentType().toLowerCase() : "pdf");
+                        }
+
+                        String contentType = getContentTypeForDocument(resolveResponse.getDocumentType());
+
+                        // Create attachment
+                        com.finx.strategyengineservice.client.dto.EmailRequest.Attachment attachment =
+                            com.finx.strategyengineservice.client.dto.EmailRequest.Attachment.builder()
+                                .filename(filename)
+                                .content(base64Content)
+                                .contentType(contentType)
+                                .build();
+
+                        requestBuilder.attachments(java.util.List.of(attachment));
+                        log.info("Added document attachment to Email for case {}: {}", caseEntity.getId(), filename);
+                    }
+                } catch (Exception e) {
+                    log.warn("Failed to attach document to Email for case {}: {}. Sending without attachment.",
+                        caseEntity.getId(), e.getMessage());
+                }
+            }
+        }
+
+        com.finx.strategyengineservice.client.dto.EmailRequest request = requestBuilder.build();
+
+        log.info("Sending Email for case: {} to: {} using MSG91 template ID: {}", caseEntity.getId(), email, msg91TemplateId);
+
+        communicationClient.sendEmail(request);
+        log.info("Email sent successfully for case: {} using MSG91 template ID: {}", caseEntity.getId(), msg91TemplateId);
+    }
+
+    /**
+     * Download document content from URL (DMS/S3)
+     */
+    private byte[] downloadDocumentFromUrl(String documentUrl) {
+        try {
+            java.net.http.HttpClient httpClient = java.net.http.HttpClient.newBuilder()
+                .followRedirects(java.net.http.HttpClient.Redirect.NORMAL)
+                .connectTimeout(java.time.Duration.ofSeconds(30))
+                .build();
+
+            java.net.http.HttpRequest request = java.net.http.HttpRequest.newBuilder()
+                .uri(java.net.URI.create(documentUrl))
+                .GET()
+                .timeout(java.time.Duration.ofSeconds(60))
+                .build();
+
+            java.net.http.HttpResponse<byte[]> response = httpClient.send(request,
+                java.net.http.HttpResponse.BodyHandlers.ofByteArray());
+
+            if (response.statusCode() >= 200 && response.statusCode() < 300) {
+                return response.body();
+            } else {
+                log.error("Failed to download document from URL {}: HTTP {}", documentUrl, response.statusCode());
+                return null;
+            }
         } catch (Exception e) {
-            log.error("Error extracting value from path: {}", propertyPath, e);
+            log.error("Error downloading document from URL {}: {}", documentUrl, e.getMessage());
             return null;
         }
     }
 
     /**
-     * Send Email via communication service
+     * Get MIME content type for document type
      */
-    private void sendEmail(com.finx.strategyengineservice.domain.entity.Case caseEntity,
-            com.finx.strategyengineservice.domain.entity.StrategyAction action) {
-
-        String email = caseEntity.getLoan().getPrimaryCustomer().getEmailAddress();
-        if (email == null || email.isEmpty()) {
-            throw new BusinessException("Email not available for case: " + caseEntity.getId());
+    private String getContentTypeForDocument(String documentType) {
+        if (documentType == null) {
+            return "application/octet-stream";
         }
-
-        com.finx.strategyengineservice.client.dto.EmailRequest request = com.finx.strategyengineservice.client.dto.EmailRequest
-                .builder()
-                .email(email)
-                .subject("Payment Reminder")
-                .body("Payment reminder for loan: " + caseEntity.getLoan().getLoanAccountNumber())
-                .templateId(action.getTemplateId() != null ? action.getTemplateId().toString() : null)
-                .caseId(caseEntity.getId())
-                .caseNumber(caseEntity.getCaseNumber())
-                .build();
-
-        communicationClient.sendEmail(request);
-        log.debug("Email sent successfully for case: {}", caseEntity.getId());
+        switch (documentType.toUpperCase()) {
+            case "PDF":
+                return "application/pdf";
+            case "DOCX":
+                return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+            case "DOC":
+                return "application/msword";
+            default:
+                return "application/octet-stream";
+        }
     }
 
     /**
      * Send WhatsApp via communication service
+     * Uses template resolution to get:
+     * - providerTemplateId (MSG91 template_id returned during template creation)
+     * - languageShortCode for the correct language
+     * - resolvedVariables for dynamic components
+     *
+     * IMPORTANT: If template resolution fails, we DO NOT send the message.
+     * Messages should only be sent with properly resolved template data.
      */
     private void sendWhatsApp(com.finx.strategyengineservice.domain.entity.Case caseEntity,
             com.finx.strategyengineservice.domain.entity.StrategyAction action) {
@@ -375,106 +507,278 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
             throw new BusinessException("Mobile number not available for case: " + caseEntity.getId());
         }
 
-        // Build WhatsApp request aligned with communication-service format
+        // Add India country code (91) if not present - MSG91 requires country code
+        mobile = formatMobileWithCountryCode(mobile);
+
+        // Template ID is required for WhatsApp
+        if (action.getTemplateId() == null || action.getTemplateId().isEmpty()) {
+            throw new BusinessException("Template ID is required for WhatsApp action on case: " + caseEntity.getId());
+        }
+
+        // Resolve template - this MUST succeed for message to be sent
+        com.finx.strategyengineservice.client.dto.TemplateResolveRequest resolveRequest =
+            com.finx.strategyengineservice.client.dto.TemplateResolveRequest.builder()
+                .caseId(caseEntity.getId())
+                .additionalContext(null)
+                .build();
+
+        Long templateId = Long.parseLong(action.getTemplateId());
+
+        com.finx.strategyengineservice.domain.dto.CommonResponse<com.finx.strategyengineservice.client.dto.TemplateResolveResponse> response;
+        try {
+            response = templateServiceClient.resolveTemplate(templateId, resolveRequest);
+        } catch (Exception e) {
+            log.error("Failed to resolve template {} for case {}: {}", templateId, caseEntity.getId(), e.getMessage());
+            throw new BusinessException("Template resolution failed for case " + caseEntity.getId() + ": " + e.getMessage());
+        }
+
+        if (response == null || response.getPayload() == null) {
+            throw new BusinessException("Template resolution returned empty response for case: " + caseEntity.getId());
+        }
+
+        com.finx.strategyengineservice.client.dto.TemplateResolveResponse resolveResponse = response.getPayload();
+
+        // Validate required fields from resolution
+        // Use providerTemplateId (MSG91 template_id) for sending messages, NOT templateCode
+        String msg91TemplateId = resolveResponse.getProviderTemplateId();
+        if (msg91TemplateId == null || msg91TemplateId.isEmpty()) {
+            throw new BusinessException("MSG91 provider template ID is missing in resolution response for case: " + caseEntity.getId() +
+                ". Make sure the template was synced with MSG91 and has a valid provider_template_id.");
+        }
+
+        String languageCode = resolveResponse.getLanguageShortCode();
+        if (languageCode == null || languageCode.isEmpty()) {
+            languageCode = "en_US"; // Default language is acceptable
+            log.warn("Language code not found in template resolution, using default: en_US");
+        }
+
+        // Build components from resolved variables using body_1, body_2, body_3 format for MSG91
+        // MSG91 expects components keyed as body_1, body_2, etc. based on the order of variables in template
+        java.util.Map<String, java.util.Map<String, String>> components = new java.util.LinkedHashMap<>();
+
+        // Add header_1 component ONLY if template was created with a document header
+        // Check both hasDocument flag AND headerType to ensure this template has a document header
+        Boolean hasDocument = resolveResponse.getHasDocument();
+        String headerType = resolveResponse.getHeaderType();
+        if (Boolean.TRUE.equals(hasDocument) && headerType != null && !headerType.isEmpty()) {
+            // Template was created with a document header - include header_1 component
+            String documentUrl = resolveResponse.getProcessedDocumentUrl();
+            if (documentUrl == null || documentUrl.isEmpty()) {
+                documentUrl = resolveResponse.getOriginalDocumentUrl();
+            }
+
+            if (documentUrl != null && !documentUrl.isEmpty()) {
+                java.util.Map<String, String> headerComponent = new java.util.LinkedHashMap<>();
+                headerComponent.put("type", headerType.toLowerCase()); // document, image, or video
+                headerComponent.put("value", documentUrl);
+                components.put("header_1", headerComponent);
+
+                log.info("Added header_1 component for case {}: type={}, url={}",
+                        caseEntity.getId(), headerType.toLowerCase(), documentUrl);
+            } else {
+                log.warn("Template has document header (headerType={}) but no document URL available for case {}",
+                        headerType, caseEntity.getId());
+            }
+        }
+
+        if (resolveResponse.getResolvedVariables() != null && !resolveResponse.getResolvedVariables().isEmpty()) {
+            java.util.List<String> variableOrder = resolveResponse.getVariableOrder();
+
+            if (variableOrder != null && !variableOrder.isEmpty()) {
+                // Use variable order to map to body_1, body_2, etc.
+                log.info("Variable order from template: {}", variableOrder);
+                log.info("Resolved variables: {}", resolveResponse.getResolvedVariables());
+
+                for (int i = 0; i < variableOrder.size(); i++) {
+                    String varName = variableOrder.get(i);
+                    Object value = resolveResponse.getResolvedVariables().get(varName);
+
+                    // Also try with {{varName}} format in case keys are stored that way
+                    if (value == null) {
+                        value = resolveResponse.getResolvedVariables().get("{{" + varName + "}}");
+                    }
+
+                    java.util.Map<String, String> component = new java.util.LinkedHashMap<>();
+                    component.put("type", "text");
+                    String valueStr = (value != null && !value.toString().isEmpty()) ? value.toString() : "";
+                    component.put("value", valueStr);
+
+                    // MSG91 expects body_1, body_2, body_3, etc.
+                    String componentKey = "body_" + (i + 1);
+                    components.put(componentKey, component);
+
+                    log.info("Mapped variable '{}' to '{}' with value: '{}'", varName, componentKey, valueStr);
+                }
+                log.info("Built {} WhatsApp components for case: {} (hasDocument={}, headerType={})",
+                        components.size(), caseEntity.getId(), hasDocument, headerType);
+            } else {
+                // Fallback: if no variable order, use resolved variables directly (may not work with MSG91)
+                log.warn("No variable order found, falling back to direct variable mapping (may not work with MSG91)");
+                int index = 1;
+                for (java.util.Map.Entry<String, Object> entry : resolveResponse.getResolvedVariables().entrySet()) {
+                    java.util.Map<String, String> component = new java.util.LinkedHashMap<>();
+                    component.put("type", "text");
+                    component.put("value", entry.getValue() != null ? entry.getValue().toString() : "");
+                    components.put("body_" + index, component);
+                    index++;
+                }
+            }
+        } else {
+            log.warn("No resolved variables found for template {} case {}, sending without body components", templateId, caseEntity.getId());
+        }
+
+        // Build and send WhatsApp request
         com.finx.strategyengineservice.client.dto.WhatsAppRequest request =
                 com.finx.strategyengineservice.client.dto.WhatsAppRequest.builder()
-                .templateId(action.getTemplateId() != null ? action.getTemplateId().toString() : null)
+                .templateId(msg91TemplateId) // MSG91 template_id returned during template creation
                 .to(java.util.Collections.singletonList(mobile))
-                .components(buildWhatsAppComponents(caseEntity, action))
+                .components(components)
                 .language(com.finx.strategyengineservice.client.dto.WhatsAppRequest.WhatsAppLanguage.builder()
-                        .code("en")
+                        .code(languageCode)
                         .policy("deterministic")
                         .build())
                 .caseId(caseEntity.getId())
                 .build();
 
+        log.info("Sending WhatsApp for case: {} using MSG91 template ID: {} with {} components",
+                caseEntity.getId(), msg91TemplateId, components.size());
+
         communicationClient.sendWhatsApp(request);
-        log.debug("WhatsApp sent successfully for case: {}", caseEntity.getId());
+        log.info("WhatsApp sent successfully for case: {} using MSG91 template ID: {}", caseEntity.getId(), msg91TemplateId);
     }
 
     /**
-     * Build WhatsApp components from case data with dynamic template variables
-     */
-    private java.util.Map<String, java.util.Map<String, String>> buildWhatsAppComponents(
-            com.finx.strategyengineservice.domain.entity.Case caseEntity,
-            com.finx.strategyengineservice.domain.entity.StrategyAction action) {
-
-        java.util.Map<String, java.util.Map<String, String>> components = new java.util.HashMap<>();
-
-        // If templateId and variableMapping are set, use dynamic mapping
-        if (action.getTemplateId() != null && action.getVariableMapping() != null && !action.getVariableMapping().isEmpty()) {
-            try {
-                // Fetch template details
-                com.finx.strategyengineservice.client.dto.TemplateDetailDTO template =
-                    templateServiceClient.getTemplate(action.getTemplateId()).getPayload();
-
-                if (template != null && template.getVariables() != null) {
-                    // Map each template variable to case entity value
-                    for (com.finx.strategyengineservice.client.dto.TemplateDetailDTO.TemplateVariableDTO templateVar : template.getVariables()) {
-                        String variableKey = templateVar.getVariableKey();
-                        String entityPath = action.getVariableMapping().get(variableKey);
-
-                        if (entityPath != null) {
-                            Object value = extractValueFromCase(caseEntity, entityPath);
-                            String valueStr = value != null ? value.toString() :
-                                (templateVar.getDefaultValue() != null ? templateVar.getDefaultValue() : "");
-
-                            java.util.Map<String, String> component = new java.util.HashMap<>();
-                            component.put("type", "text");
-                            component.put("value", valueStr);
-                            components.put(variableKey, component);
-                        }
-                    }
-                }
-            } catch (Exception e) {
-                log.error("Error fetching template or building dynamic components, falling back to defaults", e);
-                // Fall back to default hardcoded components
-                return buildDefaultWhatsAppComponents(caseEntity);
-            }
-        } else {
-            // Fall back to default hardcoded components
-            return buildDefaultWhatsAppComponents(caseEntity);
-        }
-
-        return components;
-    }
-
-    /**
-     * Build default WhatsApp components (backward compatibility)
-     */
-    private java.util.Map<String, java.util.Map<String, String>> buildDefaultWhatsAppComponents(
-            com.finx.strategyengineservice.domain.entity.Case caseEntity) {
-        java.util.Map<String, java.util.Map<String, String>> components = new java.util.HashMap<>();
-
-        // body_1: Customer name
-        java.util.Map<String, String> body1 = new java.util.HashMap<>();
-        body1.put("type", "text");
-        body1.put("value", caseEntity.getLoan().getPrimaryCustomer().getFullName());
-        components.put("body_1", body1);
-
-        // body_2: Loan account number
-        java.util.Map<String, String> body2 = new java.util.HashMap<>();
-        body2.put("type", "text");
-        body2.put("value", caseEntity.getLoan().getLoanAccountNumber());
-        components.put("body_2", body2);
-
-        // body_3: Outstanding amount
-        java.util.Map<String, String> body3 = new java.util.HashMap<>();
-        body3.put("type", "text");
-        body3.put("value", caseEntity.getLoan().getOutstandingAmount() != null
-                ? caseEntity.getLoan().getOutstandingAmount().toString() : "0");
-        components.put("body_3", body3);
-
-        return components;
-    }
-
-    /**
-     * Create notice (placeholder - implement based on requirements)
+     * Create notice with document attachment from DMS if available
      */
     private void createNotice(com.finx.strategyengineservice.domain.entity.Case caseEntity,
             com.finx.strategyengineservice.domain.entity.StrategyAction action) {
-        log.info("Creating notice for case: {} (Not yet implemented)", caseEntity.getId());
-        // TODO: Implement notice creation logic
+        createNoticeWithTracking(caseEntity, action, null, null);
+    }
+
+    /**
+     * Create notice with document attachment and track in communication history
+     */
+    private void createNoticeWithTracking(com.finx.strategyengineservice.domain.entity.Case caseEntity,
+            com.finx.strategyengineservice.domain.entity.StrategyAction action,
+            Long executionId, Long strategyId) {
+        log.info("Creating notice for case: {}", caseEntity.getId());
+
+        String communicationId = "NOTICE_" + System.currentTimeMillis() + "_" + caseEntity.getId();
+
+        if (action.getTemplateId() != null) {
+            try {
+                Long templateId = Long.parseLong(action.getTemplateId());
+
+                // Call template resolution API to get resolved content and document info
+                com.finx.strategyengineservice.client.dto.TemplateResolveRequest resolveRequest =
+                    com.finx.strategyengineservice.client.dto.TemplateResolveRequest.builder()
+                        .caseId(caseEntity.getId())
+                        .additionalContext(null)
+                        .build();
+
+                com.finx.strategyengineservice.client.dto.TemplateResolveResponse resolveResponse =
+                    templateServiceClient.resolveTemplate(templateId, resolveRequest).getPayload();
+
+                if (resolveResponse != null) {
+                    log.info("Template resolved for notice - templateId: {}, hasDocument: {}",
+                            templateId, resolveResponse.getHasDocument());
+
+                    // Build create notice request
+                    com.finx.strategyengineservice.client.dto.CreateNoticeRequest noticeRequest =
+                        com.finx.strategyengineservice.client.dto.CreateNoticeRequest.builder()
+                            .caseId(caseEntity.getId())
+                            .loanAccountNumber(caseEntity.getLoan() != null ? caseEntity.getLoan().getLoanAccountNumber() : null)
+                            .customerName(caseEntity.getLoan() != null && caseEntity.getLoan().getPrimaryCustomer() != null
+                                ? caseEntity.getLoan().getPrimaryCustomer().getFullName() : null)
+                            .noticeType("DEMAND")  // Default, can be configured in action
+                            .templateId(templateId)
+                            .renderedContent(resolveResponse.getRenderedContent())
+                            .build();
+
+                    // Set recipient info from customer
+                    if (caseEntity.getLoan() != null && caseEntity.getLoan().getPrimaryCustomer() != null) {
+                        var customer = caseEntity.getLoan().getPrimaryCustomer();
+                        noticeRequest.setRecipientName(customer.getFullName());
+                        noticeRequest.setRecipientAddress(customer.getAddress());
+                        noticeRequest.setRecipientCity(customer.getCity());
+                        noticeRequest.setRecipientState(customer.getState());
+                        noticeRequest.setRecipientPincode(customer.getPincode());
+                    }
+
+                    // Add document info if template has document attachment
+                    if (Boolean.TRUE.equals(resolveResponse.getHasDocument()) &&
+                            resolveResponse.getDmsDocumentId() != null) {
+
+                        noticeRequest.setDmsDocumentId(resolveResponse.getDmsDocumentId());
+                        noticeRequest.setOriginalDocumentUrl(resolveResponse.getOriginalDocumentUrl());
+                        noticeRequest.setProcessedDocumentUrl(resolveResponse.getProcessedDocumentUrl());
+                        noticeRequest.setDocumentType(resolveResponse.getDocumentType());
+                        noticeRequest.setDocumentOriginalName(resolveResponse.getDocumentOriginalName());
+
+                        log.info("Notice document attached - DMS ID: {}, Type: {}, Name: {}",
+                                resolveResponse.getDmsDocumentId(),
+                                resolveResponse.getDocumentType(),
+                                resolveResponse.getDocumentOriginalName());
+                    }
+
+                    // Create notice via notice-management-service
+                    var noticeResponse = noticeServiceClient.createNotice(noticeRequest);
+
+                    if (noticeResponse != null && noticeResponse.getPayload() != null) {
+                        var noticeDTO = noticeResponse.getPayload();
+                        log.info("Notice created successfully - Notice Number: {}, Status: {}",
+                                noticeDTO.getNoticeNumber(), noticeDTO.getNoticeStatus());
+
+                        // Save communication history
+                        CommunicationHistory history = CommunicationHistory.builder()
+                                .communicationId(communicationId)
+                                .caseId(caseEntity.getId())
+                                .executionId(executionId)
+                                .strategyId(strategyId)
+                                .actionId(action.getId())
+                                .channel(CommunicationChannel.NOTICE)
+                                .templateId(templateId)
+                                .templateCode(resolveResponse.getTemplateCode())
+                                .recipientName(noticeRequest.getRecipientName())
+                                .recipientAddress(noticeRequest.getRecipientAddress())
+                                .content(resolveResponse.getRenderedContent())
+                                .hasDocument(Boolean.TRUE.equals(resolveResponse.getHasDocument()))
+                                .dmsDocumentId(resolveResponse.getDmsDocumentId())
+                                .originalDocumentUrl(resolveResponse.getOriginalDocumentUrl())
+                                .processedDocumentUrl(resolveResponse.getProcessedDocumentUrl())
+                                .documentType(resolveResponse.getDocumentType())
+                                .documentOriginalName(resolveResponse.getDocumentOriginalName())
+                                .status(CommunicationStatus.GENERATED)
+                                .noticeId(noticeDTO.getId())
+                                .noticeNumber(noticeDTO.getNoticeNumber())
+                                .sentAt(LocalDateTime.now())
+                                .build();
+
+                        communicationHistoryRepository.save(history);
+                        log.info("Communication history saved for notice: {}", noticeDTO.getNoticeNumber());
+                    }
+                }
+
+            } catch (Exception e) {
+                log.error("Error creating notice for case {}: {}", caseEntity.getId(), e.getMessage());
+
+                // Save failed communication history
+                CommunicationHistory failedHistory = CommunicationHistory.builder()
+                        .communicationId(communicationId)
+                        .caseId(caseEntity.getId())
+                        .executionId(executionId)
+                        .strategyId(strategyId)
+                        .actionId(action.getId())
+                        .channel(CommunicationChannel.NOTICE)
+                        .templateId(action.getTemplateId() != null ? Long.parseLong(action.getTemplateId()) : null)
+                        .status(CommunicationStatus.FAILED)
+                        .failureReason(e.getMessage())
+                        .failedAt(LocalDateTime.now())
+                        .build();
+
+                communicationHistoryRepository.save(failedHistory);
+            }
+        }
     }
 
     /**
@@ -501,7 +805,10 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
     @Transactional(readOnly = true)
     public List<ExecutionDTO> getAllExecutions() {
         log.info("Fetching all strategy executions");
-        List<StrategyExecution> executions = executionRepository.findAllByOrderByStartedAtDesc(null).getContent();
+        // Use Pageable.unpaged() to get all results, or use a large page size
+        List<StrategyExecution> executions = executionRepository
+                .findAllByOrderByStartedAtDesc(org.springframework.data.domain.PageRequest.of(0, 1000))
+                .getContent();
 
         return executions.stream()
                 .map(this::convertToExecutionDTO)
@@ -572,5 +879,39 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
                 .executionId(execution.getExecutionId())
                 .details(details)
                 .build();
+    }
+
+    /**
+     * Format mobile number with India country code (91) for MSG91
+     * MSG91 requires phone numbers with country code prefix
+     *
+     * @param mobile the mobile number (may or may not have country code)
+     * @return mobile number with 91 prefix
+     */
+    private String formatMobileWithCountryCode(String mobile) {
+        if (mobile == null || mobile.isEmpty()) {
+            return mobile;
+        }
+
+        // Remove any spaces, dashes, or special characters
+        String cleanMobile = mobile.replaceAll("[^0-9+]", "");
+
+        // If already has + prefix with country code, just remove the +
+        if (cleanMobile.startsWith("+")) {
+            return cleanMobile.substring(1);
+        }
+
+        // If already starts with 91 and is 12 digits (91 + 10 digit number), return as is
+        if (cleanMobile.startsWith("91") && cleanMobile.length() == 12) {
+            return cleanMobile;
+        }
+
+        // If it's a 10-digit Indian number, add 91 prefix
+        if (cleanMobile.length() == 10) {
+            return "91" + cleanMobile;
+        }
+
+        // Return as is for other cases (might be international number)
+        return cleanMobile;
     }
 }

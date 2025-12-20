@@ -63,6 +63,21 @@ public class User {
     @Column(name = "team_id")
     private Long teamId;
 
+    // Geography fields for allocation
+    @Column(name = "state", length = 100)
+    private String state;
+
+    @Column(name = "city", length = 100)
+    private String city;
+
+    /**
+     * Agency ID - Present when user has AGENT role.
+     * NULL for internal users (collectors, supervisors, managers, admins).
+     * Used to filter out agency agents from first-level allocation.
+     */
+    @Column(name = "agency_id")
+    private Long agencyId;
+
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
 

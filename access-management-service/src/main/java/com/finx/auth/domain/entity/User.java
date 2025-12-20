@@ -52,10 +52,16 @@ public class User {
     @Column(name = "user_group_id")
     private Long userGroupId;
 
-    // AUTO-ALLOCATION FIELDS
+    // AUTO-ALLOCATION FIELDS - Geography
+    @Column(name = "state", length = 100)
+    private String state; // e.g., "Telangana", "Maharashtra"
+
+    @Column(name = "city", length = 100)
+    private String city; // e.g., "Hyderabad", "Mumbai"
+
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "assigned_geographies", columnDefinition = "jsonb")
-    private String assignedGeographies; // JSON array of geography codes
+    private String assignedGeographies; // JSON array of geography codes (legacy/additional)
 
     @Column(name = "max_case_capacity")
     @Builder.Default

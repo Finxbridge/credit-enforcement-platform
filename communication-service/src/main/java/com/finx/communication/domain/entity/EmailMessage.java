@@ -43,7 +43,7 @@ public class EmailMessage {
     @Column(name = "reply_to", length = 100)
     private String replyTo;
 
-    @Column(name = "subject", nullable = false, length = 255)
+    @Column(name = "subject", nullable = false, length = 500)
     private String subject;
 
     @Column(name = "body_html", columnDefinition = "TEXT")
@@ -55,7 +55,7 @@ public class EmailMessage {
     @Column(name = "template_id")
     private Long templateId;
 
-    @Column(name = "template_code", length = 50)
+    @Column(name = "template_code", length = 255)
     private String templateCode;
 
     @Builder.Default

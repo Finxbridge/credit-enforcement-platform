@@ -2,6 +2,7 @@ package com.finx.strategyengineservice.controller;
 
 import com.finx.strategyengineservice.domain.dto.CommonResponse;
 import com.finx.strategyengineservice.domain.dto.DashboardResponse;
+import com.finx.strategyengineservice.domain.dto.SimulationResponse;
 import com.finx.strategyengineservice.domain.dto.StrategyRequest;
 import com.finx.strategyengineservice.domain.dto.StrategyResponse;
 import com.finx.strategyengineservice.service.StrategyService;
@@ -27,7 +28,7 @@ import java.util.List;
  * - StrategyTriggerController (schedule)
  */
 @RestController
-@RequestMapping("/strategies/v2")
+@RequestMapping("/strategies")
 @RequiredArgsConstructor
 @Slf4j
 @Tag(name = "Unified Strategy Management", description = "Single API for complete strategy configuration")
@@ -45,16 +46,28 @@ public class StrategyController {
      * 4. Priority
      * 5. Schedule (daily/weekly)
      * 6. Status (DRAFT/ACTIVE/INACTIVE)
+     *
+     * Simplified Filter Format:
+     * - All filter types use: field, filterType, operator, value1, value2, values
+     * - Numeric examples:
+     *   - {"field": "DPD", "filterType": "NUMERIC", "operator": ">=", "value1": "30"}
+     *   - {"field": "OVERDUE_AMOUNT", "filterType": "NUMERIC", "operator": "RANGE", "value1": "10000", "value2": "100000"}
+     * - Text examples:
+     *   - {"field": "LANGUAGE", "filterType": "TEXT", "operator": "IN", "values": ["HINDI", "ENGLISH"]}
+     * - Date examples:
+     *   - {"field": "DUE_DATE", "filterType": "DATE", "operator": ">=", "value1": "2024-01-01"}
+     *   - {"field": "DUE_DATE", "filterType": "DATE", "operator": "BETWEEN", "value1": "2024-01-01", "value2": "2024-12-31"}
      */
-    @PostMapping
+    @PostMapping("/create")
     @Operation(
         summary = "Create complete strategy",
-        description = "Create a new strategy with all configurations (filters, template, schedule) in a single API call"
+        description = "Create a new strategy with all configurations (filters, template, schedule) in a single API call. " +
+                      "Filters use unified format: field, filterType, operator, value1, value2, values"
     )
     public ResponseEntity<CommonResponse<StrategyResponse>> createStrategy(
             @Valid @RequestBody StrategyRequest request) {
 
-        log.info("POST /api/v1/strategies/v2 - Create unified strategy: {}", request.getStrategyName());
+        log.info("POST /api/v1/strategies/create - Create unified strategy: {}", request.getStrategyName());
 
         StrategyResponse response = strategyService.createStrategy(request);
 
@@ -161,12 +174,12 @@ public class StrategyController {
         summary = "Simulate strategy execution",
         description = "See how many cases match the filter criteria without actually executing"
     )
-    public ResponseEntity<CommonResponse<StrategyResponse>> simulateStrategy(
+    public ResponseEntity<CommonResponse<SimulationResponse>> simulateStrategy(
             @PathVariable Long strategyId) {
 
         log.info("POST /api/v1/strategies/v2/{}/simulate - Simulate strategy", strategyId);
 
-        StrategyResponse response = strategyService.simulateStrategy(strategyId);
+        SimulationResponse response = strategyService.simulateStrategy(strategyId);
 
         return ResponseEntity.ok(CommonResponse.success("Strategy simulation completed.", response));
     }

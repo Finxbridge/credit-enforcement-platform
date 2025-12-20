@@ -1,4 +1,11 @@
--- ACCESS MANAGEMENT SERVICE - TABLES
+-- =====================================================
+-- CREDIT ENFORCEMENT PLATFORM - CONSOLIDATED TABLES
+-- All CREATE TABLE statements in one file
+-- =====================================================
+
+-- =====================================================
+-- ACCESS MANAGEMENT SERVICE TABLES
+-- =====================================================
 
 CREATE TABLE users (
     id BIGSERIAL PRIMARY KEY,
@@ -122,25 +129,32 @@ CREATE TABLE cache_config (
 
 CREATE TABLE audit_logs (
     id BIGSERIAL PRIMARY KEY,
+    audit_id VARCHAR(50) UNIQUE,
     entity_type VARCHAR(50) NOT NULL,
-    entity_id BIGINT NOT NULL,
+    entity_id BIGINT,
     action VARCHAR(50) NOT NULL,
+    case_id BIGINT,
     user_id BIGINT,
+    user_name VARCHAR(100),
     user_role VARCHAR(50),
     ip_address VARCHAR(45),
     user_agent VARCHAR(255),
     before_value JSONB,
     after_value JSONB,
+    old_values TEXT,
+    new_values TEXT,
+    changes TEXT,
     changed_fields JSONB,
     description TEXT,
     metadata JSONB,
+    request_id VARCHAR(50),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE otp_requests (
     id BIGSERIAL PRIMARY KEY,
     request_id VARCHAR(100) UNIQUE NOT NULL,
-    mobile VARCHAR(15),
+    mobile VARCHAR(15) NOT NULL,
     email VARCHAR(100),
     otp_code VARCHAR(10),
     otp_hash VARCHAR(255) NOT NULL,
@@ -160,13 +174,12 @@ CREATE TABLE otp_requests (
     user_id BIGINT
 );
 
-
-CREATE TABLE IF NOT EXISTS system_config (
+CREATE TABLE system_config (
     id BIGSERIAL PRIMARY KEY,
     config_key VARCHAR(100) UNIQUE NOT NULL,
     config_value TEXT NOT NULL,
     is_encrypted BOOLEAN DEFAULT FALSE,
-	data_type VARCHAR(20) DEFAULT 'STRING',
+    data_type VARCHAR(20) DEFAULT 'STRING',
     config_description TEXT,
     description VARCHAR(255),
     config_category VARCHAR(50),
@@ -190,52 +203,25 @@ CREATE TABLE third_party_integration_master (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- =====================================================
+-- MASTER DATA SERVICE TABLES
+-- =====================================================
 
--- ===================================================
--- MASTER DATA SERVICE - TABLE CREATION
--- Domain: Master Data, System Config, Integrations
--- ===================================================
-
-CREATE TABLE IF NOT EXISTS master_data (
+CREATE TABLE master_data (
     id BIGSERIAL PRIMARY KEY,
     data_type VARCHAR(50) NOT NULL,
     code VARCHAR(100) NOT NULL,
     value VARCHAR(255) NOT NULL,
-    parent_code VARCHAR(100) NULL,
     display_order INTEGER DEFAULT 0,
     is_active BOOLEAN DEFAULT TRUE,
-    metadata JSONB,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT unique_master_data UNIQUE (data_type, code)
 );
 
-
-
-CREATE TABLE IF NOT EXISTS third_party_integration_master (
-    id BIGSERIAL PRIMARY KEY,
-    integration_name VARCHAR(100) NOT NULL,
-    integration_type VARCHAR(50),
-    api_endpoint VARCHAR(500),
-    api_key_encrypted VARCHAR(500),
-    api_secret_encrypted VARCHAR(500),
-    config_json JSONB,
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-COMMENT ON TABLE master_data IS 'Centralized master data repository for dropdowns and configurations';
-COMMENT ON TABLE third_party_integration_master IS 'Third-party integration configurations';
-
--- ===================================================
--- CASE SOURCING SERVICE - TABLE CREATION
--- Domain: Customers, Loans, Cases, Payments, Telecalling
--- ===================================================
-
--- ===================================================
--- CUSTOMER DOMAIN
--- ===================================================
+-- =====================================================
+-- CASE SOURCING SERVICE TABLES
+-- =====================================================
 
 CREATE TABLE customers (
     id BIGSERIAL PRIMARY KEY,
@@ -287,10 +273,6 @@ CREATE TABLE loan_details (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- ===================================================
--- CASE DOMAIN
--- ===================================================
-
 CREATE TABLE cases (
     id BIGSERIAL PRIMARY KEY,
     case_number VARCHAR(50) UNIQUE NOT NULL,
@@ -298,6 +280,7 @@ CREATE TABLE cases (
     loan_id BIGINT NOT NULL,
     case_status VARCHAR(20) DEFAULT 'UNALLOCATED',
     case_priority VARCHAR(20) DEFAULT 'MEDIUM',
+    status INTEGER DEFAULT 200,  -- Case lifecycle status: 200 = ACTIVE, 400 = CLOSED
     case_opened_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     case_closed_at TIMESTAMP,
     case_closure_reason VARCHAR(100),
@@ -354,140 +337,9 @@ CREATE TABLE batch_errors (
     module VARCHAR(50) DEFAULT 'CASE_SOURCING'
 );
 
-CREATE TABLE case_notes (
-    id BIGSERIAL PRIMARY KEY,
-    case_id BIGINT NOT NULL,
-    note_type VARCHAR(50) DEFAULT 'GENERAL',
-    note_text TEXT NOT NULL,
-    is_important BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    created_by BIGINT NOT NULL,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_by BIGINT
-);
-
-CREATE TABLE case_activities (
-    id BIGSERIAL PRIMARY KEY,
-    case_id BIGINT NOT NULL,
-    user_id BIGINT NOT NULL,
-    activity_type VARCHAR(50) NOT NULL,
-    activity_subtype VARCHAR(50),
-    details TEXT,
-    activity_metadata JSONB,
-    next_followup_date DATE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- ===================================================
--- TELECALLING DOMAIN
--- ===================================================
-
-CREATE TABLE telecalling_logs (
-    id BIGSERIAL PRIMARY KEY,
-    case_id BIGINT NOT NULL,
-    user_id BIGINT NOT NULL,
-    call_type VARCHAR(20),
-    dialed_number VARCHAR(15),
-    bridge_number VARCHAR(15),
-    call_disposition VARCHAR(30),
-    sub_disposition VARCHAR(50),
-    call_started_at TIMESTAMP NULL,
-    call_ended_at TIMESTAMP NULL,
-    call_duration_seconds INTEGER DEFAULT 0,
-    talk_time_seconds INTEGER DEFAULT 0,
-    recording_url VARCHAR(500),
-    recording_duration_seconds INTEGER,
-    agent_notes TEXT,
-    next_followup_date DATE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE telecalling_history (
-    id BIGSERIAL PRIMARY KEY,
-    case_id BIGINT NOT NULL,
-    user_id BIGINT NOT NULL,
-    call_details JSONB,
-    archived_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- ===================================================
--- PAYMENT & RECEIPT DOMAIN
--- ===================================================
-
-CREATE TABLE receipts (
-    id BIGSERIAL PRIMARY KEY,
-    receipt_number VARCHAR(50) UNIQUE NOT NULL,
-    receipt_type VARCHAR(20) NOT NULL,
-    file_url VARCHAR(500) NOT NULL,
-    file_type VARCHAR(20),
-    file_size_kb INTEGER,
-    file_hash VARCHAR(255),
-    generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    generated_by BIGINT,
-    is_verified BOOLEAN DEFAULT FALSE,
-    verified_by BIGINT NULL,
-    verified_at TIMESTAMP NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE payment_transactions (
-    id BIGSERIAL PRIMARY KEY,
-    transaction_id VARCHAR(100) UNIQUE NOT NULL,
-    payment_method VARCHAR(20),
-    payment_gateway VARCHAR(50),
-    payment_reference VARCHAR(100),
-    cheque_number VARCHAR(50),
-    cheque_date DATE,
-    bank_name VARCHAR(100),
-    payment_link_url VARCHAR(500),
-    gateway_response JSONB,
-    transaction_status VARCHAR(20) DEFAULT 'PENDING',
-    transaction_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE repayments (
-    id BIGSERIAL PRIMARY KEY,
-    case_id BIGINT NOT NULL,
-    transaction_id BIGINT NULL,
-    payment_amount DECIMAL(15,2) NOT NULL,
-    payment_date DATE NOT NULL,
-    approval_status VARCHAR(20) DEFAULT 'PENDING',
-    approved_by BIGINT NULL,
-    approved_at TIMESTAMP NULL,
-    rejection_reason TEXT,
-    deposit_required_by TIMESTAMP NULL,
-    deposited_at TIMESTAMP NULL,
-    deposit_sla_status VARCHAR(20),
-    is_reconciled BOOLEAN DEFAULT FALSE,
-    reconciled_at TIMESTAMP NULL,
-    reconciled_by BIGINT NULL,
-    collected_by BIGINT,
-    receipt_id BIGINT NULL,
-    notes TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE ots_settlements (
-    id BIGSERIAL PRIMARY KEY,
-    case_id BIGINT NOT NULL,
-    original_amount DECIMAL(15,2) NOT NULL,
-    settlement_amount DECIMAL(15,2) NOT NULL,
-    discount_percentage DECIMAL(5,2),
-    discount_amount DECIMAL(15,2),
-    offer_valid_from DATE,
-    offer_valid_to DATE,
-    payment_terms TEXT,
-    ots_status VARCHAR(20) DEFAULT 'PENDING',
-    requested_by BIGINT NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- ===================================================
--- PTP (Promise to Pay) DOMAIN
--- ===================================================
+-- NOTE: case_notes, case_activities, telecalling_logs, telecalling_history,
+-- receipts, payment_transactions, repayments, ots_settlements tables
+-- moved to UNUSED_FUTURE_SERVICES_SCRIPTS.sql (no JPA entities implemented)
 
 CREATE TABLE ptp_commitments (
     id BIGSERIAL PRIMARY KEY,
@@ -511,31 +363,36 @@ CREATE TABLE ptp_commitments (
     created_by BIGINT
 );
 
--- ===================================================
--- COMMENTS
--- ===================================================
+-- Case Closure table - Tracks case closure and reopen history
+CREATE TABLE case_closure (
+    id BIGSERIAL PRIMARY KEY,
+    case_id BIGINT NOT NULL,
+    case_number VARCHAR(50),
+    loan_id BIGINT,
+    loan_account_number VARCHAR(50),
+    customer_id BIGINT,
+    customer_name VARCHAR(200),
+    action VARCHAR(20) NOT NULL,  -- CLOSED or REOPENED
+    previous_status INTEGER,       -- Status before action (200 or 400)
+    new_status INTEGER NOT NULL,   -- Status after action (200 or 400)
+    closure_reason VARCHAR(255),   -- Reason for closure (required for CLOSED action)
+    outstanding_amount NUMERIC(15, 2),
+    dpd INTEGER,
+    bucket VARCHAR(20),
+    closed_by BIGINT,
+    closed_by_name VARCHAR(100),
+    closed_at TIMESTAMP NOT NULL,
+    remarks VARCHAR(500),
+    batch_id VARCHAR(100),  -- For bulk closure tracking
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    CONSTRAINT chk_action CHECK (action IN ('CLOSED', 'REOPENED')),
+    CONSTRAINT chk_new_status CHECK (new_status IN (200, 400)),
+    CONSTRAINT chk_previous_status CHECK (previous_status IS NULL OR previous_status IN (200, 400))
+);
 
-COMMENT ON TABLE customers IS 'Customer master data including primary and co-borrowers';
-COMMENT ON TABLE loan_details IS 'Loan account details and outstanding amounts';
-COMMENT ON TABLE cases IS 'Collection cases linked to loan accounts';
-COMMENT ON TABLE case_batches IS 'Batch upload tracking for case sourcing';
-COMMENT ON TABLE batch_errors IS 'Validation errors from batch uploads';
-COMMENT ON TABLE case_notes IS 'Notes and comments on cases';
-COMMENT ON TABLE case_activities IS 'Activity log for case interactions';
-COMMENT ON TABLE telecalling_logs IS 'Telecalling activity logs';
-COMMENT ON TABLE receipts IS 'Payment receipts and documentation';
-COMMENT ON TABLE payment_transactions IS 'Payment transaction details';
-COMMENT ON TABLE repayments IS 'Repayment records for cases';
-COMMENT ON TABLE ots_settlements IS 'One-time settlement offers and approvals';
-COMMENT ON TABLE ptp_commitments IS 'Promise to Pay commitments and tracking';
-
-COMMENT ON COLUMN customers.language_preference IS 'Preferred language for customer communication (e.g., en, hi, ta, etc.)';
-
-
--- ===================================================
--- ALLOCATION REALLOCATION SERVICE - TABLE CREATION
--- Domain: Allocations, Reallocation, Batch Processing
--- ===================================================
+-- =====================================================
+-- ALLOCATION REALLOCATION SERVICE TABLES
+-- =====================================================
 
 CREATE TABLE allocations (
     id BIGSERIAL PRIMARY KEY,
@@ -616,64 +473,13 @@ CREATE TABLE contact_update_batches (
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE reallocation_jobs (
-    id BIGSERIAL PRIMARY KEY,
-    job_id VARCHAR(100) UNIQUE NOT NULL,
-    job_type VARCHAR(50) NOT NULL CHECK (job_type IN ('BY_AGENT', 'BY_FILTER', 'BULK_UPLOAD')),
-    from_user_id BIGINT,
-    to_user_id BIGINT,
-    filter_criteria JSONB,
-    reason VARCHAR(500),
-    status VARCHAR(20) NOT NULL DEFAULT 'PROCESSING' CHECK (status IN ('PROCESSING', 'COMPLETED', 'FAILED', 'CANCELLED')),
-    total_cases INTEGER DEFAULT 0,
-    processed_cases INTEGER DEFAULT 0,
-    successful_cases INTEGER DEFAULT 0,
-    failed_cases INTEGER DEFAULT 0,
-    started_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    completed_at TIMESTAMP NULL,
-    created_by BIGINT,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
+-- NOTE: reallocation_jobs table moved to UNUSED_FUTURE_SERVICES_SCRIPTS.sql (no JPA entity)
 
--- ===================================================
--- COMMENTS
--- ===================================================
+-- =====================================================
+-- COMMUNICATION SERVICE TABLES
+-- =====================================================
 
-COMMENT ON TABLE allocations IS 'Tracks current case allocations to agents/agencies';
-COMMENT ON TABLE allocation_history IS 'Historical log of all allocation changes';
-COMMENT ON TABLE allocation_batches IS 'Tracks bulk allocation CSV upload batches';
-COMMENT ON TABLE allocation_rules IS 'Stores allocation rules for automatic case allocation';
-COMMENT ON TABLE contact_update_batches IS 'Tracks bulk contact information update batches';
-COMMENT ON TABLE reallocation_jobs IS 'Tracks reallocation jobs executed by agent or filter criteria';
-
--- ===================================================
--- COMMUNICATION SERVICE - TABLE CREATION
--- Domain: Providers, OTP, SMS, WhatsApp, Email
--- ===================================================
-
-CREATE TABLE communication_providers (
-    id BIGSERIAL PRIMARY KEY,
-    provider_type VARCHAR(50) NOT NULL,
-    provider_name VARCHAR(100) NOT NULL,
-    display_name VARCHAR(100),
-    config JSONB NOT NULL,
-    is_active BOOLEAN DEFAULT TRUE,
-    priority INTEGER DEFAULT 1,
-    rate_limit_per_day INTEGER,
-    cost_per_unit DECIMAL(10, 4),
-    balance_credits DECIMAL(15, 2),
-    last_balance_check_at TIMESTAMP,
-    test_status VARCHAR(20),
-    last_test_at TIMESTAMP,
-    last_test_response TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    created_by BIGINT,
-    updated_by BIGINT
-);
-
-
+-- NOTE: communication_providers table moved to UNUSED_FUTURE_SERVICES_SCRIPTS.sql (no JPA entity)
 
 CREATE TABLE sms_messages (
     id BIGSERIAL PRIMARY KEY,
@@ -698,34 +504,6 @@ CREATE TABLE sms_messages (
     failure_reason TEXT,
     dlr_status VARCHAR(50),
     dlr_received_at TIMESTAMP,
-    provider_response TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE whatsapp_messages (
-    id BIGSERIAL PRIMARY KEY,
-    message_id VARCHAR(100) UNIQUE NOT NULL,
-    mobile VARCHAR(15) NOT NULL,
-    template_name VARCHAR(100),
-    template_id BIGINT,
-    language VARCHAR(10) DEFAULT 'en',
-    message_content TEXT,
-    message_type VARCHAR(20) DEFAULT 'TEXT',
-    media_url TEXT,
-    media_filename VARCHAR(255),
-    provider VARCHAR(50) DEFAULT 'MSG91',
-    provider_message_id VARCHAR(100),
-    status VARCHAR(20) NOT NULL DEFAULT 'QUEUED',
-    priority VARCHAR(20) DEFAULT 'MEDIUM',
-    cost DECIMAL(10, 4),
-    campaign_id BIGINT,
-    case_id BIGINT,
-    user_id BIGINT,
-    sent_at TIMESTAMP,
-    delivered_at TIMESTAMP,
-    read_at TIMESTAMP,
-    failed_at TIMESTAMP,
-    failure_reason TEXT,
     provider_response TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -766,17 +544,57 @@ CREATE TABLE email_messages (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE communication_webhooks (
+CREATE TABLE whatsapp_messages (
     id BIGSERIAL PRIMARY KEY,
-    webhook_id VARCHAR(100) UNIQUE NOT NULL,
-    provider VARCHAR(50) NOT NULL,
-    event_type VARCHAR(50) NOT NULL,
-    message_id VARCHAR(100),
-    payload JSONB NOT NULL,
-    status VARCHAR(20) DEFAULT 'RECEIVED',
-    processed_at TIMESTAMP,
-    error_message TEXT,
-    received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    message_id VARCHAR(100) UNIQUE NOT NULL,
+    mobile VARCHAR(15) NOT NULL,
+    template_name VARCHAR(100),
+    template_id BIGINT,
+    language VARCHAR(10) DEFAULT 'en',
+    message_content TEXT,
+    message_type VARCHAR(20) DEFAULT 'TEXT',
+    media_url TEXT,
+    media_filename VARCHAR(255),
+    provider VARCHAR(50) DEFAULT 'MSG91',
+    provider_message_id VARCHAR(100),
+    status VARCHAR(20) NOT NULL DEFAULT 'QUEUED',
+    priority VARCHAR(20) DEFAULT 'MEDIUM',
+    cost DECIMAL(10, 4),
+    campaign_id BIGINT,
+    case_id BIGINT,
+    user_id BIGINT,
+    sent_at TIMESTAMP,
+    delivered_at TIMESTAMP,
+    read_at TIMESTAMP,
+    failed_at TIMESTAMP,
+    failure_reason TEXT,
+    provider_response TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE voice_call_logs (
+    id BIGSERIAL PRIMARY KEY,
+    call_id VARCHAR(100) UNIQUE NOT NULL,
+    provider_call_id VARCHAR(100),
+    provider VARCHAR(50) DEFAULT 'MSG91',
+    agent_id BIGINT,
+    case_id BIGINT,
+    user_id BIGINT,
+    customer_mobile VARCHAR(15) NOT NULL,
+    caller_id VARCHAR(15),
+    call_type VARCHAR(30) NOT NULL,
+    template VARCHAR(100),
+    call_status VARCHAR(50),
+    call_duration INTEGER,
+    recording_url TEXT,
+    disposition VARCHAR(100),
+    notes TEXT,
+    initiated_at TIMESTAMP,
+    answered_at TIMESTAMP,
+    ended_at TIMESTAMP,
+    provider_response JSONB,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE dialer_call_logs (
@@ -799,8 +617,10 @@ CREATE TABLE dialer_call_logs (
     answered_at TIMESTAMP,
     ended_at TIMESTAMP,
     dialer_response JSONB,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+-- NOTE: communication_webhooks table moved to UNUSED_FUTURE_SERVICES_SCRIPTS.sql (no JPA entity)
 
 CREATE TABLE payment_gateway_transactions (
     id BIGSERIAL PRIMARY KEY,
@@ -826,18 +646,299 @@ CREATE TABLE payment_gateway_transactions (
     webhook_received_at TIMESTAMP,
     reconciled BOOLEAN DEFAULT FALSE,
     reconciled_at TIMESTAMP,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     created_by BIGINT
 );
 
+-- =====================================================
+-- STRATEGY ENGINE SERVICE TABLES
+-- =====================================================
 
+CREATE TABLE strategies (
+    id BIGSERIAL PRIMARY KEY,
+    strategy_code VARCHAR(50) UNIQUE NOT NULL,
+    strategy_name VARCHAR(255) NOT NULL,
+    strategy_type VARCHAR(20) NOT NULL,
+    description TEXT,
+    trigger_frequency VARCHAR(20),
+    trigger_time TIME NULL,
+    trigger_days VARCHAR(50) NULL,
+    is_active BOOLEAN DEFAULT TRUE,
+    priority INTEGER DEFAULT 0,
+    effective_from DATE,
+    effective_to DATE,
+    created_by BIGINT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    status VARCHAR(20) DEFAULT 'DRAFT',
+    last_run_at TIMESTAMP NULL,
+    success_count INTEGER DEFAULT 0,
+    failure_count INTEGER DEFAULT 0,
+    schedule_expression VARCHAR(100),
+    event_type VARCHAR(50),
+    updated_by BIGINT
+);
 
-COMMENT ON TABLE communication_providers IS 'Third-party communication provider configurations';
+CREATE TABLE strategy_rules (
+    id BIGSERIAL PRIMARY KEY,
+    strategy_id BIGINT NOT NULL,
+    rule_name VARCHAR(255) NOT NULL,
+    rule_order INTEGER DEFAULT 0,
+    conditions JSONB NOT NULL,
+    logical_operator VARCHAR(5) DEFAULT 'AND',
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    field_name VARCHAR(100),
+    operator VARCHAR(50),
+    field_value TEXT
+);
+
+CREATE TABLE strategy_actions (
+    id BIGSERIAL PRIMARY KEY,
+    strategy_id BIGINT NOT NULL,
+    action_type VARCHAR(50) NOT NULL,
+    action_order INTEGER DEFAULT 0,
+    action_config JSONB NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    template_id VARCHAR(100),
+    channel VARCHAR(50),
+    priority INTEGER DEFAULT 0,
+    variable_mapping JSONB
+);
+
+CREATE TABLE strategy_executions (
+    id BIGSERIAL PRIMARY KEY,
+    strategy_id BIGINT NOT NULL,
+    execution_type VARCHAR(20),
+    total_records_evaluated INTEGER DEFAULT 0,
+    records_matched INTEGER DEFAULT 0,
+    records_processed INTEGER DEFAULT 0,
+    records_failed INTEGER DEFAULT 0,
+    execution_status VARCHAR(20),
+    error_message TEXT,
+    execution_log JSONB,
+    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMP NULL,
+    executed_by BIGINT,
+    execution_id VARCHAR(100) UNIQUE,
+    strategy_name VARCHAR(255),
+    estimated_cases_affected INTEGER,
+    successful_actions INTEGER DEFAULT 0,
+    failed_actions INTEGER DEFAULT 0,
+    execution_metadata JSONB,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- NOTE: strategy_execution_details table moved to UNUSED_FUTURE_SERVICES_SCRIPTS.sql (no JPA entity)
+
+CREATE TABLE scheduled_jobs (
+    id BIGSERIAL PRIMARY KEY,
+    service_name VARCHAR(100) NOT NULL,
+    job_name VARCHAR(255) NOT NULL,
+    job_type VARCHAR(50) NOT NULL,
+    job_reference_id BIGINT NULL,
+    job_reference_type VARCHAR(50) NULL,
+    is_enabled BOOLEAN DEFAULT FALSE,
+    schedule_type VARCHAR(20) NOT NULL,
+    schedule_time TIME NULL,
+    schedule_days VARCHAR(100) NULL,
+    cron_expression VARCHAR(100) NULL,
+    timezone VARCHAR(50) DEFAULT 'Asia/Kolkata',
+    next_run_at TIMESTAMP NULL,
+    last_run_at TIMESTAMP NULL,
+    last_run_status VARCHAR(20) NULL,
+    last_run_message TEXT NULL,
+    run_count INTEGER DEFAULT 0,
+    failure_count INTEGER DEFAULT 0,
+    avg_execution_time_ms BIGINT NULL,
+    job_config JSONB NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_by BIGINT,
+    updated_by BIGINT
+);
+
+CREATE TABLE filter_fields (
+    id BIGSERIAL PRIMARY KEY,
+    field_code VARCHAR(100) UNIQUE NOT NULL,
+    field_key VARCHAR(100) NOT NULL,
+    field_type VARCHAR(20) NOT NULL CHECK (field_type IN ('TEXT', 'NUMERIC', 'DATE')),
+    display_name VARCHAR(255) NOT NULL,
+    description TEXT,
+    is_active BOOLEAN DEFAULT TRUE,
+    is_attribute BOOLEAN DEFAULT FALSE,
+    sort_order INTEGER DEFAULT 0,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by BIGINT,
+    updated_by BIGINT
+);
+
+CREATE TABLE filter_field_options (
+    id BIGSERIAL PRIMARY KEY,
+    filter_field_id BIGINT NOT NULL REFERENCES filter_fields(id) ON DELETE CASCADE,
+    option_value VARCHAR(255) NOT NULL,
+    option_label VARCHAR(255),
+    is_active BOOLEAN DEFAULT TRUE,
+    sort_order INTEGER DEFAULT 0,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT unique_field_option UNIQUE(filter_field_id, option_value)
+);
+
+CREATE TABLE master_cities (
+    id BIGSERIAL PRIMARY KEY,
+    city_name VARCHAR(255) NOT NULL UNIQUE,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE master_states (
+    id BIGSERIAL PRIMARY KEY,
+    state_name VARCHAR(255) NOT NULL UNIQUE,
+    state_code VARCHAR(10),
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE master_pincodes (
+    id BIGSERIAL PRIMARY KEY,
+    pincode VARCHAR(10) NOT NULL UNIQUE,
+    city_id BIGINT REFERENCES master_cities(id) ON DELETE SET NULL,
+    state_id BIGINT REFERENCES master_states(id) ON DELETE SET NULL,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- =====================================================
+-- TEMPLATE MANAGEMENT SERVICE TABLES
+-- =====================================================
+
+-- Templates table (matches Template.java entity)
+CREATE TABLE templates (
+    id BIGSERIAL PRIMARY KEY,
+    template_name VARCHAR(100) NOT NULL,
+    template_code VARCHAR(50) UNIQUE NOT NULL,
+    channel VARCHAR(20) NOT NULL,
+    provider VARCHAR(50),
+    provider_template_id VARCHAR(100),
+    description TEXT,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_by BIGINT,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Template Content table (matches TemplateContent.java entity)
+CREATE TABLE template_content (
+    id BIGSERIAL PRIMARY KEY,
+    template_id BIGINT NOT NULL REFERENCES templates(id) ON DELETE CASCADE,
+    language_code VARCHAR(10) DEFAULT 'en',
+    subject VARCHAR(255),
+    content TEXT NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT unique_template_language UNIQUE (template_id, language_code)
+);
+
+-- Template Variables table (matches TemplateVariable.java entity)
+CREATE TABLE template_variables (
+    id BIGSERIAL PRIMARY KEY,
+    template_id BIGINT NOT NULL REFERENCES templates(id) ON DELETE CASCADE,
+    variable_name VARCHAR(50) NOT NULL,
+    variable_key VARCHAR(50) NOT NULL,
+    data_type VARCHAR(20) DEFAULT 'TEXT',
+    default_value TEXT,
+    is_required BOOLEAN DEFAULT FALSE,
+    description VARCHAR(255),
+    display_order INTEGER,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT unique_template_variable UNIQUE (template_id, variable_name)
+);
+
+-- NOTE: campaign_templates, campaigns, campaign_executions tables
+-- moved to UNUSED_FUTURE_SERVICES_SCRIPTS.sql (no JPA entities implemented)
+
+CREATE TABLE variable_definitions (
+    id BIGSERIAL PRIMARY KEY,
+    variable_key VARCHAR(100) UNIQUE NOT NULL,
+    display_name VARCHAR(200) NOT NULL,
+    entity_path VARCHAR(200) NOT NULL,
+    data_type VARCHAR(50) NOT NULL,
+    default_value VARCHAR(500),
+    transformer VARCHAR(50),
+    description TEXT,
+    category VARCHAR(50),
+    example_value VARCHAR(200),
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by VARCHAR(100),
+    updated_by VARCHAR(100)
+);
+
+-- =====================================================
+-- TABLE COMMENTS
+-- =====================================================
+
+COMMENT ON TABLE users IS 'User accounts for the platform';
+COMMENT ON TABLE user_groups IS 'User groups for organizing users';
+COMMENT ON TABLE role_groups IS 'Groups for organizing roles';
+COMMENT ON TABLE roles IS 'User roles and permissions';
+COMMENT ON TABLE permissions IS 'Individual permissions that can be assigned to roles';
+COMMENT ON TABLE user_roles IS 'User-role assignments';
+COMMENT ON TABLE role_permissions IS 'Role-permission assignments';
+COMMENT ON TABLE user_sessions IS 'User session tracking';
+COMMENT ON TABLE audit_logs IS 'Audit log for tracking changes';
 COMMENT ON TABLE otp_requests IS 'OTP generation and verification requests';
-COMMENT ON TABLE sms_messages IS 'SMS message tracking and delivery status';
-COMMENT ON TABLE whatsapp_messages IS 'WhatsApp message tracking and delivery status';
-COMMENT ON TABLE email_messages IS 'Email message tracking and delivery status';
-COMMENT ON TABLE communication_webhooks IS 'Webhook events from communication providers';
-COMMENT ON TABLE dialer_call_logs IS 'Dialer system call logs and tracking';
-COMMENT ON TABLE payment_gateway_transactions IS 'Payment gateway transaction tracking';
 COMMENT ON TABLE system_config IS 'System configuration key-value pairs';
+COMMENT ON TABLE third_party_integration_master IS 'Third-party integration configurations';
+COMMENT ON TABLE master_data IS 'Centralized master data repository';
+COMMENT ON TABLE customers IS 'Customer master data';
+COMMENT ON TABLE loan_details IS 'Loan account details';
+COMMENT ON TABLE cases IS 'Collection cases';
+COMMENT ON TABLE case_batches IS 'Batch upload tracking';
+COMMENT ON TABLE batch_errors IS 'Validation errors from batch uploads';
+COMMENT ON TABLE ptp_commitments IS 'Promise to Pay commitments';
+COMMENT ON TABLE case_closure IS 'Tracks case closure and reopen history for audit trail';
+COMMENT ON COLUMN cases.status IS 'Case lifecycle status: 200 = ACTIVE, 400 = CLOSED';
+COMMENT ON COLUMN case_closure.action IS 'Action type: CLOSED or REOPENED';
+COMMENT ON COLUMN case_closure.previous_status IS 'Case status before this action (200=ACTIVE, 400=CLOSED)';
+COMMENT ON COLUMN case_closure.new_status IS 'Case status after this action (200=ACTIVE, 400=CLOSED)';
+COMMENT ON COLUMN case_closure.batch_id IS 'Batch ID for bulk closure operations';
+COMMENT ON COLUMN case_closure.outstanding_amount IS 'Outstanding amount at the time of closure';
+COMMENT ON COLUMN case_closure.dpd IS 'Days Past Due at the time of closure';
+COMMENT ON COLUMN case_closure.bucket IS 'Bucket classification at the time of closure';
+COMMENT ON TABLE allocations IS 'Case allocations to agents/agencies';
+COMMENT ON TABLE allocation_history IS 'Allocation change history';
+COMMENT ON TABLE allocation_batches IS 'Bulk allocation tracking';
+COMMENT ON TABLE allocation_rules IS 'Automatic allocation rules';
+COMMENT ON TABLE contact_update_batches IS 'Contact update batch tracking';
+COMMENT ON TABLE sms_messages IS 'SMS message tracking';
+COMMENT ON TABLE email_messages IS 'Email message tracking';
+COMMENT ON TABLE whatsapp_messages IS 'WhatsApp message tracking';
+COMMENT ON TABLE voice_call_logs IS 'Voice call logs';
+COMMENT ON TABLE dialer_call_logs IS 'Dialer call logs';
+COMMENT ON TABLE payment_gateway_transactions IS 'Payment gateway transactions';
+COMMENT ON TABLE strategies IS 'Strategy definitions';
+COMMENT ON TABLE strategy_rules IS 'Strategy rules and conditions';
+COMMENT ON TABLE strategy_actions IS 'Strategy actions';
+COMMENT ON TABLE strategy_executions IS 'Strategy execution history';
+COMMENT ON TABLE scheduled_jobs IS 'Scheduled job configurations';
+COMMENT ON TABLE filter_fields IS 'Filter field metadata';
+COMMENT ON TABLE filter_field_options IS 'Filter field options';
+COMMENT ON TABLE master_cities IS 'Master city data';
+COMMENT ON TABLE master_states IS 'Master state data';
+COMMENT ON TABLE master_pincodes IS 'Master pincode data';
+COMMENT ON TABLE templates IS 'Communication templates';
+COMMENT ON TABLE template_content IS 'Template content with multilingual support';
+COMMENT ON TABLE template_variables IS 'Template variables and placeholders';
+COMMENT ON TABLE variable_definitions IS 'Template variable definitions';
+COMMENT ON COLUMN customers.language_preference IS 'Preferred language for customer communication';

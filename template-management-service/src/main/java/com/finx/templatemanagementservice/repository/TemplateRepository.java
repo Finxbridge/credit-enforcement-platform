@@ -32,6 +32,11 @@ public interface TemplateRepository extends JpaRepository<Template, Long> {
     List<Template> findByIsActiveTrue();
 
     /**
+     * Find all active templates ordered by createdAt descending (latest first)
+     */
+    List<Template> findByIsActiveTrueOrderByCreatedAtDesc();
+
+    /**
      * Find templates by channel
      */
     List<Template> findByChannelAndIsActiveTrue(ChannelType channel);

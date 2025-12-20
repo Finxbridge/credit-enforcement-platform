@@ -46,49 +46,66 @@ public class CaseFilterServiceImpl implements CaseFilterService {
         CriteriaQuery<Case> query = cb.createQuery(Case.class);
         Root<Case> root = query.from(Case.class);
 
-        // Eager fetch loan details to avoid N+1 queries
-        root.fetch("loan", JoinType.LEFT);
+        // Eager fetch loan and customer details to avoid N+1 queries
+        // and to ensure nested paths like loan.primaryCustomer.languagePreference work
+        Fetch<Case, ?> loanFetch = root.fetch("loan", JoinType.LEFT);
+        loanFetch.fetch("primaryCustomer", JoinType.LEFT);
 
         // Build predicates for all rules
-        List<Predicate> predicates = new ArrayList<>();
-
-        // Always filter only ALLOCATED cases
-        predicates.add(cb.equal(root.get("caseStatus"), "ALLOCATED"));
+        List<Predicate> filterPredicates = new ArrayList<>();
+        int validRulesCount = 0;
 
         // Add predicates for each rule
         for (StrategyRule rule : rules) {
             try {
+                log.info("Processing rule: field={}, operator={}, value={}",
+                        rule.getFieldName(), rule.getOperator(), rule.getFieldValue());
                 Predicate predicate = buildPredicate(cb, root, rule);
                 if (predicate != null) {
-                    predicates.add(predicate);
+                    filterPredicates.add(predicate);
+                    validRulesCount++;
+                    log.info("Successfully created predicate for field: {}", rule.getFieldName());
+                } else {
+                    log.warn("Rule {} produced null predicate, field: {}, operator: {}",
+                            rule.getId(), rule.getFieldName(), rule.getOperator());
                 }
             } catch (Exception e) {
-                log.error("Failed to build predicate for rule {}: {}", rule.getId(), e.getMessage());
+                log.error("Failed to build predicate for rule {}, field={}: {}",
+                        rule.getId(), rule.getFieldName(), e.getMessage());
                 throw new BusinessException("Invalid rule configuration: " + e.getMessage());
             }
         }
 
-        // Combine predicates with AND or OR based on logical operator
-        Predicate finalPredicate;
-        if (predicates.size() == 1) {
-            finalPredicate = predicates.get(0);
-        } else {
-            // Check if rule has logical operator (default is AND)
-            String logicalOp = rules.get(0).getLogicalOperator() != null
-                    ? rules.get(0).getLogicalOperator().toUpperCase()
-                    : "AND";
-
-            if ("OR".equals(logicalOp)) {
-                finalPredicate = cb.or(predicates.toArray(new Predicate[0]));
-            } else {
-                finalPredicate = cb.and(predicates.toArray(new Predicate[0]));
-            }
+        // If no valid filter predicates were created, return empty list
+        // This prevents returning all cases when filters are invalid or don't match
+        if (filterPredicates.isEmpty()) {
+            log.warn("No valid filter predicates created from {} rules, returning empty list", rules.size());
+            return new ArrayList<>();
         }
+
+        log.info("Created {} valid predicates from {} rules", validRulesCount, rules.size());
+
+        // Combine filter predicates with AND (intersection of all filters)
+        Predicate filterPredicate;
+        if (filterPredicates.size() == 1) {
+            filterPredicate = filterPredicates.get(0);
+        } else {
+            // Always use AND to get intersection of all filter conditions
+            filterPredicate = cb.and(filterPredicates.toArray(new Predicate[0]));
+        }
+
+        // Combine with base conditions:
+        // 1. caseStatus = 'ALLOCATED' (workflow status)
+        // 2. status = 200 (ACTIVE cases only, not closed)
+        Predicate allocatedPredicate = cb.equal(root.get("caseStatus"), "ALLOCATED");
+        Predicate activePredicate = cb.equal(root.get("status"), 200);
+        Predicate basePredicate = cb.and(allocatedPredicate, activePredicate);
+        Predicate finalPredicate = cb.and(basePredicate, filterPredicate);
 
         query.where(finalPredicate);
 
         List<Case> results = entityManager.createQuery(query).getResultList();
-        log.info("Found {} cases matching {} rules", results.size(), rules.size());
+        log.info("Found {} ACTIVE cases matching {} filter rules (AND logic)", results.size(), validRulesCount);
 
         return results;
     }
@@ -106,17 +123,14 @@ public class CaseFilterServiceImpl implements CaseFilterService {
         query.select(cb.count(root));
 
         // Build predicates for all rules
-        List<Predicate> predicates = new ArrayList<>();
-
-        // Always filter only ALLOCATED cases
-        predicates.add(cb.equal(root.get("caseStatus"), "ALLOCATED"));
+        List<Predicate> filterPredicates = new ArrayList<>();
 
         // Add predicates for each rule
         for (StrategyRule rule : rules) {
             try {
                 Predicate predicate = buildPredicate(cb, root, rule);
                 if (predicate != null) {
-                    predicates.add(predicate);
+                    filterPredicates.add(predicate);
                 }
             } catch (Exception e) {
                 log.error("Failed to build predicate for rule {}: {}", rule.getId(), e.getMessage());
@@ -124,21 +138,28 @@ public class CaseFilterServiceImpl implements CaseFilterService {
             }
         }
 
-        // Combine predicates
-        Predicate finalPredicate;
-        if (predicates.size() == 1) {
-            finalPredicate = predicates.get(0);
-        } else {
-            String logicalOp = rules.get(0).getLogicalOperator() != null
-                    ? rules.get(0).getLogicalOperator().toUpperCase()
-                    : "AND";
-
-            if ("OR".equals(logicalOp)) {
-                finalPredicate = cb.or(predicates.toArray(new Predicate[0]));
-            } else {
-                finalPredicate = cb.and(predicates.toArray(new Predicate[0]));
-            }
+        // If no valid filter predicates were created, return 0
+        if (filterPredicates.isEmpty()) {
+            log.warn("No valid filter predicates created from {} rules, returning 0", rules.size());
+            return 0L;
         }
+
+        // Combine filter predicates with AND (intersection of all filters)
+        Predicate filterPredicate;
+        if (filterPredicates.size() == 1) {
+            filterPredicate = filterPredicates.get(0);
+        } else {
+            // Always use AND to get intersection of all filter conditions
+            filterPredicate = cb.and(filterPredicates.toArray(new Predicate[0]));
+        }
+
+        // Combine with base conditions:
+        // 1. caseStatus = 'ALLOCATED' (workflow status)
+        // 2. status = 200 (ACTIVE cases only, not closed)
+        Predicate allocatedPredicate = cb.equal(root.get("caseStatus"), "ALLOCATED");
+        Predicate activePredicate = cb.equal(root.get("status"), 200);
+        Predicate basePredicate = cb.and(allocatedPredicate, activePredicate);
+        Predicate finalPredicate = cb.and(basePredicate, filterPredicate);
 
         query.where(finalPredicate);
 
@@ -168,28 +189,55 @@ public class CaseFilterServiceImpl implements CaseFilterService {
         // Get the path to the field (handles nested fields like "loan.dpd")
         Path<?> fieldPath = getFieldPath(root, fieldName);
 
+        if (fieldPath == null) {
+            log.warn("Invalid field name '{}' for rule {}. Skipping.", fieldName, rule.getId());
+            return null;
+        }
+
         // Build predicate based on operator
         return buildPredicateByOperator(cb, fieldPath, operator, fieldValue, fieldName);
     }
 
     /**
-     * Get field path, handling nested fields
+     * Get field path, handling nested fields using joins for proper filtering
      * Examples: "caseStatus" -> root.get("caseStatus")
-     * "loan.dpd" -> root.get("loan").get("dpd")
-     * "loan.bucket" -> root.get("loan").get("bucket")
+     * "loan.dpd" -> root.join("loan").get("dpd")
+     * "loan.primaryCustomer.languagePreference" -> root.join("loan").join("primaryCustomer").get("languagePreference")
      */
     private Path<?> getFieldPath(Root<Case> root, String fieldName) {
-        if (fieldName.contains(".")) {
-            String[] parts = fieldName.split("\\.");
-            Path<?> path = root;
+        try {
+            if (fieldName.contains(".")) {
+                String[] parts = fieldName.split("\\.");
 
-            for (String part : parts) {
-                path = path.get(part);
+                int startIndex = 0;
+                if (parts.length > 1 && "case".equalsIgnoreCase(parts[0])) {
+                    startIndex = 1;
+                }
+
+                // Use joins for relationship navigation, get() only for the final attribute
+                From<?, ?> currentFrom = root;
+                for (int i = startIndex; i < parts.length - 1; i++) {
+                    // Use left join for relationships to handle null values
+                    currentFrom = currentFrom.join(parts[i], JoinType.LEFT);
+                    log.debug("Joined path part: {}", parts[i]);
+                }
+
+                // Get the final attribute from the last joined entity
+                String finalAttribute = parts[parts.length - 1];
+                Path<?> result = currentFrom.get(finalAttribute);
+                log.debug("Final path for field '{}': joined to '{}', getting '{}'",
+                        fieldName, currentFrom.getJavaType().getSimpleName(), finalAttribute);
+                return result;
+            } else {
+                if ("case".equalsIgnoreCase(fieldName)) {
+                    return null;
+                }
+                return root.get(fieldName);
             }
-
-            return path;
-        } else {
-            return root.get(fieldName);
+        } catch (IllegalArgumentException e) {
+            // This exception is thrown by JPA when the attribute is not found
+            log.warn("Invalid field name '{}': {}", fieldName, e.getMessage());
+            return null;
         }
     }
 
@@ -202,9 +250,17 @@ public class CaseFilterServiceImpl implements CaseFilterService {
             String fieldName) {
         switch (operator) {
             case EQUALS:
+                // For String fields, use case-insensitive matching
+                if (fieldPath.getJavaType().equals(String.class)) {
+                    return cb.equal(cb.lower((Expression<String>) fieldPath), fieldValue.toLowerCase());
+                }
                 return cb.equal(fieldPath, convertValue(fieldPath, fieldValue));
 
             case NOT_EQUALS:
+                // For String fields, use case-insensitive matching
+                if (fieldPath.getJavaType().equals(String.class)) {
+                    return cb.notEqual(cb.lower((Expression<String>) fieldPath), fieldValue.toLowerCase());
+                }
                 return cb.notEqual(fieldPath, convertValue(fieldPath, fieldValue));
 
             case GREATER_THAN:
@@ -225,19 +281,39 @@ public class CaseFilterServiceImpl implements CaseFilterService {
 
             case IN:
                 String[] values = fieldValue.split(",");
-                List<Object> convertedValues = new ArrayList<>();
-                for (String val : values) {
-                    convertedValues.add(convertValue(fieldPath, val.trim()));
+                // For String fields, use case-insensitive matching
+                if (fieldPath.getJavaType().equals(String.class)) {
+                    List<Predicate> inPredicates = new ArrayList<>();
+                    Expression<String> lowerFieldPath = cb.lower((Expression<String>) fieldPath);
+                    for (String val : values) {
+                        inPredicates.add(cb.equal(lowerFieldPath, val.trim().toLowerCase()));
+                    }
+                    return cb.or(inPredicates.toArray(new Predicate[0]));
+                } else {
+                    List<Object> convertedValues = new ArrayList<>();
+                    for (String val : values) {
+                        convertedValues.add(convertValue(fieldPath, val.trim()));
+                    }
+                    return fieldPath.in(convertedValues);
                 }
-                return fieldPath.in(convertedValues);
 
             case NOT_IN:
                 String[] notInValues = fieldValue.split(",");
-                List<Object> convertedNotInValues = new ArrayList<>();
-                for (String val : notInValues) {
-                    convertedNotInValues.add(convertValue(fieldPath, val.trim()));
+                // For String fields, use case-insensitive matching
+                if (fieldPath.getJavaType().equals(String.class)) {
+                    List<Predicate> notInPredicates = new ArrayList<>();
+                    Expression<String> lowerFieldPathNotIn = cb.lower((Expression<String>) fieldPath);
+                    for (String val : notInValues) {
+                        notInPredicates.add(cb.equal(lowerFieldPathNotIn, val.trim().toLowerCase()));
+                    }
+                    return cb.not(cb.or(notInPredicates.toArray(new Predicate[0])));
+                } else {
+                    List<Object> convertedNotInValues = new ArrayList<>();
+                    for (String val : notInValues) {
+                        convertedNotInValues.add(convertValue(fieldPath, val.trim()));
+                    }
+                    return cb.not(fieldPath.in(convertedNotInValues));
                 }
-                return cb.not(fieldPath.in(convertedNotInValues));
 
             case CONTAINS:
                 return cb.like(cb.lower((Expression<String>) fieldPath),
@@ -289,9 +365,9 @@ public class CaseFilterServiceImpl implements CaseFilterService {
             if (fieldType.equals(String.class)) {
                 return value;
             } else if (fieldType.equals(Integer.class) || fieldType.equals(int.class)) {
-                return Integer.parseInt(value);
+                return new BigDecimal(value).intValueExact();
             } else if (fieldType.equals(Long.class) || fieldType.equals(long.class)) {
-                return Long.parseLong(value);
+                return new BigDecimal(value).longValueExact();
             } else if (fieldType.equals(Double.class) || fieldType.equals(double.class)) {
                 return Double.parseDouble(value);
             } else if (fieldType.equals(BigDecimal.class)) {

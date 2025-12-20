@@ -73,19 +73,35 @@ public class ThirdPartyIntegrationMaster {
 
     /**
      * Get config value as String
+     * Handles both formats: "key":"value" and "key": "value" (with space)
      */
     public String getConfigValueAsString(String key) {
-        if (configJson != null && configJson.contains("\"" + key + "\":")) {
-            String search = "\"" + key + "\":\"";
-            int startIndex = configJson.indexOf(search);
-            if (startIndex != -1) {
-                startIndex += search.length();
-                int endIndex = configJson.indexOf("\"", startIndex);
-                if (endIndex != -1) {
-                    return configJson.substring(startIndex, endIndex);
-                }
+        if (configJson == null || configJson.isEmpty()) {
+            return null;
+        }
+
+        // Try without space first: "key":"value"
+        String searchNoSpace = "\"" + key + "\":\"";
+        int startIndex = configJson.indexOf(searchNoSpace);
+        if (startIndex != -1) {
+            startIndex += searchNoSpace.length();
+            int endIndex = configJson.indexOf("\"", startIndex);
+            if (endIndex != -1) {
+                return configJson.substring(startIndex, endIndex);
             }
         }
+
+        // Try with space: "key": "value"
+        String searchWithSpace = "\"" + key + "\": \"";
+        startIndex = configJson.indexOf(searchWithSpace);
+        if (startIndex != -1) {
+            startIndex += searchWithSpace.length();
+            int endIndex = configJson.indexOf("\"", startIndex);
+            if (endIndex != -1) {
+                return configJson.substring(startIndex, endIndex);
+            }
+        }
+
         return null;
     }
 }

@@ -11,6 +11,11 @@ public class UserDTO {
     private String lastName;
     private String mobileNumber;
     private String status;
+
+    // Geography fields for allocation
+    private String state;
+    private String city;
+
     private String assignedGeographies;
     private Integer maxCaseCapacity;
     private Integer currentCaseCount;

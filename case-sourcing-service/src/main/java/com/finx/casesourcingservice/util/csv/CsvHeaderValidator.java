@@ -14,44 +14,133 @@ import java.util.stream.Collectors;
 /**
  * Utility for validating CSV headers before upload
  * Provides early feedback on header errors
+ *
+ * Mandatory Fields for Case Sourcing:
+ * - CUSTOMER NAME, MOBILE NO, OVERDUE AMOUNT, EMI START DATE
+ * - PRIMARY ADDRESS, CITY, STATE, PINCODE
+ * - PRODUCT, LOCATION, DPD, LANGUAGE
+ *
+ * For Allocation/Reallocation: PRIMARY AGENT is also mandatory
  */
 @Slf4j
 @Component
 public class CsvHeaderValidator {
 
-    // Expected headers for case upload CSV (required fields only)
-    private static final List<String> CASE_UPLOAD_REQUIRED_HEADERS = List.of(
-            "case_id",
-            "loan_id",
-            "customer_code",
-            "customer_name",
-            "phone",
-            "geography",
-            "language",
-            "outstanding",
-            "dpd"
+    // Mandatory headers for case sourcing
+    private static final List<String> CASE_SOURCING_REQUIRED_HEADERS = List.of(
+            "CUSTOMER NAME",
+            "MOBILE NO",
+            "OVERDUE AMOUNT",
+            "EMI START DATE",
+            "PRIMARY ADDRESS",
+            "CITY",
+            "STATE",
+            "PINCODE",
+            "PRODUCT",
+            "LOCATION",
+            "DPD",
+            "LANGUAGE"
     );
 
-    // All headers are required now - keeping this for consistency with validation logic
-    private static final List<String> CASE_UPLOAD_ALL_HEADERS = List.of(
-            "case_id",
-            "loan_id",
-            "customer_code",
-            "customer_name",
-            "phone",
-            "geography",
-            "language",
-            "outstanding",
-            "dpd"
+    // Additional mandatory for allocation/reallocation
+    private static final List<String> ALLOCATION_ADDITIONAL_REQUIRED = List.of(
+            "PRIMARY AGENT"
     );
+
+    // All supported headers from the unified CSV format
+    private static final List<String> ALL_SUPPORTED_HEADERS = List.of(
+            // Lender & Account
+            "LENDER", "ACCOUNT NO",
+            // Customer Information
+            "CUSTOMER NAME", "MOBILE NO", "CUSTOMER ID", "EMAIL",
+            "SECONDARY MOBILE NUMBER", "RESI PHONE", "ADDITIONAL PHONE 2",
+            // Address
+            "PRIMARY ADDRESS", "SECONDARY ADDRESS", "CITY", "STATE", "PINCODE",
+            // Financial Details
+            "OVERDUE AMOUNT", "POS", "TOS", "LOAN AMOUNT OR LIMIT",
+            "EMI AMOUNT", "PENALTY AMOUNT", "CHARGES", "OD INTEREST",
+            // Overdue Breakdown
+            "PRINCIPAL OVERDUE", "INTEREST OVERDUE", "FEES OVERDUE", "PENALTY OVERDUE",
+            // EMI Details
+            "EMI START DATE", "NO OF PAID EMI", "NO OF PENDING EMI",
+            "Emi Overdue From", "Next EMI Date",
+            // Loan Tenure
+            "LOAN DURATION", "ROI",
+            // Important Dates
+            "DATE OF DISBURSEMENT", "MATURITY DATE", "DUE DATE", "WRITEOFF DATE",
+            // DPD & Bucket
+            "DPD", "RISK BUCKET", "SOM BUCKET", "SOM DPD", "CYCLE DUE",
+            // Product & Scheme
+            "PRODUCT", "SCHEME CODE", "PRODUCT SOURCING TYPE",
+            // Credit Card Specific
+            "MINIMUM AMOUNT DUE", "CARD OUTSTANDING", "STATEMENT DATE",
+            "STATEMENT MONTH", "CARD STATUS", "LAST BILLED AMOUNT", "LAST 4 DIGITS",
+            // Payment Information
+            "LAST PAYMENT DATE", "LAST PAYMENT MODE", "LAST PAID AMOUNT",
+            // Repayment Bank Details
+            "BENEFICIARY ACCOUNT Number", "BENEFICIARY ACCOUNT NAME",
+            "REPAYMENT BANK NAME", "REPAYMENT IFSC CODE", "REFERENCE URL",
+            // Lender References
+            "REFERENCE LENDER", "CO LENDER",
+            // Family & Employment
+            "FATHER SPOUSE NAME", "EMPLOYER OR BUSINESS ENTITY",
+            // References
+            "REFERENCE 1 NAME", "REFERENCE 1 NUMBER",
+            "REFERENCE 2 NAME", "REFERENCE 2 NUMBER",
+            // Block Status
+            "BLOCK 1", "BLOCK 1 DATE", "BLOCK 2", "BLOCK 2 DATE",
+            // Location & Geography
+            "LOCATION", "ZONE", "LANGUAGE",
+            // Agent Allocation
+            "PRIMARY AGENT", "SECONDARY AGENT",
+            // Sourcing
+            "SOURCING RM NAME",
+            // Flags
+            "REVIEW FLAG",
+            // Asset Details
+            "ASSET DETAILS", "VEHICLE REGISTRATION NUMBER",
+            "VEHICLE IDENTIFICATION NUMBER", "CHASSIS NUMBER",
+            "MODEL MAKE", "BATTERY ID",
+            // Dealer
+            "DEALER NAME", "DEALER ADDRESS",
+            // Agency
+            "AGENCY NAME",
+            // Export/Batch Specific
+            "STATUS", "REMARKS"
+    );
+
+    public enum ValidationType {
+        CASE_SOURCING,
+        ALLOCATION,
+        REALLOCATION
+    }
 
     /**
-     * Validate case upload CSV headers
-     *
-     * @param csvFile CSV file input stream
-     * @return Validation result with missing/unknown headers and suggestions
+     * Validate case upload CSV headers for case sourcing
      */
     public HeaderValidationResult validateCaseUploadHeaders(org.springframework.web.multipart.MultipartFile csvFile) {
+        return validateHeaders(csvFile, ValidationType.CASE_SOURCING);
+    }
+
+    /**
+     * Validate CSV headers for allocation
+     */
+    public HeaderValidationResult validateAllocationHeaders(org.springframework.web.multipart.MultipartFile csvFile) {
+        return validateHeaders(csvFile, ValidationType.ALLOCATION);
+    }
+
+    /**
+     * Validate CSV headers for reallocation
+     */
+    public HeaderValidationResult validateReallocationHeaders(org.springframework.web.multipart.MultipartFile csvFile) {
+        return validateHeaders(csvFile, ValidationType.REALLOCATION);
+    }
+
+    /**
+     * Validate CSV headers based on validation type
+     */
+    public HeaderValidationResult validateHeaders(org.springframework.web.multipart.MultipartFile csvFile,
+                                                   ValidationType type) {
         try (BufferedReader reader = new BufferedReader(
                 new InputStreamReader(csvFile.getInputStream(), StandardCharsets.UTF_8))) {
 
@@ -69,7 +158,10 @@ public class CsvHeaderValidator {
                     .map(String::trim)
                     .collect(Collectors.toList());
 
-            return validateHeaders(providedHeaders, CASE_UPLOAD_REQUIRED_HEADERS, CASE_UPLOAD_ALL_HEADERS);
+            // Get required headers based on validation type
+            List<String> requiredHeaders = getRequiredHeaders(type);
+
+            return validateHeaders(providedHeaders, requiredHeaders, ALL_SUPPORTED_HEADERS);
 
         } catch (IOException e) {
             log.error("Error reading CSV file for header validation", e);
@@ -81,20 +173,43 @@ public class CsvHeaderValidator {
     }
 
     /**
+     * Get required headers based on validation type
+     */
+    private List<String> getRequiredHeaders(ValidationType type) {
+        List<String> required = new ArrayList<>(CASE_SOURCING_REQUIRED_HEADERS);
+
+        if (type == ValidationType.ALLOCATION || type == ValidationType.REALLOCATION) {
+            required.addAll(ALLOCATION_ADDITIONAL_REQUIRED);
+        }
+
+        return required;
+    }
+
+    /**
      * Validate headers against expected list
      */
     private HeaderValidationResult validateHeaders(List<String> providedHeaders,
                                                     List<String> requiredHeaders,
                                                     List<String> allExpectedHeaders) {
 
+        // Normalize provided headers for comparison
+        Set<String> normalizedProvided = providedHeaders.stream()
+                .map(String::toUpperCase)
+                .map(String::trim)
+                .collect(Collectors.toSet());
+
         // Find missing required headers
         List<String> missingHeaders = requiredHeaders.stream()
-                .filter(required -> !providedHeaders.contains(required))
+                .filter(required -> !normalizedProvided.contains(required.toUpperCase()))
                 .collect(Collectors.toList());
 
         // Find unknown headers (not in expected list)
+        Set<String> normalizedExpected = allExpectedHeaders.stream()
+                .map(String::toUpperCase)
+                .collect(Collectors.toSet());
+
         List<String> unknownHeaders = providedHeaders.stream()
-                .filter(provided -> !allExpectedHeaders.contains(provided))
+                .filter(provided -> !normalizedExpected.contains(provided.toUpperCase().trim()))
                 .collect(Collectors.toList());
 
         // Generate suggestions for unknown headers (fuzzy matching)
@@ -123,7 +238,8 @@ public class CsvHeaderValidator {
                 message = "Required headers present, but found " + unknownHeaders.size() + " unknown header(s)";
             }
         } else {
-            message = "Missing " + missingHeaders.size() + " required header(s)";
+            message = "Missing " + missingHeaders.size() + " required header(s): " +
+                    String.join(", ", missingHeaders);
         }
 
         return HeaderValidationResult.builder()
@@ -132,7 +248,7 @@ public class CsvHeaderValidator {
                 .missingHeaders(missingHeaders)
                 .unknownHeaders(unknownHeaders)
                 .suggestions(suggestions)
-                .expectedHeaders(allExpectedHeaders)
+                .expectedHeaders(requiredHeaders)
                 .build();
     }
 
@@ -192,5 +308,28 @@ public class CsvHeaderValidator {
         }
 
         return dp[s1.length()][s2.length()];
+    }
+
+    /**
+     * Get all supported headers for sample/template generation
+     */
+    public List<String> getAllSupportedHeaders() {
+        return new ArrayList<>(ALL_SUPPORTED_HEADERS);
+    }
+
+    /**
+     * Get required headers for case sourcing
+     */
+    public List<String> getCaseSourcingRequiredHeaders() {
+        return new ArrayList<>(CASE_SOURCING_REQUIRED_HEADERS);
+    }
+
+    /**
+     * Get required headers for allocation
+     */
+    public List<String> getAllocationRequiredHeaders() {
+        List<String> required = new ArrayList<>(CASE_SOURCING_REQUIRED_HEADERS);
+        required.addAll(ALLOCATION_ADDITIONAL_REQUIRED);
+        return required;
     }
 }

@@ -45,8 +45,9 @@ public class SecurityConfig {
                                 "/swagger-resources/**",
                                 "/webjars/**",
                                 "/actuator/**",
-                                "/access/auth/**")
-                        .permitAll() // Allow unauthenticated access to Swagger, Actuator, and Auth endpoints
+                                "/access/auth/**",
+                                "/access/management/**")
+                        .permitAll() // Allow unauthenticated access to Swagger, Actuator, Auth and Management endpoints
                         .anyRequest().authenticated() // Require authentication for all other requests
                 )
                 .addFilterBefore(gatewayAuthFilter(), UsernamePasswordAuthenticationFilter.class);

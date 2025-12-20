@@ -1,6 +1,7 @@
 package com.finx.templatemanagementservice.domain.dto;
 
 import com.finx.templatemanagementservice.domain.enums.ChannelType;
+import com.finx.templatemanagementservice.domain.enums.LanguageType;
 import com.finx.templatemanagementservice.domain.enums.ProviderType;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -30,6 +31,9 @@ public class CreateTemplateRequest {
 
     @NotNull(message = "Channel is required")
     private ChannelType channel;
+
+    @NotNull(message = "Language is required")
+    private LanguageType language;
 
     private ProviderType provider;
 

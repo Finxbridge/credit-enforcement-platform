@@ -42,6 +42,9 @@ public class Case {
     @Column(name = "case_priority", length = 20)
     private String casePriority;
 
+    @Column(name = "status")
+    private Integer status;
+
     @Column(name = "case_opened_at")
     private LocalDateTime caseOpenedAt;
 
@@ -53,6 +56,15 @@ public class Case {
 
     @Column(name = "allocated_to_user_id")
     private Long allocatedToUserId;
+
+    @Column(name = "primary_agent", length = 100)
+    private String primaryAgent;
+
+    @Column(name = "secondary_agent", length = 100)
+    private String secondaryAgent;
+
+    @Column(name = "reallocate_to_agent", length = 100)
+    private String reallocateToAgent;
 
     @Column(name = "allocated_to_agency_id")
     private Long allocatedToAgencyId;
@@ -68,6 +80,9 @@ public class Case {
 
     @Column(name = "state_code", length = 50)
     private String stateCode;
+
+    @Column(name = "location", length = 100)
+    private String location;
 
     @Column(name = "ptp_date")
     private LocalDate ptpDate;

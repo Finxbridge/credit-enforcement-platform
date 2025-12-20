@@ -89,6 +89,24 @@ public class AllocationController {
                 .body(csvData);
     }
 
+    @GetMapping("/{batchId}/export")
+    @Operation(summary = "Export all allocations for a batch",
+               description = "Download CSV with all successfully allocated cases including primary and secondary agent IDs")
+    public ResponseEntity<byte[]> exportAllocationBatch(@PathVariable String batchId) {
+        log.info("Exporting all allocations for batch: {}", batchId);
+
+        byte[] csvData = allocationService.exportAllocationBatch(batchId);
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.parseMediaType("text/csv"));
+        headers.setContentDispositionFormData("attachment",
+                "allocations_" + batchId + ".csv");
+
+        return ResponseEntity.ok()
+                .headers(headers)
+                .body(csvData);
+    }
+
     @GetMapping("/summary")
     @Operation(summary = "Get overall allocation stats")
     public ResponseEntity<CommonResponse<AllocationSummaryDTO>> getAllocationSummary() {
@@ -330,8 +348,7 @@ public class AllocationController {
     public ResponseEntity<CommonResponse<AllocationRuleExecutionResponseDTO>> applyAllocationRule(
             @PathVariable Long ruleId,
             @Valid @RequestBody AllocationRuleExecutionRequestDTO request) {
-        log.info("Applying allocation rule: {} with agentIds: {}, percentages: {}",
-                ruleId, request.getAgentIds(), request.getPercentages());
+        log.info("Applying allocation rule: {}", ruleId);
 
         AllocationRuleExecutionResponseDTO response = allocationService.applyAllocationRule(ruleId, request);
 
@@ -375,5 +392,22 @@ public class AllocationController {
 
         return ResponseEntity.ok(CommonResponse.success(
                 "Agent workload retrieved successfully.", workload));
+    }
+
+    @GetMapping("/cases/allocated")
+    @Operation(summary = "Get all allocated cases with assigned agents",
+               description = "Returns list of all currently allocated cases with their assigned agent details. Supports filtering by agent ID and pagination.")
+    public ResponseEntity<CommonResponse<List<CaseAllocationDTO>>> getAllAllocatedCases(
+            @RequestParam(required = false) Long agentId,
+            @RequestParam(required = false) String geography,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "50") int size) {
+        log.info("Fetching all allocated cases - agentId: {}, geography: {}, page: {}, size: {}",
+                agentId, geography, page, size);
+
+        List<CaseAllocationDTO> allocations = allocationService.getAllAllocatedCases(agentId, geography, page, size);
+
+        return ResponseEntity.ok(CommonResponse.success(
+                "Allocated cases retrieved successfully.", allocations));
     }
 }

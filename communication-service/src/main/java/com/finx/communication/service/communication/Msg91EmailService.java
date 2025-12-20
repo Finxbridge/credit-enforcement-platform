@@ -1,13 +1,12 @@
 package com.finx.communication.service.communication;
 
-import com.finx.common.constants.CacheConstants;
-import com.finx.common.dto.InternalEmailRequest;
-import com.finx.common.exception.ApiCallException;
-import com.finx.common.exception.ConfigurationNotFoundException;
-import com.finx.common.model.ThirdPartyIntegrationMaster;
-import com.finx.common.service.ConfigCacheService;
-import com.finx.common.service.IntegrationCacheService;
-import com.finx.common.util.EncryptionUtil;
+import com.finx.communication.constants.CacheConstants;
+import com.finx.communication.domain.dto.InternalEmailRequest;
+import com.finx.communication.exception.ApiCallException;
+import com.finx.communication.exception.ConfigurationNotFoundException;
+import com.finx.communication.domain.model.ThirdPartyIntegrationMaster;
+import com.finx.communication.service.ConfigCacheService;
+import com.finx.communication.service.IntegrationCacheService;
 import com.finx.communication.domain.dto.email.Msg91Attachment;
 import com.finx.communication.domain.dto.email.Msg91From;
 import com.finx.communication.domain.dto.email.Msg91EmailResponse;
@@ -48,7 +47,6 @@ public class Msg91EmailService {
     private final ConfigCacheService configCacheService;
     private final EmailMessageRepository emailMessageRepository;
     private final ObjectMapper objectMapper;
-    private final EncryptionUtil encryptionUtil;
 
     private static final int DEFAULT_TIMEOUT_SECONDS = 60;
 
@@ -69,20 +67,19 @@ public class Msg91EmailService {
 
             log.info("Sending transformed email request via MSG91 to: {}", internalRequest.getToEmail());
 
-            // 3. Build MSG91 API URL
-            String url = config.getApiEndpoint() + "/send";
+            // 3. Use MSG91 API URL directly from database (full endpoint)
+            String url = config.getApiEndpoint();
 
             // 4. Get WebClient timeout from cached config
             int timeoutSeconds = configCacheService.getIntConfig(CacheConstants.WEBCLIENT_RESPONSE_TIMEOUT,
                     DEFAULT_TIMEOUT_SECONDS);
             Duration timeout = Duration.ofSeconds(timeoutSeconds);
 
-            // 5. Call MSG91 API
-            log.debug("MSG91 Request Payload: {}", msg91Request); // Add this line
+            // 5. Call MSG91 API (use API key directly - no encryption)
+            log.debug("MSG91 Request Payload: {}", msg91Request);
             String rawResponse = webClient.post()
                     .uri(url)
-                    .header("authkey",
-                            encryptionUtil.decrypt(config.getApiKey()))
+                    .header("authkey", config.getApiKeyEncrypted())
                     .header("accept", "application/json")
                     .contentType(MediaType.APPLICATION_JSON)
                     .bodyValue(msg91Request)
@@ -186,6 +183,52 @@ public class Msg91EmailService {
             }
         }
         throw new ConfigurationNotFoundException("MSG91 Email integration config not found");
+    }
+
+    /**
+     * Create Email Template in MSG91
+     * POST /api/v5/email/templates
+     */
+    @SuppressWarnings("null")
+    public Map<String, Object> createTemplate(com.finx.communication.domain.dto.email.EmailTemplateCreateRequest request) {
+        log.info("Creating email template: {}", request.getName());
+
+        try {
+            // 1. Get integration config
+            ThirdPartyIntegrationMaster config = getIntegrationConfig();
+
+            // 2. Get URL from config_json
+            String url = config.getConfigValueAsString("create_template_url");
+
+            // 3. Build request body matching MSG91 API exactly
+            // Use name as slug (MSG91 requires both with same value)
+            Map<String, Object> requestBody = new java.util.HashMap<>();
+            requestBody.put("name", request.getName());
+            requestBody.put("slug", request.getName()); // Always use name as slug
+            requestBody.put("subject", request.getSubject());
+            requestBody.put("body", request.getBody()); // Body should be in HTML format
+
+            // 4. Call MSG91 API (use API key directly - no encryption)
+            String response = webClient.post()
+                    .uri(url)
+                    .header("authkey", config.getApiKeyEncrypted())
+                    .header("Accept", "application/json")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(requestBody)
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .doOnError(error -> log.error("Email template creation failed: {}", error.getMessage()))
+                    .block();
+
+            log.info("Email template creation response: {}", response);
+
+            // 5. Parse and return response
+            return objectMapper.readValue(response, new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {});
+
+        } catch (Exception e) {
+            log.error("Error creating email template: {}", e.getMessage(), e);
+            throw new ApiCallException("Failed to create email template: " + e.getMessage(), e);
+        }
     }
 
     private void saveEmailMessage(Msg91EmailSendRequest msg91Request, Msg91EmailResponse msg91Response,

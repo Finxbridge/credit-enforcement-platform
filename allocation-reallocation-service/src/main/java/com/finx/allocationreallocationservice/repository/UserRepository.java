@@ -18,6 +18,8 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     Optional<User> findByUsername(String username);
 
+    Optional<User> findByUsernameIgnoreCase(String username);
+
     Optional<User> findByEmail(String email);
 
     /**
@@ -31,10 +33,19 @@ public interface UserRepository extends JpaRepository<User, Long> {
     List<User> findByGeographies(@Param("geographies") String[] geographies);
 
     /**
-     * Find all active agents (users with role agent)
+     * Find all active internal users (excludes agency agents)
+     * Agency agents have agency_id set, internal users have it NULL
      */
-    @Query("SELECT u FROM User u WHERE u.status = 'ACTIVE' ORDER BY u.id")
+    @Query("SELECT u FROM User u WHERE u.status = 'ACTIVE' AND u.agencyId IS NULL ORDER BY u.id")
     List<User> findAllActiveUsers();
+
+    /**
+     * Find all active internal collectors for CAPACITY_BASED allocation
+     * Excludes agency agents (users with agency_id set)
+     * Sorted by current_case_count (ascending) for equalization - agents with fewer cases first
+     */
+    @Query("SELECT u FROM User u WHERE u.status = 'ACTIVE' AND u.agencyId IS NULL ORDER BY u.currentCaseCount ASC NULLS FIRST, u.id")
+    List<User> findAllActiveAgents();
 
     /**
      * Find users by status
@@ -45,4 +56,83 @@ public interface UserRepository extends JpaRepository<User, Long> {
      * Find users by team ID
      */
     List<User> findByTeamId(Long teamId);
+
+    /**
+     * Find active users by state (case-insensitive)
+     */
+    @Query("SELECT u FROM User u WHERE u.status = 'ACTIVE' AND LOWER(u.state) = LOWER(:state)")
+    List<User> findByStateIgnoreCase(@Param("state") String state);
+
+    /**
+     * Find active users by city (case-insensitive)
+     */
+    @Query("SELECT u FROM User u WHERE u.status = 'ACTIVE' AND LOWER(u.city) = LOWER(:city)")
+    List<User> findByCityIgnoreCase(@Param("city") String city);
+
+    /**
+     * Find active users by state and city (case-insensitive)
+     */
+    @Query("SELECT u FROM User u WHERE u.status = 'ACTIVE' " +
+           "AND LOWER(u.state) = LOWER(:state) AND LOWER(u.city) = LOWER(:city)")
+    List<User> findByStateAndCityIgnoreCase(@Param("state") String state, @Param("city") String city);
+
+    /**
+     * Find active users by state in list (case-insensitive)
+     */
+    @Query("SELECT u FROM User u WHERE u.status = 'ACTIVE' AND LOWER(u.state) IN :states")
+    List<User> findByStateInIgnoreCase(@Param("states") List<String> states);
+
+    /**
+     * Find active users by city in list (case-insensitive)
+     */
+    @Query("SELECT u FROM User u WHERE u.status = 'ACTIVE' AND LOWER(u.city) IN :cities")
+    List<User> findByCityInIgnoreCase(@Param("cities") List<String> cities);
+
+    /**
+     * Find active users by state and city in lists (case-insensitive)
+     * Matches users where BOTH state AND city match
+     */
+    @Query("SELECT u FROM User u WHERE u.status = 'ACTIVE' " +
+           "AND LOWER(u.state) IN :states AND LOWER(u.city) IN :cities")
+    List<User> findByStateAndCityInIgnoreCase(@Param("states") List<String> states, @Param("cities") List<String> cities);
+
+    /**
+     * Find active users by state list OR city list (case-insensitive)
+     * Matches users where state matches OR city matches
+     */
+    @Query("SELECT u FROM User u WHERE u.status = 'ACTIVE' " +
+           "AND (LOWER(u.state) IN :states OR LOWER(u.city) IN :cities)")
+    List<User> findByStateOrCityInIgnoreCase(@Param("states") List<String> states, @Param("cities") List<String> cities);
+
+    /**
+     * Find active users matching state OR city (case-insensitive)
+     * Used for geography-based allocation - matches on state OR city
+     * If both states and cities provided: matches users in those states OR those cities
+     * If only states provided: matches users in those states
+     * If only cities provided: matches users in those cities
+     */
+    @Query("SELECT DISTINCT u FROM User u WHERE u.status = 'ACTIVE' " +
+           "AND ((:states IS NOT NULL AND LOWER(u.state) IN :states) " +
+           "OR (:cities IS NOT NULL AND LOWER(u.city) IN :cities))")
+    List<User> findByGeographyFiltersIgnoreCase(@Param("states") List<String> states,
+                                                  @Param("cities") List<String> cities);
+
+    /**
+     * Find user by full name (firstName + lastName, case-insensitive)
+     * Used for CSV uploads where agent name is provided instead of ID/username
+     */
+    @Query("SELECT u FROM User u WHERE LOWER(CONCAT(u.firstName, ' ', u.lastName)) = LOWER(:fullName)")
+    Optional<User> findByFullNameIgnoreCase(@Param("fullName") String fullName);
+
+    /**
+     * Find user by first name (case-insensitive)
+     */
+    @Query("SELECT u FROM User u WHERE LOWER(u.firstName) = LOWER(:firstName)")
+    List<User> findByFirstNameIgnoreCase(@Param("firstName") String firstName);
+
+    /**
+     * Find user by last name (case-insensitive)
+     */
+    @Query("SELECT u FROM User u WHERE LOWER(u.lastName) = LOWER(:lastName)")
+    List<User> findByLastNameIgnoreCase(@Param("lastName") String lastName);
 }

@@ -1,6 +1,6 @@
 package com.finx.communication.service.cache;
 
-import com.finx.common.service.IntegrationCacheService;
+import com.finx.communication.service.IntegrationCacheService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.ApplicationArguments;

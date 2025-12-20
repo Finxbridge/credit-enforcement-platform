@@ -47,7 +47,7 @@ public class StrategyResponse {
     @AllArgsConstructor
     public static class Channel {
         private String type;
-        private Long templateId;
+        private String templateId;  // Provider template ID (MSG91 template ID)
         private String templateName;
     }
 
@@ -67,7 +67,9 @@ public class StrategyResponse {
         private List<String> product;
         private List<String> pincode;
         private List<String> state;
+        private List<String> city;
         private List<String> bucket;
+        private List<String> status;
 
         // Total cases matching (for simulation)
         private Integer estimatedCasesMatched;

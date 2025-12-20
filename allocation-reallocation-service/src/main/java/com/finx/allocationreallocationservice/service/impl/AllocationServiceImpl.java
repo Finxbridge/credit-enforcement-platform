@@ -14,10 +14,12 @@ import com.finx.allocationreallocationservice.exception.ValidationException;
 import com.finx.allocationreallocationservice.repository.*;
 import com.finx.allocationreallocationservice.service.AllocationService;
 import com.finx.allocationreallocationservice.util.csv.CsvExporter;
+import com.finx.allocationreallocationservice.client.CaseSourcingServiceClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.data.domain.Page;
@@ -57,6 +59,8 @@ public class AllocationServiceImpl implements AllocationService {
     private final AuditLogRepository auditLogRepository;
     private final CaseReadRepository caseReadRepository;
     private final UserRepository userRepository;
+    private final CaseSourcingServiceClient caseSourcingServiceClient;
+    private final JdbcTemplate jdbcTemplate;
 
     @SuppressWarnings("null")
     @Override
@@ -162,6 +166,32 @@ public class AllocationServiceImpl implements AllocationService {
     }
 
     @Override
+    public byte[] exportAllocationBatch(String batchId) {
+        log.info("Exporting ALL allocations (success + failure) for batch: {}", batchId);
+
+        if (!allocationBatchRepository.existsByBatchId(batchId)) {
+            throw new ResourceNotFoundException("Allocation batch not found: " + batchId);
+        }
+
+        // Find all successful allocations for this batch
+        List<CaseAllocation> allocations = caseAllocationRepository.findByBatchId(batchId);
+
+        // Find all errors for this batch
+        List<BatchError> errors = batchErrorRepository.findByBatchId(batchId);
+
+        // Check if there's anything to export
+        if (allocations.isEmpty() && errors.isEmpty()) {
+            throw new BusinessException("No records found for batch: " + batchId);
+        }
+
+        log.info("Exporting batch {}: {} success allocations, {} failure records",
+                 batchId, allocations.size(), errors.size());
+
+        // Export all data - success allocations with STATUS="SUCCESS", errors with STATUS="FAILURE"
+        return csvExporter.exportAllBatchData(allocations, errors);
+    }
+
+    @Override
     @Cacheable(value = "allocationSummary")
     public AllocationSummaryDTO getAllocationSummary() {
         log.info("Fetching overall allocation summary");
@@ -230,16 +260,24 @@ public class AllocationServiceImpl implements AllocationService {
         if (ruleDTO.getRuleType() == null || ruleDTO.getRuleType().trim().isEmpty()) {
             throw new ValidationException("ruleType", "Rule type is required");
         }
-        if (ruleDTO.getGeographies() == null || ruleDTO.getGeographies().isEmpty()) {
-            throw new ValidationException("geographies", "At least one geography is required");
+
+        // Validate at least one geography filter is provided (except for CAPACITY_BASED which doesn't require geography)
+        boolean hasStates = ruleDTO.getStates() != null && !ruleDTO.getStates().isEmpty();
+        boolean hasCities = ruleDTO.getCities() != null && !ruleDTO.getCities().isEmpty();
+
+        // CAPACITY_BASED does not require geography - it allocates ALL unallocated cases to ALL agents based on capacity
+        boolean isCapacityBased = "CAPACITY_BASED".equals(ruleDTO.getRuleType());
+
+        if (!isCapacityBased && !hasStates && !hasCities) {
+            throw new ValidationException("geography",
+                    "At least one geography filter is required (states or cities) for GEOGRAPHY rule type");
         }
 
-        // Validate rule type
+        // Validate rule type - only GEOGRAPHY and CAPACITY_BASED supported
         String ruleType = ruleDTO.getRuleType();
-        if (!"PERCENTAGE_SPLIT".equals(ruleType) && !"CAPACITY_BASED".equals(ruleType)
-                && !"GEOGRAPHY".equals(ruleType)) {
+        if (!"CAPACITY_BASED".equals(ruleType) && !"GEOGRAPHY".equals(ruleType)) {
             throw new ValidationException("ruleType",
-                    "Invalid rule type. Must be one of: PERCENTAGE_SPLIT, CAPACITY_BASED, GEOGRAPHY");
+                    "Invalid rule type. Must be one of: GEOGRAPHY, CAPACITY_BASED");
         }
 
         // Build criteria map from explicit fields (excluding agentIds and percentages
@@ -322,20 +360,32 @@ public class AllocationServiceImpl implements AllocationService {
         AllocationRule rule = allocationRuleRepository.findById(ruleId)
                 .orElseThrow(() -> new ResourceNotFoundException("Allocation rule not found: " + ruleId));
 
-        // Enforce lifecycle: simulate() allowed if status == DRAFT or READY_FOR_APPLY
-        if (rule.getStatus() != RuleStatus.DRAFT && rule.getStatus() != RuleStatus.READY_FOR_APPLY) {
-            throw new ValidationException(
-                    "Rule must be in DRAFT or READY_FOR_APPLY status to simulate. Current status: " + rule.getStatus());
-        }
+        // Allow simulation for any status - user can simulate n number of times even after apply
+        log.info("Simulating rule {} with status: {}", ruleId, rule.getStatus());
 
         Map<String, Object> criteria = rule.getCriteria();
         String ruleType = (String) criteria.getOrDefault("ruleType", criteria.get("type"));
-        List<String> geographies = (List<String>) criteria.get("geographies");
-        List<String> buckets = (List<String>) criteria.get("buckets");
+        boolean isCapacityBased = "CAPACITY_BASED".equals(ruleType);
 
-        // Fetch unallocated cases matching the rule's geography and bucket filters
-        List<com.finx.allocationreallocationservice.domain.entity.Case> matchingCases = getUnallocatedCasesMatchingFilters(
-                geographies, buckets);
+        // Extract geography filters
+        List<String> states = (List<String>) criteria.get("states");
+        List<String> cities = (List<String>) criteria.get("cities");
+
+        // Determine if geography filters are provided
+        boolean hasGeoFilters = (states != null && !states.isEmpty())
+                || (cities != null && !cities.isEmpty());
+
+        // Fetch unallocated cases matching the rule's geography filters
+        List<com.finx.allocationreallocationservice.domain.entity.Case> matchingCases;
+
+        if (isCapacityBased && !hasGeoFilters) {
+            // CAPACITY_BASED without geography: get ALL unallocated cases
+            matchingCases = caseReadRepository.findAllUnallocatedCases();
+            log.info("CAPACITY_BASED rule - fetching ALL unallocated cases");
+        } else {
+            // Use geography filtering
+            matchingCases = getUnallocatedCasesMatchingGeoFilters(states, cities);
+        }
         int unallocatedCasesCount = matchingCases.size();
 
         // Extract case IDs for the response
@@ -343,29 +393,61 @@ public class AllocationServiceImpl implements AllocationService {
                 .map(com.finx.allocationreallocationservice.domain.entity.Case::getId)
                 .collect(Collectors.toList());
 
-        log.info("Found {} unallocated cases matching rule filters (geographies: {}, buckets: {})",
-                unallocatedCasesCount, geographies, buckets);
+        log.info("Found {} unallocated cases matching rule filters (ruleType: {}, states: {}, cities: {})",
+                unallocatedCasesCount, ruleType, states, cities);
 
-        // Automatically detect eligible agents based on rule's geographies
+        // Automatically detect eligible agents based on rule's state/city filters (case-insensitive)
         List<UserDTO> eligibleAgentsList = new ArrayList<>();
-        if (geographies != null && !geographies.isEmpty()) {
+        boolean hasStates = states != null && !states.isEmpty();
+        boolean hasCities = cities != null && !cities.isEmpty();
+
+        if (isCapacityBased && !hasStates && !hasCities) {
+            // CAPACITY_BASED without geography: get ALL active agents
             try {
-                List<User> users = userRepository.findByGeographies(geographies.toArray(new String[0]));
+                List<User> users = userRepository.findAllActiveAgents();
                 eligibleAgentsList = users.stream()
                         .map(this::mapToUserDTO)
                         .collect(Collectors.toList());
-                log.info("Found {} eligible agents for geographies: {}", eligibleAgentsList.size(), geographies);
+                log.info("CAPACITY_BASED rule - found {} active agents for capacity-based allocation", eligibleAgentsList.size());
             } catch (Exception e) {
-                log.error("Failed to fetch users by geography {}: {}", geographies, e.getMessage());
+                log.error("Failed to fetch all active agents: {}", e.getMessage());
+                throw new BusinessException("Failed to fetch eligible agents: " + e.getMessage());
+            }
+        } else if (hasStates || hasCities) {
+            try {
+                // Convert to lowercase for case-insensitive matching
+                List<String> lowerStates = hasStates ? states.stream().map(String::toLowerCase).collect(Collectors.toList()) : null;
+                List<String> lowerCities = hasCities ? cities.stream().map(String::toLowerCase).collect(Collectors.toList()) : null;
+
+                List<User> users;
+                if (hasStates && hasCities) {
+                    // Match users with BOTH state AND city matching
+                    users = userRepository.findByStateAndCityInIgnoreCase(lowerStates, lowerCities);
+                    log.info("Found {} eligible agents for states: {} AND cities: {}", users.size(), states, cities);
+                } else if (hasStates) {
+                    // Match users by state only
+                    users = userRepository.findByStateInIgnoreCase(lowerStates);
+                    log.info("Found {} eligible agents for states: {}", users.size(), states);
+                } else {
+                    // Match users by city only
+                    users = userRepository.findByCityInIgnoreCase(lowerCities);
+                    log.info("Found {} eligible agents for cities: {}", users.size(), cities);
+                }
+
+                eligibleAgentsList = users.stream()
+                        .map(this::mapToUserDTO)
+                        .collect(Collectors.toList());
+            } catch (Exception e) {
+                log.error("Failed to fetch users by state/city (states: {}, cities: {}): {}", states, cities, e.getMessage());
                 throw new BusinessException("Failed to fetch eligible agents: " + e.getMessage());
             }
         } else {
-            log.warn("No geographies specified in rule. Cannot determine eligible agents.");
-            throw new BusinessException("Rule must have geographies specified to detect eligible agents");
+            log.warn("No geography specified in GEOGRAPHY rule. Cannot determine eligible agents.");
+            throw new BusinessException("GEOGRAPHY rule must have at least one geography filter (states or cities)");
         }
 
         if (eligibleAgentsList.isEmpty()) {
-            throw new BusinessException("No eligible agents found for the specified geographies: " + geographies);
+            throw new BusinessException("No eligible agents found for the specified geographies (states: " + states + ", cities: " + cities + ")");
         }
 
         // Build eligible agents list with capacity info
@@ -387,18 +469,8 @@ public class AllocationServiceImpl implements AllocationService {
                 .collect(Collectors.toList());
 
         // Calculate suggested distribution based on rule type
-        Map<String, Integer> suggestedDistribution = new java.util.HashMap<>();
-
-        if ("PERCENTAGE_SPLIT".equals(ruleType)) {
-            suggestedDistribution = calculateEqualPercentageDistribution(eligibleAgents, unallocatedCasesCount);
-        } else if ("CAPACITY_BASED".equals(ruleType)) {
-            suggestedDistribution = calculateCapacityBasedDistribution(eligibleAgents, unallocatedCasesCount);
-        } else if ("GEOGRAPHY".equals(ruleType)) {
-            suggestedDistribution = calculateGeographyBasedDistribution(eligibleAgents, unallocatedCasesCount);
-        } else {
-            log.warn("Unknown allocation rule type: {}. Using equal distribution.", ruleType);
-            suggestedDistribution = calculateEqualPercentageDistribution(eligibleAgents, unallocatedCasesCount);
-        }
+        // Both GEOGRAPHY and CAPACITY_BASED use capacity-based distribution with equalization
+        Map<String, Integer> suggestedDistribution = calculateCapacityBasedDistribution(eligibleAgents, unallocatedCasesCount);
 
         // Update rule status to READY_FOR_APPLY only if currently DRAFT
         if (rule.getStatus() == RuleStatus.DRAFT) {
@@ -430,64 +502,55 @@ public class AllocationServiceImpl implements AllocationService {
                 .build();
     }
 
-    private List<com.finx.allocationreallocationservice.domain.entity.Case> getUnallocatedCasesMatchingFilters(
-            List<String> geographies, List<String> buckets) {
+    /**
+     * Simplified geography filtering method
+     * Filters by states and/or cities (case-insensitive)
+     */
+    private List<com.finx.allocationreallocationservice.domain.entity.Case> getUnallocatedCasesMatchingGeoFilters(
+            List<String> states, List<String> cities) {
         List<com.finx.allocationreallocationservice.domain.entity.Case> allMatchingCases = new ArrayList<>();
         int page = 0;
         int size = 1000; // Larger page size for better performance
         Page<com.finx.allocationreallocationservice.domain.entity.Case> casesPage;
 
+        // Convert all geography values to lowercase for case-insensitive matching
+        List<String> lowerStates = states != null ? states.stream().map(String::toLowerCase).collect(Collectors.toList()) : null;
+        List<String> lowerCities = cities != null ? cities.stream().map(String::toLowerCase).collect(Collectors.toList()) : null;
+
+        boolean hasStates = lowerStates != null && !lowerStates.isEmpty();
+        boolean hasCities = lowerCities != null && !lowerCities.isEmpty();
+
         do {
             Pageable pageable = PageRequest.of(page, size);
 
-            // Query cases based on filters
-            if (geographies != null && !geographies.isEmpty() && buckets != null && !buckets.isEmpty()) {
-                // Filter by both geography and buckets
-                casesPage = caseReadRepository.findUnallocatedCasesByGeographyAndBucket(geographies, buckets, pageable);
-            } else if (geographies != null && !geographies.isEmpty()) {
-                // Filter by geography only
-                casesPage = caseReadRepository.findUnallocatedCasesByGeography(geographies, pageable);
-            } else if (buckets != null && !buckets.isEmpty()) {
-                // Filter by buckets only
-                casesPage = caseReadRepository.findUnallocatedCasesByBucket(buckets, pageable);
+            // Choose the appropriate query based on which filters are provided
+            // All queries use LOWER() in database for case-insensitive matching
+            if (hasStates && hasCities) {
+                casesPage = caseReadRepository.findUnallocatedCasesByStatesAndCities(lowerStates, lowerCities, pageable);
+            } else if (hasStates) {
+                casesPage = caseReadRepository.findUnallocatedCasesByStates(lowerStates, pageable);
+            } else if (hasCities) {
+                casesPage = caseReadRepository.findUnallocatedCasesByCities(lowerCities, pageable);
             } else {
-                // No filters - get all unallocated cases
-                casesPage = caseReadRepository.findByCaseStatus("UNALLOCATED", pageable);
+                // No geography filters - get all ACTIVE unallocated cases
+                casesPage = caseReadRepository.findByCaseStatusAndActive("UNALLOCATED", pageable);
             }
 
             allMatchingCases.addAll(casesPage.getContent());
             page++;
         } while (casesPage.hasNext());
 
-        log.info("Fetched {} unallocated cases matching filters (geographies: {}, buckets: {})",
-                allMatchingCases.size(), geographies, buckets);
+        log.info("Fetched {} unallocated cases matching geography filters (states: {}, cities: {})",
+                allMatchingCases.size(), states, cities);
 
         return allMatchingCases;
     }
 
-    private Map<String, Integer> calculateEqualPercentageDistribution(
-            List<AllocationRuleSimulationDTO.EligibleAgentDTO> eligibleAgents, int totalCases) {
-        Map<String, Integer> distribution = new java.util.HashMap<>();
-
-        if (eligibleAgents.isEmpty() || totalCases == 0) {
-            return distribution;
-        }
-
-        // Equal percentage split among all eligible agents
-        int agentCount = eligibleAgents.size();
-        int casesPerAgent = totalCases / agentCount;
-        int remainder = totalCases % agentCount;
-
-        for (int i = 0; i < eligibleAgents.size(); i++) {
-            AllocationRuleSimulationDTO.EligibleAgentDTO agent = eligibleAgents.get(i);
-            int casesToAllocate = casesPerAgent + (i < remainder ? 1 : 0);
-            distribution.put(agent.getAgentId().toString(), casesToAllocate);
-        }
-
-        log.info("PERCENTAGE_SPLIT distribution: {} agents, {} cases each (approx)", agentCount, casesPerAgent);
-        return distribution;
-    }
-
+    /**
+     * Calculate capacity-based distribution with equalization.
+     * Agents with fewer current cases get more new cases to balance workload.
+     * This achieves workload equalization by prioritizing agents with more available capacity.
+     */
     private Map<String, Integer> calculateCapacityBasedDistribution(
             List<AllocationRuleSimulationDTO.EligibleAgentDTO> eligibleAgents, int totalCases) {
         Map<String, Integer> distribution = new java.util.HashMap<>();
@@ -496,49 +559,98 @@ public class AllocationServiceImpl implements AllocationService {
             return distribution;
         }
 
+        // Sort agents by current workload (ascending) - agents with fewer cases come first
+        // This ensures agents with fewer cases get more new cases for equalization
+        List<AllocationRuleSimulationDTO.EligibleAgentDTO> sortedAgents = new ArrayList<>(eligibleAgents);
+        sortedAgents.sort((a, b) -> Integer.compare(a.getCurrentWorkload(), b.getCurrentWorkload()));
+
         // Calculate total available capacity across all agents
-        int totalAvailableCapacity = eligibleAgents.stream()
+        int totalAvailableCapacity = sortedAgents.stream()
                 .mapToInt(AllocationRuleSimulationDTO.EligibleAgentDTO::getAvailableCapacity)
                 .sum();
 
         if (totalAvailableCapacity == 0) {
-            log.warn("No available capacity among eligible agents. Using equal distribution.");
-            return calculateEqualPercentageDistribution(eligibleAgents, totalCases);
+            log.warn("No available capacity among eligible agents. Distributing equally.");
+            // Distribute equally when no capacity available
+            int agentCount = eligibleAgents.size();
+            int casesPerAgent = totalCases / agentCount;
+            int remainder = totalCases % agentCount;
+            for (int i = 0; i < eligibleAgents.size(); i++) {
+                AllocationRuleSimulationDTO.EligibleAgentDTO agent = eligibleAgents.get(i);
+                int casesToAllocate = casesPerAgent + (i < remainder ? 1 : 0);
+                distribution.put(agent.getAgentId().toString(), casesToAllocate);
+            }
+            return distribution;
         }
+
+        // Calculate target workload for equalization
+        // Target = (sum of all current workloads + new cases) / number of agents
+        int totalCurrentWorkload = sortedAgents.stream()
+                .mapToInt(AllocationRuleSimulationDTO.EligibleAgentDTO::getCurrentWorkload)
+                .sum();
+        int targetWorkload = (totalCurrentWorkload + totalCases) / sortedAgents.size();
+
+        log.info("Capacity equalization: totalCurrentWorkload={}, totalNewCases={}, targetWorkload={}, agents={}",
+                totalCurrentWorkload, totalCases, targetWorkload, sortedAgents.size());
 
         int remainingCases = totalCases;
 
-        // Distribute based on available capacity proportion
-        for (int i = 0; i < eligibleAgents.size(); i++) {
-            AllocationRuleSimulationDTO.EligibleAgentDTO agent = eligibleAgents.get(i);
+        // Distribute cases to bring all agents closer to target workload
+        for (AllocationRuleSimulationDTO.EligibleAgentDTO agent : sortedAgents) {
+            if (remainingCases <= 0) break;
+
+            int currentWorkload = agent.getCurrentWorkload();
             int availableCapacity = agent.getAvailableCapacity();
 
-            int casesToAllocate;
-            if (i == eligibleAgents.size() - 1) {
-                // Last agent gets remaining cases
-                casesToAllocate = remainingCases;
-            } else {
-                // Calculate proportional allocation based on available capacity
-                casesToAllocate = (int) Math.round((double) totalCases * availableCapacity / totalAvailableCapacity);
-                casesToAllocate = Math.min(casesToAllocate, availableCapacity); // Don't exceed capacity
-                casesToAllocate = Math.min(casesToAllocate, remainingCases); // Don't exceed remaining cases
-            }
+            // Calculate how many cases this agent needs to reach target
+            int casesToReachTarget = Math.max(0, targetWorkload - currentWorkload);
+
+            // Allocate minimum of: cases to reach target, available capacity, remaining cases
+            int casesToAllocate = Math.min(casesToReachTarget, availableCapacity);
+            casesToAllocate = Math.min(casesToAllocate, remainingCases);
 
             if (casesToAllocate > 0) {
                 distribution.put(agent.getAgentId().toString(), casesToAllocate);
                 remainingCases -= casesToAllocate;
+
+                log.debug("Agent {} (current: {}, capacity: {}) gets {} cases to approach target {}",
+                        agent.getAgentId(), currentWorkload, agent.getCapacity(), casesToAllocate, targetWorkload);
             }
         }
 
-        log.info("CAPACITY_BASED distribution: total capacity = {}, total cases = {}", totalAvailableCapacity,
-                totalCases);
-        return distribution;
-    }
+        // If there are remaining cases (all agents at or above target), distribute proportionally by available capacity
+        if (remainingCases > 0) {
+            log.info("Distributing {} remaining cases proportionally by available capacity", remainingCases);
 
-    private Map<String, Integer> calculateGeographyBasedDistribution(
-            List<AllocationRuleSimulationDTO.EligibleAgentDTO> eligibleAgents, int totalCases) {
-        // For GEOGRAPHY type, distribute equally among agents in matching geographies
-        return calculateEqualPercentageDistribution(eligibleAgents, totalCases);
+            int remainingCapacity = sortedAgents.stream()
+                    .mapToInt(AllocationRuleSimulationDTO.EligibleAgentDTO::getAvailableCapacity)
+                    .sum();
+
+            if (remainingCapacity > 0) {
+                for (AllocationRuleSimulationDTO.EligibleAgentDTO agent : sortedAgents) {
+                    if (remainingCases <= 0) break;
+
+                    int availableCapacity = agent.getAvailableCapacity();
+                    int existingAllocation = distribution.getOrDefault(agent.getAgentId().toString(), 0);
+                    int effectiveAvailableCapacity = Math.max(0, availableCapacity - existingAllocation);
+
+                    if (effectiveAvailableCapacity > 0) {
+                        int additionalCases = (int) Math.ceil((double) remainingCases * effectiveAvailableCapacity / remainingCapacity);
+                        additionalCases = Math.min(additionalCases, effectiveAvailableCapacity);
+                        additionalCases = Math.min(additionalCases, remainingCases);
+
+                        if (additionalCases > 0) {
+                            distribution.merge(agent.getAgentId().toString(), additionalCases, Integer::sum);
+                            remainingCases -= additionalCases;
+                        }
+                    }
+                }
+            }
+        }
+
+        log.info("CAPACITY_BASED (equalization) distribution: total available capacity = {}, total cases = {}, distributed = {}",
+                totalAvailableCapacity, totalCases, totalCases - remainingCases);
+        return distribution;
     }
 
     /**
@@ -556,6 +668,8 @@ public class AllocationServiceImpl implements AllocationService {
         dto.setLastName(user.getLastName());
         dto.setMobileNumber(user.getMobileNumber());
         dto.setStatus(user.getStatus());
+        dto.setState(user.getState());
+        dto.setCity(user.getCity());
         dto.setAssignedGeographies(user.getAssignedGeographies());
         dto.setMaxCaseCapacity(user.getMaxCaseCapacity());
         dto.setCurrentCaseCount(user.getCurrentCaseCount());
@@ -566,105 +680,10 @@ public class AllocationServiceImpl implements AllocationService {
         return dto;
     }
 
-    private void validatePercentages(List<Integer> percentages, int agentCount) {
-        if (percentages == null || percentages.isEmpty()) {
-            throw new ValidationException("percentages", "Percentages are required for PERCENTAGE_SPLIT rule type");
-        }
-
-        if (percentages.size() != agentCount) {
-            throw new ValidationException("percentages",
-                    "Number of percentages (" + percentages.size() + ") must match number of agents (" + agentCount
-                            + ")");
-        }
-
-        int sum = percentages.stream().mapToInt(Integer::intValue).sum();
-        if (sum != 100) {
-            throw new ValidationException("percentages",
-                    "Percentages must sum to 100. Current sum: " + sum);
-        }
-
-        for (Integer percentage : percentages) {
-            if (percentage < 0 || percentage > 100) {
-                throw new ValidationException("percentages",
-                        "Each percentage must be between 0 and 100. Found: " + percentage);
-            }
-        }
-    }
-
-    private List<AllocationRuleExecutionResponseDTO.AllocationResultDTO> allocateByPercentage(
-            List<Long> caseIds, List<UserDTO> agents, List<Integer> percentages,
-            int totalCases, Long ruleId, String ruleName,
-            Map<Long, com.finx.allocationreallocationservice.domain.entity.Case> caseMap) {
-
-        List<AllocationRuleExecutionResponseDTO.AllocationResultDTO> results = new ArrayList<>();
-        List<CaseAllocation> allocations = new ArrayList<>();
-        List<AllocationHistory> historyEntries = new ArrayList<>();
-        Map<Long, Integer> agentCaseCount = new HashMap<>();
-
-        int caseIndex = 0;
-
-        for (int i = 0; i < agents.size(); i++) {
-            UserDTO agent = agents.get(i);
-            Integer percentage = percentages.get(i);
-
-            // Calculate cases for this agent based on percentage
-            int casesForAgent;
-            if (i == agents.size() - 1) {
-                // Last agent gets all remaining cases
-                casesForAgent = totalCases - caseIndex;
-            } else {
-                casesForAgent = (int) Math.round((double) totalCases * percentage / 100.0);
-            }
-
-            int allocated = 0;
-            for (int j = 0; j < casesForAgent && caseIndex < caseIds.size(); j++, caseIndex++) {
-                Long caseId = caseIds.get(caseIndex);
-                com.finx.allocationreallocationservice.domain.entity.Case caseEntity = caseMap.get(caseId);
-                String geographyCode = caseEntity != null ? caseEntity.getGeographyCode() : null;
-
-                allocations.add(CaseAllocation.builder()
-                        .caseId(caseId)
-                        .primaryAgentId(agent.getId())
-                        .allocatedToType("USER")
-                        .allocationType("PRIMARY")
-                        .status(AllocationStatus.ALLOCATED)
-                        .allocationRuleId(ruleId)
-                        .allocatedAt(LocalDateTime.now())
-                        .workloadPercentage(new java.math.BigDecimal("100.00"))
-                        .geographyCode(geographyCode)
-                        .build());
-
-                historyEntries.add(AllocationHistory.builder()
-                        .caseId(caseId)
-                        .allocatedToUserId(agent.getId())
-                        .newOwnerType("USER")
-                        .action(AllocationAction.ALLOCATED)
-                        .reason("PERCENTAGE_SPLIT allocation: " + ruleName + " (" + percentage + "%)")
-                        .allocatedAt(LocalDateTime.now())
-                        .build());
-
-                allocated++;
-            }
-
-            if (allocated > 0) {
-                agentCaseCount.put(agent.getId(), allocated);
-                results.add(AllocationRuleExecutionResponseDTO.AllocationResultDTO.builder()
-                        .agentId(agent.getId())
-                        .allocated(allocated)
-                        .build());
-            }
-        }
-
-        caseAllocationRepository.saveAll(allocations);
-        allocationHistoryRepository.saveAll(historyEntries);
-
-        // Update user statistics
-        updateUserStatistics(agentCaseCount);
-
-        log.info("PERCENTAGE_SPLIT allocation completed: {} cases allocated to {} agents", caseIndex, agents.size());
-        return results;
-    }
-
+    /**
+     * Allocate cases by capacity with equalization logic.
+     * Agents with fewer current cases get more new cases to balance workload.
+     */
     private List<AllocationRuleExecutionResponseDTO.AllocationResultDTO> allocateByCapacity(
             List<Long> caseIds, List<UserDTO> agents, int totalCases, Long ruleId, String ruleName,
             Map<Long, com.finx.allocationreallocationservice.domain.entity.Case> caseMap) {
@@ -674,9 +693,12 @@ public class AllocationServiceImpl implements AllocationService {
         List<AllocationHistory> historyEntries = new ArrayList<>();
         Map<Long, Integer> agentCaseCount = new HashMap<>();
 
-        // Calculate available capacity for each agent
+        // Calculate current workload and available capacity for each agent
+        Map<Long, Integer> agentCurrentWorkload = new HashMap<>();
         Map<Long, Integer> agentCapacity = new HashMap<>();
+        Map<Long, Integer> agentAvailableCapacity = new HashMap<>();
         int totalAvailableCapacity = 0;
+        int totalCurrentWorkload = 0;
 
         for (UserDTO agent : agents) {
             long currentWorkload = caseAllocationRepository.countByPrimaryAgentIdAndStatus(
@@ -684,8 +706,11 @@ public class AllocationServiceImpl implements AllocationService {
             int capacity = agent.getCapacity() != null ? agent.getCapacity() : 100;
             int availableCapacity = Math.max(0, capacity - (int) currentWorkload);
 
-            agentCapacity.put(agent.getId(), availableCapacity);
+            agentCurrentWorkload.put(agent.getId(), (int) currentWorkload);
+            agentCapacity.put(agent.getId(), capacity);
+            agentAvailableCapacity.put(agent.getId(), availableCapacity);
             totalAvailableCapacity += availableCapacity;
+            totalCurrentWorkload += (int) currentWorkload;
         }
 
         if (totalAvailableCapacity == 0) {
@@ -693,20 +718,60 @@ public class AllocationServiceImpl implements AllocationService {
             return allocateEqually(caseIds, agents, totalCases, ruleId, ruleName, caseMap);
         }
 
+        // Calculate target workload for equalization
+        int targetWorkload = (totalCurrentWorkload + totalCases) / agents.size();
+        log.info("Capacity equalization (apply): totalCurrentWorkload={}, totalNewCases={}, targetWorkload={}, agents={}",
+                totalCurrentWorkload, totalCases, targetWorkload, agents.size());
+
+        // Sort agents by current workload (ascending) - agents with fewer cases come first
+        List<UserDTO> sortedAgents = new ArrayList<>(agents);
+        sortedAgents.sort((a, b) -> Integer.compare(
+                agentCurrentWorkload.get(a.getId()),
+                agentCurrentWorkload.get(b.getId())));
+
+        // First pass: Calculate distribution using equalization
+        Map<Long, Integer> agentDistribution = new HashMap<>();
+        int remainingCases = totalCases;
+
+        for (UserDTO agent : sortedAgents) {
+            if (remainingCases <= 0) break;
+
+            int currentWorkload = agentCurrentWorkload.get(agent.getId());
+            int availableCapacity = agentAvailableCapacity.get(agent.getId());
+
+            // Calculate how many cases this agent needs to reach target
+            int casesToReachTarget = Math.max(0, targetWorkload - currentWorkload);
+            int casesToAllocate = Math.min(casesToReachTarget, availableCapacity);
+            casesToAllocate = Math.min(casesToAllocate, remainingCases);
+
+            if (casesToAllocate > 0) {
+                agentDistribution.put(agent.getId(), casesToAllocate);
+                remainingCases -= casesToAllocate;
+            }
+        }
+
+        // Second pass: Distribute remaining cases proportionally
+        if (remainingCases > 0) {
+            for (UserDTO agent : sortedAgents) {
+                if (remainingCases <= 0) break;
+
+                int availableCapacity = agentAvailableCapacity.get(agent.getId());
+                int existingAllocation = agentDistribution.getOrDefault(agent.getId(), 0);
+                int effectiveAvailableCapacity = Math.max(0, availableCapacity - existingAllocation);
+
+                if (effectiveAvailableCapacity > 0) {
+                    int additionalCases = Math.min(effectiveAvailableCapacity, remainingCases);
+                    agentDistribution.merge(agent.getId(), additionalCases, Integer::sum);
+                    remainingCases -= additionalCases;
+                }
+            }
+        }
+
+        // Allocate cases based on calculated distribution
         int caseIndex = 0;
-
         for (UserDTO agent : agents) {
-            if (caseIndex >= totalCases)
-                break;
-
-            int availableCapacity = agentCapacity.get(agent.getId());
-            if (availableCapacity <= 0)
-                continue;
-
-            // Calculate cases for this agent based on capacity proportion
-            int casesForAgent = (int) Math.round((double) totalCases * availableCapacity / totalAvailableCapacity);
-            casesForAgent = Math.min(casesForAgent, availableCapacity);
-            casesForAgent = Math.min(casesForAgent, totalCases - caseIndex);
+            int casesForAgent = agentDistribution.getOrDefault(agent.getId(), 0);
+            if (casesForAgent == 0) continue;
 
             int allocated = 0;
             for (int i = 0; i < casesForAgent && caseIndex < caseIds.size(); i++, caseIndex++) {
@@ -731,7 +796,7 @@ public class AllocationServiceImpl implements AllocationService {
                         .allocatedToUserId(agent.getId())
                         .newOwnerType("USER")
                         .action(AllocationAction.ALLOCATED)
-                        .reason("CAPACITY_BASED allocation: " + ruleName)
+                        .reason("CAPACITY_BASED (equalized) allocation: " + ruleName)
                         .allocatedAt(LocalDateTime.now())
                         .build());
 
@@ -747,21 +812,29 @@ public class AllocationServiceImpl implements AllocationService {
             }
         }
 
+        // Save and flush to ensure immediate persistence
         caseAllocationRepository.saveAll(allocations);
+        caseAllocationRepository.flush();
         allocationHistoryRepository.saveAll(historyEntries);
+
+        log.info("Saved {} allocation records", allocations.size());
+
+        // Verify the allocations by counting for each agent
+        for (Map.Entry<Long, Integer> entry : agentCaseCount.entrySet()) {
+            Long agentId = entry.getKey();
+            long count = caseAllocationRepository.countByPrimaryAgentIdAndStatus(agentId, AllocationStatus.ALLOCATED);
+            log.info("Post-allocation count for agent {}: {} cases (expected to increase by {})",
+                    agentId, count, entry.getValue());
+        }
+
+        // CRITICAL: Update cases table to reflect allocation
+        updateCasesTableForAllocation(allocations);
 
         // Update user statistics
         updateUserStatistics(agentCaseCount);
 
-        log.info("CAPACITY_BASED allocation completed: {} cases allocated to {} agents", caseIndex, agents.size());
+        log.info("CAPACITY_BASED (equalized) allocation completed: {} cases allocated to {} agents", caseIndex, agents.size());
         return results;
-    }
-
-    private List<AllocationRuleExecutionResponseDTO.AllocationResultDTO> allocateByGeography(
-            List<Long> caseIds, List<UserDTO> agents, int totalCases, Long ruleId, String ruleName,
-            Map<Long, com.finx.allocationreallocationservice.domain.entity.Case> caseMap) {
-        // Geography-based allocation uses equal distribution among agents
-        return allocateEqually(caseIds, agents, totalCases, ruleId, ruleName, caseMap);
     }
 
     private List<AllocationRuleExecutionResponseDTO.AllocationResultDTO> allocateEqually(
@@ -822,8 +895,23 @@ public class AllocationServiceImpl implements AllocationService {
             }
         }
 
+        // Save and flush to ensure immediate persistence
         caseAllocationRepository.saveAll(allocations);
+        caseAllocationRepository.flush();
         allocationHistoryRepository.saveAll(historyEntries);
+
+        log.info("Saved {} allocation records (equal distribution)", allocations.size());
+
+        // Verify the allocations by counting for each agent
+        for (Map.Entry<Long, Integer> entry : agentCaseCount.entrySet()) {
+            Long agentId = entry.getKey();
+            long count = caseAllocationRepository.countByPrimaryAgentIdAndStatus(agentId, AllocationStatus.ALLOCATED);
+            log.info("Post-allocation count for agent {}: {} cases (expected to increase by {})",
+                    agentId, count, entry.getValue());
+        }
+
+        // CRITICAL: Update cases table to reflect allocation
+        updateCasesTableForAllocation(allocations);
 
         // Update user statistics
         updateUserStatistics(agentCaseCount);
@@ -835,7 +923,7 @@ public class AllocationServiceImpl implements AllocationService {
     /**
      * Update user statistics after allocation
      * Updates current_case_count and allocation_percentage
-     * 
+     *
      * @param agentCaseCount Map of agentId to number of cases allocated
      */
     @SuppressWarnings("null")
@@ -1133,24 +1221,12 @@ public class AllocationServiceImpl implements AllocationService {
             if (criteria.containsKey("ruleType")) {
                 builder.ruleType((String) criteria.get("ruleType"));
             }
-            if (criteria.containsKey("geographies")) {
-                builder.geographies((List<String>) criteria.get("geographies"));
+            // Geography filters
+            if (criteria.containsKey("states")) {
+                builder.states((List<String>) criteria.get("states"));
             }
-            if (criteria.containsKey("buckets")) {
-                builder.buckets((List<String>) criteria.get("buckets"));
-            }
-            if (criteria.containsKey("maxCasesPerAgent")) {
-                builder.maxCasesPerAgent((Integer) criteria.get("maxCasesPerAgent"));
-            }
-            if (criteria.containsKey("agentIds")) {
-                List<?> rawAgentIds = (List<?>) criteria.get("agentIds");
-                List<Long> agentIds = rawAgentIds.stream()
-                        .map(id -> id instanceof Integer ? ((Integer) id).longValue() : (Long) id)
-                        .collect(Collectors.toList());
-                builder.agentIds(agentIds);
-            }
-            if (criteria.containsKey("percentages")) {
-                builder.percentages((List<Integer>) criteria.get("percentages"));
+            if (criteria.containsKey("cities")) {
+                builder.cities((List<String>) criteria.get("cities"));
             }
         }
 
@@ -1163,20 +1239,12 @@ public class AllocationServiceImpl implements AllocationService {
         if (ruleDTO.getRuleType() != null) {
             criteriaMap.put("ruleType", ruleDTO.getRuleType());
         }
-        if (ruleDTO.getGeographies() != null) {
-            criteriaMap.put("geographies", ruleDTO.getGeographies());
+        // Geography filters
+        if (ruleDTO.getStates() != null && !ruleDTO.getStates().isEmpty()) {
+            criteriaMap.put("states", ruleDTO.getStates());
         }
-        if (ruleDTO.getBuckets() != null) {
-            criteriaMap.put("buckets", ruleDTO.getBuckets());
-        }
-        if (ruleDTO.getMaxCasesPerAgent() != null) {
-            criteriaMap.put("maxCasesPerAgent", ruleDTO.getMaxCasesPerAgent());
-        }
-        if (ruleDTO.getAgentIds() != null) {
-            criteriaMap.put("agentIds", ruleDTO.getAgentIds());
-        }
-        if (ruleDTO.getPercentages() != null) {
-            criteriaMap.put("percentages", ruleDTO.getPercentages());
+        if (ruleDTO.getCities() != null && !ruleDTO.getCities().isEmpty()) {
+            criteriaMap.put("cities", ruleDTO.getCities());
         }
 
         // If criteria map is provided, merge it (explicit fields take precedence)
@@ -1195,17 +1263,13 @@ public class AllocationServiceImpl implements AllocationService {
         if (ruleDTO.getRuleType() != null) {
             criteriaMap.put("ruleType", ruleDTO.getRuleType());
         }
-        if (ruleDTO.getGeographies() != null) {
-            criteriaMap.put("geographies", ruleDTO.getGeographies());
+        // Geography filters
+        if (ruleDTO.getStates() != null && !ruleDTO.getStates().isEmpty()) {
+            criteriaMap.put("states", ruleDTO.getStates());
         }
-        if (ruleDTO.getBuckets() != null) {
-            criteriaMap.put("buckets", ruleDTO.getBuckets());
+        if (ruleDTO.getCities() != null && !ruleDTO.getCities().isEmpty()) {
+            criteriaMap.put("cities", ruleDTO.getCities());
         }
-        if (ruleDTO.getMaxCasesPerAgent() != null) {
-            criteriaMap.put("maxCasesPerAgent", ruleDTO.getMaxCasesPerAgent());
-        }
-        // Intentionally ignoring agentIds and percentages for create operation
-        // These will be configured via a separate endpoint
 
         return criteriaMap;
     }
@@ -1248,21 +1312,15 @@ public class AllocationServiceImpl implements AllocationService {
         log.info("Fetching all batches with filters - status: {}, startDate: {}, endDate: {}", status, startDate,
                 endDate);
 
-        List<AllocationBatch> batches;
-        if (status != null || startDate != null || endDate != null) {
-            batches = allocationBatchRepository.findAll().stream()
-                    .filter(batch -> status == null || batch.getStatus().name().equals(status))
-                    .filter(batch -> startDate == null || !batch.getUploadedAt().toLocalDate().isBefore(startDate))
-                    .filter(batch -> endDate == null || !batch.getUploadedAt().toLocalDate().isAfter(endDate))
-                    .skip((long) page * size)
-                    .limit(size)
-                    .collect(Collectors.toList());
-        } else {
-            batches = allocationBatchRepository.findAll().stream()
-                    .skip((long) page * size)
-                    .limit(size)
-                    .collect(Collectors.toList());
-        }
+        // Get all batches sorted by uploadedAt descending (latest first)
+        List<AllocationBatch> batches = allocationBatchRepository.findAll().stream()
+                .sorted((a, b) -> b.getUploadedAt().compareTo(a.getUploadedAt())) // Latest first
+                .filter(batch -> status == null || batch.getStatus().name().equals(status))
+                .filter(batch -> startDate == null || !batch.getUploadedAt().toLocalDate().isBefore(startDate))
+                .filter(batch -> endDate == null || !batch.getUploadedAt().toLocalDate().isAfter(endDate))
+                .skip((long) page * size)
+                .limit(size)
+                .collect(Collectors.toList());
 
         return batches.stream()
                 .map(this::mapToAllocationBatchDTO)
@@ -1275,96 +1333,95 @@ public class AllocationServiceImpl implements AllocationService {
     @CacheEvict(value = "allocationRules", allEntries = true)
     public AllocationRuleExecutionResponseDTO applyAllocationRule(Long ruleId,
             AllocationRuleExecutionRequestDTO request) {
-        log.info("Applying allocation rule: {} with agentIds: {}, percentages: {}",
-                ruleId, request.getAgentIds(), request.getPercentages());
+        log.info("Applying allocation rule: {}", ruleId);
 
         // Fetch and validate rule
         AllocationRule rule = allocationRuleRepository.findById(ruleId)
                 .orElseThrow(() -> new ResourceNotFoundException("Allocation rule not found: " + ruleId));
 
-        // Enforce lifecycle: apply() allowed only if status == READY_FOR_APPLY
-        if (rule.getStatus() != RuleStatus.READY_FOR_APPLY) {
+        // Allow apply from any status - users can simulate first or directly apply
+        // Only prevent re-applying an already ACTIVE rule
+        if (rule.getStatus() == RuleStatus.ACTIVE) {
             throw new ValidationException(
-                    "Simulation required before applying rule. Current status: " + rule.getStatus());
+                    "Rule is already ACTIVE and has been applied. Create a new rule for fresh allocation.");
         }
+        log.info("Applying rule {} with current status: {}", ruleId, rule.getStatus());
 
         // Get rule criteria
         Map<String, Object> criteria = rule.getCriteria();
         String ruleType = (String) criteria.getOrDefault("ruleType", criteria.get("type"));
-        List<String> geographies = (List<String>) criteria.get("geographies");
-        List<String> buckets = (List<String>) criteria.get("buckets");
+        boolean isCapacityBased = "CAPACITY_BASED".equals(ruleType);
+        boolean isGeographyBased = "GEOGRAPHY".equals(ruleType);
 
-        // Validate agentIds are provided
-        List<Long> agentIds = request.getAgentIds();
-        if (agentIds == null || agentIds.isEmpty()) {
-            throw new ValidationException("agentIds", "Agent IDs are required for applying allocation rule");
-        }
+        // Extract geography filters
+        List<String> states = (List<String>) criteria.get("states");
+        List<String> cities = (List<String>) criteria.get("cities");
 
-        // Validate percentages for PERCENTAGE_SPLIT
-        if ("PERCENTAGE_SPLIT".equals(ruleType)) {
-            validatePercentages(request.getPercentages(), agentIds.size());
-        }
+        // Determine if geography filters are provided
+        boolean hasGeoFilters = (states != null && !states.isEmpty())
+                || (cities != null && !cities.isEmpty());
 
-        // Validate all agent IDs exist and fetch agent details
+        // For both GEOGRAPHY and CAPACITY_BASED, agents are auto-detected
         List<UserDTO> agents = new ArrayList<>();
-        for (Long agentId : agentIds) {
-            try {
-                User user = userRepository.findById(agentId)
-                        .orElseThrow(
-                                () -> new ValidationException("agentIds", "Agent with ID " + agentId + " not found"));
-                agents.add(mapToUserDTO(user));
-            } catch (ValidationException e) {
-                throw e;
-            } catch (Exception e) {
-                log.error("Failed to fetch agent with ID {}: {}", agentId, e.getMessage());
-                throw new ValidationException("agentIds", "Agent with ID " + agentId + " is invalid or unavailable");
+
+        if (isCapacityBased) {
+            // CAPACITY_BASED: auto-detect ALL active agents sorted by workload
+            List<User> activeAgents;
+            if (hasGeoFilters) {
+                // If geography specified, filter agents by geography
+                List<String> lowerStates = (states != null && !states.isEmpty()) ? states.stream().map(String::toLowerCase).collect(Collectors.toList()) : null;
+                List<String> lowerCities = (cities != null && !cities.isEmpty()) ? cities.stream().map(String::toLowerCase).collect(Collectors.toList()) : null;
+                activeAgents = userRepository.findByGeographyFiltersIgnoreCase(lowerStates, lowerCities);
+            } else {
+                // No geography filter - get ALL active agents
+                activeAgents = userRepository.findAllActiveAgents();
             }
-        }
-
-        // Determine which cases to allocate
-        List<Long> unallocatedCaseIds;
-
-        if (request.getCaseIds() != null && !request.getCaseIds().isEmpty()) {
-            // Use provided case IDs from simulate response
-            unallocatedCaseIds = request.getCaseIds();
-            log.info("Using {} provided case IDs from request", unallocatedCaseIds.size());
-
-            // Validate that provided cases exist and are unallocated
-            List<com.finx.allocationreallocationservice.domain.entity.Case> requestedCases = caseReadRepository
-                    .findAllById(unallocatedCaseIds);
-
-            if (requestedCases.size() != unallocatedCaseIds.size()) {
-                throw new ValidationException("caseIds", "Some provided case IDs do not exist");
+            agents = activeAgents.stream().map(this::mapToUserDTO).collect(Collectors.toList());
+            log.info("CAPACITY_BASED rule - auto-detected {} agents for allocation", agents.size());
+        } else if (isGeographyBased) {
+            // GEOGRAPHY: auto-detect agents matching the geography filters
+            if (!hasGeoFilters) {
+                throw new ValidationException("geography", "GEOGRAPHY rule must have at least one geography filter (states or cities)");
             }
-
-            // Verify all cases are unallocated
-            for (com.finx.allocationreallocationservice.domain.entity.Case caseEntity : requestedCases) {
-                if (caseEntity.getAllocatedToUserId() != null) {
-                    throw new ValidationException("caseIds",
-                            "Case ID " + caseEntity.getId() + " is already allocated");
-                }
-            }
+            List<String> lowerStates = (states != null && !states.isEmpty()) ? states.stream().map(String::toLowerCase).collect(Collectors.toList()) : null;
+            List<String> lowerCities = (cities != null && !cities.isEmpty()) ? cities.stream().map(String::toLowerCase).collect(Collectors.toList()) : null;
+            List<User> matchingAgents = userRepository.findByGeographyFiltersIgnoreCase(lowerStates, lowerCities);
+            agents = matchingAgents.stream().map(this::mapToUserDTO).collect(Collectors.toList());
+            log.info("GEOGRAPHY rule - auto-detected {} agents matching geography", agents.size());
         } else {
-            // Fetch all matching unallocated cases based on rule criteria
-            List<com.finx.allocationreallocationservice.domain.entity.Case> matchingCases = getUnallocatedCasesMatchingFilters(
-                    geographies, buckets);
-
-            unallocatedCaseIds = matchingCases.stream()
-                    .map(com.finx.allocationreallocationservice.domain.entity.Case::getId)
-                    .collect(Collectors.toList());
-
-            log.info("Fetched {} unallocated cases matching rule criteria", unallocatedCaseIds.size());
+            throw new ValidationException("ruleType", "Invalid rule type: " + ruleType + ". Must be GEOGRAPHY or CAPACITY_BASED");
         }
+
+        if (agents.isEmpty()) {
+            throw new BusinessException("No eligible agents found for allocation");
+        }
+
+        // Fetch all matching unallocated cases based on rule criteria
+        List<com.finx.allocationreallocationservice.domain.entity.Case> matchingCases;
+
+        if (isCapacityBased && !hasGeoFilters) {
+            // CAPACITY_BASED without geography: get ALL unallocated cases
+            matchingCases = caseReadRepository.findAllUnallocatedCases();
+            log.info("CAPACITY_BASED rule - fetching ALL unallocated cases");
+        } else {
+            // Use geography filtering
+            matchingCases = getUnallocatedCasesMatchingGeoFilters(states, cities);
+        }
+
+        List<Long> unallocatedCaseIds = matchingCases.stream()
+                .map(com.finx.allocationreallocationservice.domain.entity.Case::getId)
+                .collect(Collectors.toList());
+
+        log.info("Fetched {} unallocated cases matching rule criteria", unallocatedCaseIds.size());
 
         if (unallocatedCaseIds.isEmpty()) {
             throw new BusinessException("No unallocated cases available for allocation");
         }
 
-        int maxCases = request.getMaxCases() != null ? request.getMaxCases() : unallocatedCaseIds.size();
-        int casesToAllocate = Math.min(maxCases, unallocatedCaseIds.size());
+        int casesToAllocate = unallocatedCaseIds.size();
 
-        log.info("Found {} unallocated cases, allocating {} cases to {} agents",
-                unallocatedCaseIds.size(), casesToAllocate, agents.size());
+        log.info("Found {} unallocated cases, allocating all to {} agents",
+                unallocatedCaseIds.size(), agents.size());
 
         // Fetch case entities to get geography codes
         List<com.finx.allocationreallocationservice.domain.entity.Case> cases = caseReadRepository
@@ -1376,19 +1433,9 @@ public class AllocationServiceImpl implements AllocationService {
                         com.finx.allocationreallocationservice.domain.entity.Case::getId,
                         c -> c));
 
-        // Allocate cases based on rule type
-        List<AllocationRuleExecutionResponseDTO.AllocationResultDTO> results;
-        if ("PERCENTAGE_SPLIT".equals(ruleType)) {
-            results = allocateByPercentage(unallocatedCaseIds, agents, request.getPercentages(), casesToAllocate,
-                    ruleId, rule.getName(), caseMap);
-        } else if ("CAPACITY_BASED".equals(ruleType)) {
-            results = allocateByCapacity(unallocatedCaseIds, agents, casesToAllocate, ruleId, rule.getName(), caseMap);
-        } else if ("GEOGRAPHY".equals(ruleType)) {
-            results = allocateByGeography(unallocatedCaseIds, agents, casesToAllocate, ruleId, rule.getName(), caseMap);
-        } else {
-            // Default to equal distribution
-            results = allocateEqually(unallocatedCaseIds, agents, casesToAllocate, ruleId, rule.getName(), caseMap);
-        }
+        // Both GEOGRAPHY and CAPACITY_BASED use capacity-based distribution with equalization
+        List<AllocationRuleExecutionResponseDTO.AllocationResultDTO> results =
+                allocateByCapacity(unallocatedCaseIds, agents, casesToAllocate, ruleId, rule.getName(), caseMap);
 
         int totalAllocated = results.stream()
                 .mapToInt(AllocationRuleExecutionResponseDTO.AllocationResultDTO::getAllocated)
@@ -1403,6 +1450,9 @@ public class AllocationServiceImpl implements AllocationService {
         saveAuditLog("ALLOCATION_RULE", ruleId, "APPLY",
                 Map.of("previousStatus", "READY_FOR_APPLY"),
                 Map.of("status", "ACTIVE", "totalCasesAllocated", totalAllocated));
+
+        // Evict unallocated cases cache in case-sourcing-service
+        evictCaseSourcingCache();
 
         return AllocationRuleExecutionResponseDTO.builder()
                 .ruleId(ruleId)
@@ -1456,6 +1506,11 @@ public class AllocationServiceImpl implements AllocationService {
                 log.error("Failed to deallocate case {}: {}", caseId, e.getMessage());
                 failed++;
             }
+        }
+
+        // Evict unallocated cases cache after bulk deallocation
+        if (successful > 0) {
+            evictCaseSourcingCache();
         }
 
         return BulkDeallocationResponseDTO.builder()
@@ -1527,6 +1582,61 @@ public class AllocationServiceImpl implements AllocationService {
                 .collect(Collectors.toList());
     }
 
+    @Override
+    public List<CaseAllocationDTO> getAllAllocatedCases(Long agentId, String geography, int page, int size) {
+        log.info("Fetching all allocated cases - agentId: {}, geography: {}, page: {}, size: {}",
+                agentId, geography, page, size);
+
+        // Get all ALLOCATED cases from case_allocations table
+        List<CaseAllocation> allocations = caseAllocationRepository.findAll().stream()
+                .filter(alloc -> alloc.getStatus() == AllocationStatus.ALLOCATED)
+                .filter(alloc -> agentId == null || alloc.getPrimaryAgentId().equals(agentId))
+                .filter(alloc -> geography == null || geography.isEmpty() ||
+                        (alloc.getGeographyCode() != null && alloc.getGeographyCode().toLowerCase().contains(geography.toLowerCase())))
+                .sorted((a, b) -> b.getAllocatedAt().compareTo(a.getAllocatedAt())) // Latest first
+                .skip((long) page * size)
+                .limit(size)
+                .collect(Collectors.toList());
+
+        // Map to DTOs with agent details
+        return allocations.stream()
+                .map(alloc -> {
+                    // Get primary agent details
+                    CaseAllocationDTO.AgentDTO primaryAgent = null;
+                    if (alloc.getPrimaryAgentId() != null) {
+                        User user = userRepository.findById(alloc.getPrimaryAgentId()).orElse(null);
+                        if (user != null) {
+                            primaryAgent = CaseAllocationDTO.AgentDTO.builder()
+                                    .userId(user.getId())
+                                    .username(user.getUsername() != null ? user.getUsername() :
+                                            (user.getFirstName() + " " + user.getLastName()))
+                                    .build();
+                        }
+                    }
+
+                    // Get secondary agent details if exists
+                    CaseAllocationDTO.AgentDTO secondaryAgent = null;
+                    if (alloc.getSecondaryAgentId() != null) {
+                        User user = userRepository.findById(alloc.getSecondaryAgentId()).orElse(null);
+                        if (user != null) {
+                            secondaryAgent = CaseAllocationDTO.AgentDTO.builder()
+                                    .userId(user.getId())
+                                    .username(user.getUsername() != null ? user.getUsername() :
+                                            (user.getFirstName() + " " + user.getLastName()))
+                                    .build();
+                        }
+                    }
+
+                    return CaseAllocationDTO.builder()
+                            .caseId(alloc.getCaseId())
+                            .primaryAgent(primaryAgent)
+                            .secondaryAgent(secondaryAgent)
+                            .allocatedAt(alloc.getAllocatedAt())
+                            .build();
+                })
+                .collect(Collectors.toList());
+    }
+
     private AllocationBatchDTO mapToAllocationBatchDTO(AllocationBatch batch) {
         return AllocationBatchDTO.builder()
                 .batchId(batch.getBatchId())
@@ -1538,5 +1648,55 @@ public class AllocationServiceImpl implements AllocationService {
                 .uploadedAt(batch.getUploadedAt())
                 .completedAt(batch.getCompletedAt())
                 .build();
+    }
+
+    /**
+     * Evict unallocated cases cache in case-sourcing-service.
+     * Called after allocation/deallocation to ensure the unallocated cases list is refreshed.
+     */
+    private void evictCaseSourcingCache() {
+        try {
+            caseSourcingServiceClient.evictUnallocatedCasesCache();
+            log.info("Successfully evicted unallocated cases cache in case-sourcing-service");
+        } catch (Exception e) {
+            // Log error but don't fail the allocation - cache will eventually be refreshed by TTL
+            log.warn("Failed to evict unallocated cases cache in case-sourcing-service: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Update cases table to reflect allocation status.
+     * Sets case_status = 'ALLOCATED' and updates allocated_to_user_id.
+     */
+    private void updateCasesTableForAllocation(List<CaseAllocation> allocations) {
+        if (allocations.isEmpty()) {
+            return;
+        }
+
+        log.info("Updating cases table for {} allocations", allocations.size());
+
+        String updateSql = "UPDATE cases SET allocated_to_user_id = ?, allocated_at = ?, " +
+                "case_status = 'ALLOCATED', updated_at = NOW() WHERE id = ?";
+
+        int updatedCount = 0;
+        for (CaseAllocation allocation : allocations) {
+            try {
+                int rowsAffected = jdbcTemplate.update(
+                        updateSql,
+                        allocation.getPrimaryAgentId(),
+                        allocation.getAllocatedAt(),
+                        allocation.getCaseId());
+
+                if (rowsAffected > 0) {
+                    updatedCount++;
+                } else {
+                    log.warn("Case {} not found in cases table for allocation update", allocation.getCaseId());
+                }
+            } catch (Exception e) {
+                log.error("Failed to update cases table for case {}: {}", allocation.getCaseId(), e.getMessage());
+            }
+        }
+
+        log.info("Successfully updated {} out of {} cases in cases table", updatedCount, allocations.size());
     }
 }

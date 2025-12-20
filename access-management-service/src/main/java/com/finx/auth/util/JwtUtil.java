@@ -1,5 +1,6 @@
 package com.finx.auth.util;
 
+import com.finx.auth.service.TokenBlacklistService;
 import com.finx.common.constants.CacheConstants;
 import com.finx.common.service.ConfigCacheService;
 import io.jsonwebtoken.*;
@@ -28,8 +29,16 @@ import java.util.Map;
 public class JwtUtil {
 
     private final ConfigCacheService configCacheService;
+    private TokenBlacklistService tokenBlacklistService;
 
     private SecretKey key;
+
+    /**
+     * Set token blacklist service (injected after construction to avoid circular dependency)
+     */
+    public void setTokenBlacklistService(TokenBlacklistService tokenBlacklistService) {
+        this.tokenBlacklistService = tokenBlacklistService;
+    }
 
     // Configuration Keys
 
@@ -115,10 +124,17 @@ public class JwtUtil {
 
     /**
      * Validate token and return claims
+     * Also checks if token is blacklisted
      */
     public Claims validateToken(String token) {
         try {
-                    return Jwts.parser()
+            // First check if token is blacklisted
+            if (tokenBlacklistService != null && tokenBlacklistService.isTokenBlacklisted(token)) {
+                log.error("JWT token is blacklisted (user logged out)");
+                throw new RuntimeException("Token has been revoked");
+            }
+
+            return Jwts.parser()
                     .verifyWith(key)
                     .build()
                     .parseSignedClaims(token)

@@ -1,11 +1,12 @@
 package com.finx.masterdataservice.service.impl;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.finx.masterdataservice.constants.CacheConstants;
 import com.finx.masterdataservice.exception.BusinessException;
 import com.finx.masterdataservice.exception.ValidationException;
+import com.finx.masterdataservice.domain.dto.CategorySummaryDTO;
+import com.finx.masterdataservice.domain.dto.CreateMasterDataRequest;
 import com.finx.masterdataservice.domain.dto.MasterDataDTO;
+import com.finx.masterdataservice.domain.dto.MasterDataResponse;
 import com.finx.masterdataservice.domain.entity.MasterData;
 import com.finx.masterdataservice.mapper.MasterDataMapper;
 import com.finx.masterdataservice.repository.MasterDataRepository;
@@ -115,11 +116,10 @@ public class MasterDataServiceImpl implements MasterDataService {
 
             String code = rowData.get("code");
             String value = rowData.get("value");
-            String parentCode = rowData.get("parentCode");
 
             boolean rowHasError = false;
 
-            log.info("Row {}: Raw code='{}', Raw value='{}', Raw parentCode='{}'", rowNum, code, value, parentCode);
+            log.info("Row {}: Raw code='{}', Raw value='{}'", rowNum, code, value);
 
             if (code == null || code.isEmpty()) {
                 errors.add(createErrorMap(rowNum, "code", "Code cannot be empty"));
@@ -143,7 +143,6 @@ public class MasterDataServiceImpl implements MasterDataService {
 
             masterData.setCode(code);
             masterData.setValue(value);
-            masterData.setParentCode(parentCode);
             log.info("Processing row {}: dataType={}, code={}, value={}", rowNum, masterData.getDataType(),
                     masterData.getCode(), masterData.getValue());
 
@@ -167,19 +166,6 @@ public class MasterDataServiceImpl implements MasterDataService {
                 }
             } else {
                 masterData.setDisplayOrder(0);
-            }
-
-            String metadataStr = rowData.get("metadata");
-            if (metadataStr != null && !metadataStr.trim().isEmpty()) {
-                try {
-                    Map<String, Object> metadata = new ObjectMapper().readValue(metadataStr,
-                            new TypeReference<Map<String, Object>>() {
-                            });
-                    masterData.setMetadata(metadata);
-                } catch (Exception e) {
-                    errors.add(createErrorMap(rowNum, "metadata", "Invalid JSON format for metadata."));
-                    rowHasError = true;
-                }
             }
 
             if (!rowHasError) {
@@ -296,12 +282,11 @@ public class MasterDataServiceImpl implements MasterDataService {
             String categoryType = rowData.get("categoryType");
             String code = rowData.get("code");
             String value = rowData.get("value");
-            String parentCode = rowData.get("parentCode");
 
             boolean rowHasError = false;
 
-            log.info("Row {}: Raw categoryType='{}', Raw code='{}', Raw value='{}', Raw parentCode='{}'", rowNum,
-                    categoryType, code, value, parentCode);
+            log.info("Row {}: Raw categoryType='{}', Raw code='{}', Raw value='{}'", rowNum,
+                    categoryType, code, value);
 
             if (categoryType == null || categoryType.isEmpty()) {
                 errors.add(createErrorMap(rowNum, "categoryType", "CategoryType cannot be empty"));
@@ -330,7 +315,6 @@ public class MasterDataServiceImpl implements MasterDataService {
             masterData.setDataType(categoryType);
             masterData.setCode(code);
             masterData.setValue(value);
-            masterData.setParentCode(parentCode);
             log.info("Processing row {}: dataType={}, code={}, value={}", rowNum, masterData.getDataType(),
                     masterData.getCode(), masterData.getValue());
             // Data Type Validation for isActive
@@ -353,19 +337,6 @@ public class MasterDataServiceImpl implements MasterDataService {
                 }
             } else {
                 masterData.setDisplayOrder(0);
-            }
-
-            String metadataStr = rowData.get("metadata");
-            if (metadataStr != null && !metadataStr.trim().isEmpty()) {
-                try {
-                    Map<String, Object> metadata = new ObjectMapper().readValue(metadataStr,
-                            new TypeReference<Map<String, Object>>() {
-                            });
-                    masterData.setMetadata(metadata);
-                } catch (Exception e) {
-                    errors.add(createErrorMap(rowNum, "metadata", "Invalid JSON format for metadata."));
-                    rowHasError = true;
-                }
             }
 
             if (!rowHasError) {
@@ -420,10 +391,8 @@ public class MasterDataServiceImpl implements MasterDataService {
 
         // Update fields
         existingMasterData.setValue(masterDataDTO.getValue());
-        existingMasterData.setParentCode(masterDataDTO.getParentCode());
         existingMasterData.setIsActive(masterDataDTO.getIsActive());
         existingMasterData.setDisplayOrder(masterDataDTO.getDisplayOrder());
-        existingMasterData.setMetadata(masterDataDTO.getMetadata());
 
         MasterData updatedMasterData = masterDataRepository.save(existingMasterData);
         return masterDataMapper.toDto(updatedMasterData);
@@ -437,5 +406,60 @@ public class MasterDataServiceImpl implements MasterDataService {
             throw new BusinessException("Master data with type '" + type + "' not found.");
         }
         masterDataRepository.deleteByDataType(type);
+    }
+
+    @Override
+    @Transactional
+    @CacheEvict(value = CacheConstants.MASTER_DATA_CACHE, allEntries = true)
+    public MasterDataDTO createMasterData(CreateMasterDataRequest request) {
+        log.info("Creating master data with categoryType: {}, code: {}", request.getCategoryType(), request.getCode());
+
+        // Validate required fields
+        if (request.getCategoryType() == null || request.getCategoryType().trim().isEmpty()) {
+            throw new ValidationException("Category type is required");
+        }
+        if (request.getCode() == null || request.getCode().trim().isEmpty()) {
+            throw new ValidationException("Code is required");
+        }
+        if (request.getValue() == null || request.getValue().trim().isEmpty()) {
+            throw new ValidationException("Value is required");
+        }
+
+        // Check for duplicate
+        if (masterDataRepository.existsByDataTypeAndCode(request.getCategoryType(), request.getCode())) {
+            throw new BusinessException("Master data with category type '" + request.getCategoryType()
+                    + "' and code '" + request.getCode() + "' already exists");
+        }
+
+        MasterData masterData = new MasterData();
+        masterData.setDataType(request.getCategoryType());
+        masterData.setCode(request.getCode());
+        masterData.setValue(request.getValue());
+        masterData.setDisplayOrder(request.getDisplayOrder() != null ? request.getDisplayOrder() : 0);
+        masterData.setIsActive(request.getIsActive() != null ? request.getIsActive() : true);
+
+        MasterData savedMasterData = masterDataRepository.save(masterData);
+        log.info("Master data created successfully with id: {}", savedMasterData.getId());
+
+        return masterDataMapper.toDto(savedMasterData);
+    }
+
+    @Override
+    public MasterDataResponse getAllMasterData() {
+        log.info("Fetching all master data categories with counts and status");
+
+        // Get category counts with status
+        List<Object[]> countResults = masterDataRepository.findCategoryWiseCountsWithStatus();
+        List<CategorySummaryDTO> categories = countResults.stream()
+                .map(row -> CategorySummaryDTO.builder()
+                        .categoryName((String) row[0])
+                        .count((Long) row[1])
+                        .status((String) row[2])
+                        .build())
+                .collect(Collectors.toList());
+
+        return MasterDataResponse.builder()
+                .categories(categories)
+                .build();
     }
 }

@@ -1,0 +1,75 @@
+server:
+  port: 8093
+
+spring:
+  application:
+    name: dms-service
+
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/development_db}
+    username: ${SPRING_DATASOURCE_USERNAME:admin}
+    password: ${SPRING_DATASOURCE_PASSWORD:password}
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+
+  flyway:
+    enabled: false
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      username: ${REDIS_USERNAME:}
+      password: ${REDIS_PASSWORD:}
+      ssl:
+        enabled: ${REDIS_SSL_ENABLED:false}
+
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
+
+  cache:
+    type: redis
+    redis:
+      time-to-live: 3600000
+
+# Document settings
+# OVH S3 configuration is loaded from third_party_integration_master table
+document:
+  allowed-types: pdf,jpg,jpeg,png,doc,docx,xls,xlsx,txt
+  max-size-mb: 50
+  retention-days: 365
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: when_authorized
+
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
+logging:
+  level:
+    root: ${LOGGING_LEVEL_ROOT:INFO}
+    com.finx.dmsservice: ${LOGGING_LEVEL_FINX:DEBUG}
+    org.springframework.cache: ${LOGGING_LEVEL_CACHE:WARN}
+    org.springframework.data.redis: ${LOGGING_LEVEL_REDIS:WARN}
+    io.lettuce.core: ${LOGGING_LEVEL_LETTUCE:WARN}
+    io.lettuce.core.protocol: WARN
+    org.hibernate.SQL: ${LOGGING_LEVEL_HIBERNATE_SQL:INFO}

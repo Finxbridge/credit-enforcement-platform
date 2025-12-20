@@ -1,9 +1,11 @@
 package com.finx.management.service.impl;
 
 import com.finx.common.constants.CacheConstants;
+import com.finx.management.domain.dto.AgencyDropdownDTO;
 import com.finx.management.domain.dto.CreateUserRequest;
 import com.finx.management.domain.dto.UpdateUserRequest;
 import com.finx.management.domain.dto.UserDTO;
+import com.finx.management.domain.dto.UserListDTO;
 import com.finx.management.domain.dto.UserPermissionDTO;
 import com.finx.management.domain.entity.Role;
 import com.finx.management.domain.entity.User;
@@ -12,6 +14,7 @@ import com.finx.management.exception.BusinessException;
 import com.finx.management.exception.ConflictException;
 import com.finx.management.exception.ResourceNotFoundException;
 import com.finx.management.mapper.UserMapper;
+import com.finx.management.repository.AgencyRepository;
 import com.finx.management.repository.ManagementRoleRepository;
 import com.finx.management.repository.UserGroupRepository;
 import com.finx.management.repository.UserRepository;
@@ -38,12 +41,13 @@ public class UserServiceImpl implements UserService {
     private final UserRepository userRepository;
     private final UserGroupRepository userGroupRepository;
     private final ManagementRoleRepository managementRoleRepository;
+    private final AgencyRepository agencyRepository;
     private final UserMapper userMapper;
     private final PasswordEncoder passwordEncoder;
 
     @SuppressWarnings("null")
     @Override
-    public Page<UserDTO> getAllUsers(Pageable pageable, String search, String status) {
+    public Page<UserListDTO> getAllUsers(Pageable pageable, String search, String status) {
         Specification<User> spec = Specification.where(null);
 
         if (search != null && !search.trim().isEmpty()) {
@@ -63,7 +67,8 @@ public class UserServiceImpl implements UserService {
             }
         }
 
-        return userRepository.findAll(spec, pageable).map(userMapper::toDto);
+        // Use simplified toListDto to avoid fetching roles/permissions (N+1 query issue)
+        return userRepository.findAll(spec, pageable).map(userMapper::toListDto);
     }
 
     @SuppressWarnings("null")
@@ -106,6 +111,20 @@ public class UserServiceImpl implements UserService {
             if (roles.size() != request.getRoleIds().size()) {
                 throw new BusinessException("One or more role IDs are invalid");
             }
+
+            // Validate agency_id is mandatory for AGENT role
+            boolean hasAgentRole = roles.stream()
+                    .anyMatch(role -> "AGENT".equals(role.getRoleCode()));
+
+            if (hasAgentRole) {
+                if (request.getAgencyId() == null) {
+                    throw new BusinessException("Agency ID is mandatory when assigning AGENT role");
+                }
+                user.setAgencyId(request.getAgencyId());
+            } else if (request.getAgencyId() != null) {
+                throw new BusinessException("Agency ID should only be set for users with AGENT role");
+            }
+
             user.setRoles(roles);
         }
 
@@ -151,9 +170,27 @@ public class UserServiceImpl implements UserService {
             if (roles.size() != request.getRoleIds().size()) {
                 throw new BusinessException("One or more role IDs are invalid");
             }
+
+            // Validate agency_id is mandatory for AGENT role
+            boolean hasAgentRole = roles.stream()
+                    .anyMatch(role -> "AGENT".equals(role.getRoleCode()));
+
+            if (hasAgentRole) {
+                // Use existing agency_id if not provided in update request
+                Long agencyId = request.getAgencyId() != null ? request.getAgencyId() : user.getAgencyId();
+                if (agencyId == null) {
+                    throw new BusinessException("Agency ID is mandatory when assigning AGENT role");
+                }
+                user.setAgencyId(agencyId);
+            } else {
+                // Clear agency_id if user no longer has AGENT role
+                user.setAgencyId(null);
+            }
+
             user.setRoles(roles);
         } else if (request.getRoleIds() != null && request.getRoleIds().isEmpty()) {
             user.setRoles(new HashSet<>());
+            user.setAgencyId(null); // Clear agency if no roles
         }
 
         User updatedUser = userRepository.save(user);
@@ -173,7 +210,8 @@ public class UserServiceImpl implements UserService {
     @Override
     @Cacheable(value = CacheConstants.USER_PERMISSIONS, key = "#userId")
     public List<UserPermissionDTO> getUserPermissions(Long userId) {
-        User user = userRepository.findById(userId)
+        // Use optimized query that fetches roles and permissions in single query
+        User user = userRepository.findByIdWithRolesAndPermissions(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User", "id", userId));
 
         return user.getRoles().stream()
@@ -188,6 +226,17 @@ public class UserServiceImpl implements UserService {
                     return dto;
                 })
                 .distinct()
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public List<AgencyDropdownDTO> getApprovedAgenciesForDropdown() {
+        return agencyRepository.findAllApprovedAgencies().stream()
+                .map(agency -> AgencyDropdownDTO.builder()
+                        .id(agency.getId())
+                        .agencyCode(agency.getAgencyCode())
+                        .agencyName(agency.getAgencyName())
+                        .build())
                 .collect(Collectors.toList());
     }
 }

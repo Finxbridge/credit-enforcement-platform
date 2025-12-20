@@ -2,13 +2,13 @@ package com.finx.communication.service.notice;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.finx.common.service.IntegrationCacheService;
+import com.finx.communication.service.IntegrationCacheService;
 import com.finx.communication.domain.dto.notice.NoticeDispatchRequest;
 import com.finx.communication.domain.dto.notice.NoticeDispatchResponse;
-import com.finx.common.model.ThirdPartyIntegrationMaster;
-import com.finx.common.exception.ApiCallException;
-import com.finx.common.exception.ConfigurationNotFoundException;
-import com.finx.common.util.EncryptionUtil;
+import com.finx.communication.domain.model.ThirdPartyIntegrationMaster;
+import com.finx.communication.exception.ApiCallException;
+import com.finx.communication.exception.ConfigurationNotFoundException;
+import com.finx.communication.util.EncryptionUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;

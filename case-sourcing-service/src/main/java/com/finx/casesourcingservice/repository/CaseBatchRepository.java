@@ -53,4 +53,9 @@ public interface CaseBatchRepository extends JpaRepository<CaseBatch, Long> {
                      "GROUP BY cb.sourceType")
        List<Object[]> getSourceWiseIntakeStats(@Param("startDate") LocalDateTime startDate,
                      @Param("endDate") LocalDateTime endDate);
+
+       // Find all batches with optional status filter
+       Page<CaseBatch> findByStatusOrderByCreatedAtDesc(
+                     com.finx.casesourcingservice.domain.enums.BatchStatus status,
+                     Pageable pageable);
 }
