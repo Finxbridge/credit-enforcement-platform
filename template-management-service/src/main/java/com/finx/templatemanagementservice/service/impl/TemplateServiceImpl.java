@@ -2,6 +2,7 @@ package com.finx.templatemanagementservice.service.impl;
 
 import com.finx.templatemanagementservice.client.CommunicationServiceClient;
 import com.finx.templatemanagementservice.client.DmsServiceClient;
+import com.finx.templatemanagementservice.client.WhatsAppMediaUploadClient;
 import com.finx.templatemanagementservice.client.dto.DmsDocumentDTO;
 import com.finx.templatemanagementservice.domain.dto.*;
 import com.finx.templatemanagementservice.domain.dto.comm.EmailTemplateCreateRequest;
@@ -9,6 +10,7 @@ import com.finx.templatemanagementservice.domain.dto.comm.SmsAddTemplateVersionR
 import com.finx.templatemanagementservice.domain.dto.comm.SmsCreateTemplateRequest;
 import com.finx.templatemanagementservice.domain.dto.comm.WhatsAppCreateTemplateRequest;
 import com.finx.templatemanagementservice.domain.dto.comm.WhatsAppEditTemplateRequest;
+import com.finx.templatemanagementservice.domain.dto.comm.WhatsAppMediaUploadResponse;
 import com.finx.templatemanagementservice.domain.entity.Template;
 import com.finx.templatemanagementservice.domain.entity.TemplateContent;
 import com.finx.templatemanagementservice.domain.entity.TemplateVariable;
@@ -52,6 +54,7 @@ public class TemplateServiceImpl implements TemplateService {
     private final TemplateVariableRepository templateVariableRepository;
     private final TemplateContentRepository templateContentRepository;
     private final CommunicationServiceClient communicationServiceClient;
+    private final WhatsAppMediaUploadClient whatsAppMediaUploadClient;
     private final DmsServiceClient dmsServiceClient;
     private final FileStorageService fileStorageService;
     private final DocumentProcessingService documentProcessingService;
@@ -293,6 +296,7 @@ public class TemplateServiceImpl implements TemplateService {
 
     /**
      * Sync WhatsApp template with MSG91 via communication-service
+     * Handles both templates with and without documents
      */
     private void syncWhatsAppTemplate(Template template, TemplateContent content) {
         log.info("Syncing WhatsApp template: {}", template.getTemplateName());
@@ -310,6 +314,28 @@ public class TemplateServiceImpl implements TemplateService {
 
         // Build components based on template content
         List<WhatsAppCreateTemplateRequest.TemplateComponent> components = new ArrayList<>();
+
+        // Check if template has a document attached - if so, add HEADER component with DOCUMENT format
+        String headerHandle = null;
+        if (template.getDmsDocumentId() != null && !template.getDmsDocumentId().isEmpty()) {
+            log.info("Template has document attached (dmsDocumentId={}). Uploading to MSG91...",
+                    template.getDmsDocumentId());
+            headerHandle = uploadDocumentToMsg91ForTemplate(template);
+
+            if (headerHandle != null) {
+                // Add HEADER component with DOCUMENT format
+                WhatsAppCreateTemplateRequest.TemplateComponent headerComponent =
+                        WhatsAppCreateTemplateRequest.TemplateComponent.builder()
+                                .type("HEADER")
+                                .format("DOCUMENT")
+                                .example(WhatsAppCreateTemplateRequest.ComponentExample.builder()
+                                        .headerHandle(List.of(headerHandle))
+                                        .build())
+                                .build();
+                components.add(headerComponent);
+                log.info("Added DOCUMENT header component with header_handle: {}", headerHandle);
+            }
+        }
 
         // Build body component with example sample values
         WhatsAppCreateTemplateRequest.TemplateComponent.TemplateComponentBuilder bodyBuilder =
@@ -352,6 +378,165 @@ public class TemplateServiceImpl implements TemplateService {
                 log.info("Stored MSG91 template name: {} for template: {}", msg91TemplateName, template.getTemplateName());
             }
             log.info("WhatsApp template synced successfully: {}", response.getPayload());
+        }
+    }
+
+    /**
+     * Sync WhatsApp template with document - uses provided document bytes directly
+     * This avoids re-downloading the document from DMS
+     *
+     * @param template The template entity (must have content loaded)
+     * @param documentBytes The document file bytes
+     * @param filename The original filename
+     * @param contentType The content type (e.g., application/pdf)
+     */
+    private void syncWhatsAppWithDocument(Template template, byte[] documentBytes, String filename, String contentType) {
+        log.info("Syncing WhatsApp template with document: {}", template.getTemplateName());
+
+        // Get content from template
+        TemplateContent content = template.getContents() != null && !template.getContents().isEmpty()
+                ? template.getContents().iterator().next()
+                : null;
+
+        if (content == null) {
+            throw new BusinessException("Template content is required for WhatsApp sync");
+        }
+
+        // Convert template name to MSG91 format (lowercase with underscores only)
+        String msg91TemplateName = convertToMsg91TemplateName(template.getTemplateName());
+
+        // Convert {{variableName}} to {{1}}, {{2}}, etc. for MSG91 WhatsApp format
+        List<String> extractedVariables = new ArrayList<>();
+        String msg91Content = convertToWhatsAppNumberedFormat(content.getContent(), extractedVariables);
+
+        // Generate sample values based on extracted variable names
+        List<String> sampleValues = generateSampleValuesForVariables(extractedVariables);
+
+        // Build components based on template content
+        List<WhatsAppCreateTemplateRequest.TemplateComponent> components = new ArrayList<>();
+
+        // Upload document to MSG91 to get header_handle
+        String headerHandle = null;
+        if (documentBytes != null && documentBytes.length > 0) {
+            log.info("Uploading document to MSG91: filename={}, size={}, contentType={}",
+                    filename, documentBytes.length, contentType);
+
+            CommonResponse<WhatsAppMediaUploadResponse> uploadResponse =
+                    whatsAppMediaUploadClient.uploadMedia(documentBytes, filename, contentType);
+
+            if (uploadResponse != null && "success".equals(uploadResponse.getStatus()) && uploadResponse.getPayload() != null) {
+                headerHandle = uploadResponse.getPayload().getHeaderHandle();
+                log.info("Document uploaded to MSG91. header_handle: {}", headerHandle);
+            } else {
+                log.error("Failed to upload document to MSG91: {}",
+                        uploadResponse != null ? uploadResponse.getMessage() : "null response");
+            }
+        }
+
+        // Add HEADER component with DOCUMENT format if we got header_handle
+        if (headerHandle != null) {
+            WhatsAppCreateTemplateRequest.TemplateComponent headerComponent =
+                    WhatsAppCreateTemplateRequest.TemplateComponent.builder()
+                            .type("HEADER")
+                            .format("DOCUMENT")
+                            .example(WhatsAppCreateTemplateRequest.ComponentExample.builder()
+                                    .headerHandle(List.of(headerHandle))
+                                    .build())
+                            .build();
+            components.add(headerComponent);
+            log.info("Added DOCUMENT header component with header_handle");
+        }
+
+        // Build body component with example sample values
+        WhatsAppCreateTemplateRequest.TemplateComponent.TemplateComponentBuilder bodyBuilder =
+                WhatsAppCreateTemplateRequest.TemplateComponent.builder()
+                        .type("BODY")
+                        .text(msg91Content);
+
+        if (!sampleValues.isEmpty()) {
+            WhatsAppCreateTemplateRequest.ComponentExample example =
+                    WhatsAppCreateTemplateRequest.ComponentExample.builder()
+                            .bodyText(List.of(sampleValues))
+                            .build();
+            bodyBuilder.example(example);
+        }
+
+        components.add(bodyBuilder.build());
+
+        // Use template's language short code
+        String languageCode = template.getLanguage() != null
+                ? template.getLanguage().getShortCode()
+                : "en_US";
+
+        WhatsAppCreateTemplateRequest request = WhatsAppCreateTemplateRequest.builder()
+                .templateName(msg91TemplateName)
+                .language(languageCode)
+                .category("UTILITY")
+                .components(components)
+                .build();
+
+        CommonResponse<Map<String, Object>> response = communicationServiceClient.createWhatsAppTemplate(request);
+
+        if (response != null && response.getPayload() != null) {
+            if (template.getProviderTemplateId() == null) {
+                template.setProviderTemplateId(msg91TemplateName);
+                templateRepository.save(template);
+                log.info("Stored MSG91 template name: {} for template: {}", msg91TemplateName, template.getTemplateName());
+            }
+            log.info("WhatsApp template with document synced successfully: {}", response.getPayload());
+        }
+    }
+
+    /**
+     * Upload document from DMS to MSG91 to get header_handle for WhatsApp template
+     *
+     * @param template The template with dmsDocumentId
+     * @return The header_handle from MSG91, or null if upload failed
+     */
+    private String uploadDocumentToMsg91ForTemplate(Template template) {
+        try {
+            // Get document content from DMS
+            String dmsDocumentId = template.getDmsDocumentId();
+            log.info("Fetching document content from DMS: {}", dmsDocumentId);
+
+            // Get document metadata
+            CommonResponse<DmsDocumentDTO> docResponse = dmsServiceClient.getDocumentByDocumentId(dmsDocumentId);
+            if (docResponse == null || docResponse.getPayload() == null) {
+                log.error("Failed to get document metadata from DMS: {}", dmsDocumentId);
+                return null;
+            }
+
+            DmsDocumentDTO document = docResponse.getPayload();
+            String filename = document.getDocumentName() != null ? document.getDocumentName() : "document.pdf";
+            String contentType = document.getFileType() != null ? document.getFileType() : "application/pdf";
+
+            // Get document content bytes
+            byte[] documentBytes = dmsServiceClient.getDocumentContent(document.getId(), null);
+            if (documentBytes == null || documentBytes.length == 0) {
+                log.error("Failed to get document content from DMS: {}", dmsDocumentId);
+                return null;
+            }
+
+            log.info("Document fetched from DMS: filename={}, size={}, contentType={}",
+                    filename, documentBytes.length, contentType);
+
+            // Upload to MSG91 via communication-service
+            CommonResponse<WhatsAppMediaUploadResponse> uploadResponse =
+                    whatsAppMediaUploadClient.uploadMedia(documentBytes, filename, contentType);
+
+            if (uploadResponse != null && "success".equals(uploadResponse.getStatus()) && uploadResponse.getPayload() != null) {
+                String headerHandle = uploadResponse.getPayload().getHeaderHandle();
+                log.info("Document uploaded to MSG91. header_handle: {}", headerHandle);
+                return headerHandle;
+            } else {
+                log.error("Failed to upload document to MSG91: {}",
+                        uploadResponse != null ? uploadResponse.getMessage() : "null response");
+                return null;
+            }
+
+        } catch (Exception e) {
+            log.error("Error uploading document to MSG91 for template: {}", template.getTemplateName(), e);
+            return null;
         }
     }
 
@@ -465,27 +650,64 @@ public class TemplateServiceImpl implements TemplateService {
 
     /**
      * Sync Email template with MSG91 via communication-service
+     * Note: Body should be in HTML format, slug is set to same value as name
      */
     private void syncEmailTemplate(Template template, TemplateContent content) {
         log.info("Syncing Email template: {}", template.getTemplateName());
 
+        // Ensure body is HTML formatted - if plain text, wrap in basic HTML
+        String htmlBody = ensureHtmlFormat(content.getContent());
+
         EmailTemplateCreateRequest request = EmailTemplateCreateRequest.builder()
                 .name(template.getTemplateName())
+                .slug(template.getTemplateName()) // MSG91 requires slug same as name
                 .subject(content.getSubject() != null ? content.getSubject() : template.getTemplateName())
-                .body(content.getContent())
+                .body(htmlBody)
                 .build();
 
         CommonResponse<Map<String, Object>> response = communicationServiceClient.createEmailTemplate(request);
 
         if (response != null && response.getPayload() != null) {
             // Extract provider template ID from response if available
-            Object templateId = response.getPayload().get("id");
-            if (templateId != null && template.getProviderTemplateId() == null) {
-                template.setProviderTemplateId(templateId.toString());
-                templateRepository.save(template);
+            Object dataObj = response.getPayload().get("data");
+            if (dataObj instanceof Map) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> data = (Map<String, Object>) dataObj;
+                Object templateId = data.get("id");
+                if (templateId != null && template.getProviderTemplateId() == null) {
+                    template.setProviderTemplateId(templateId.toString());
+                    templateRepository.save(template);
+                }
             }
             log.info("Email template synced successfully: {}", response.getPayload());
         }
+    }
+
+    /**
+     * Ensure content is in HTML format for MSG91 email templates
+     * If content already has HTML tags, return as-is. Otherwise wrap in basic HTML structure.
+     */
+    private String ensureHtmlFormat(String content) {
+        if (content == null || content.isEmpty()) {
+            return content;
+        }
+
+        // Check if already has HTML tags (case-insensitive check for common HTML elements)
+        String lowerContent = content.toLowerCase();
+        if (lowerContent.contains("<html") || lowerContent.contains("<body") ||
+            lowerContent.contains("<div") || lowerContent.contains("<p>") ||
+            lowerContent.contains("<br") || lowerContent.contains("<table")) {
+            // Already HTML formatted
+            return content;
+        }
+
+        // Wrap plain text in basic HTML structure
+        // Convert newlines to <br> tags and wrap in paragraph
+        String htmlContent = content
+                .replace("\n\n", "</p><p>")
+                .replace("\n", "<br>");
+
+        return "<html><body><p>" + htmlContent + "</p></body></html>";
     }
 
     // ==================== Simplified API Methods ====================
@@ -553,10 +775,46 @@ public class TemplateServiceImpl implements TemplateService {
         template = templateRepository.save(template);
         log.info("Template created with id: {} (isActive: {})", template.getId(), template.getIsActive());
 
+        // For WhatsApp with document: Upload document to DMS FIRST before syncing with MSG91
+        // This is critical because syncWithProvider needs the dmsDocumentId to upload to MSG91
+        byte[] documentBytes = null;
+        String documentFilename = null;
+        String documentContentType = null;
+
+        if (document != null && !document.isEmpty()) {
+            if (request.getChannel() == ChannelType.SMS) {
+                log.warn("SMS channel does not support document attachment, ignoring document");
+            } else {
+                // Upload document to DMS and extract placeholders
+                // This sets dmsDocumentId on the template which is needed for WhatsApp document header
+                log.info("Uploading document to DMS before provider sync for channel: {}", request.getChannel());
+                uploadDocumentToDmsOnly(template, document);
+                template = templateRepository.save(template);
+                log.info("Document uploaded to DMS with documentId: {}", template.getDmsDocumentId());
+
+                // Store document bytes for WhatsApp MSG91 upload (avoid re-downloading from DMS)
+                if (request.getChannel() == ChannelType.WHATSAPP) {
+                    try {
+                        documentBytes = document.getBytes();
+                        documentFilename = document.getOriginalFilename();
+                        documentContentType = document.getContentType();
+                    } catch (Exception e) {
+                        log.warn("Failed to get document bytes for MSG91 upload: {}", e.getMessage());
+                    }
+                }
+            }
+        }
+
         // Auto-sync with provider (SMS, WhatsApp, Email) via communication-service
+        // For WhatsApp: If document was uploaded, syncWithProvider will upload to MSG91 and add HEADER component
         if (requiresProviderSync) {
             try {
-                syncWithProvider(template.getId());
+                // For WhatsApp with document, pass the document bytes directly to avoid re-downloading from DMS
+                if (request.getChannel() == ChannelType.WHATSAPP && documentBytes != null) {
+                    syncWhatsAppWithDocument(template, documentBytes, documentFilename, documentContentType);
+                } else {
+                    syncWithProvider(template.getId());
+                }
                 // Sync successful - mark template as ACTIVE
                 template.setIsActive(true);
                 template = templateRepository.save(template);
@@ -564,16 +822,6 @@ public class TemplateServiceImpl implements TemplateService {
             } catch (Exception e) {
                 log.warn("Failed to sync template with provider: {}. Template remains INACTIVE until sync succeeds.", e.getMessage());
                 // Template stays INACTIVE - user needs to retry sync or manually activate after fixing provider issues
-            }
-        }
-
-        // If document is provided and channel supports it
-        if (document != null && !document.isEmpty()) {
-            if (request.getChannel() == ChannelType.SMS) {
-                log.warn("SMS channel does not support document attachment, ignoring document");
-            } else {
-                // Upload document and extract placeholders
-                return uploadDocumentAndExtractPlaceholders(template.getId(), document);
             }
         }
 
@@ -794,12 +1042,13 @@ public class TemplateServiceImpl implements TemplateService {
      * Sync Email template update with MSG91
      * MSG91 doesn't have email edit API - we create a new template
      * Note: Old template is NOT deleted automatically - handled manually if needed
+     * Note: slug is set to same value as name (MSG91 requirement)
      */
     private void syncEmailTemplateUpdate(Template template, String content) {
         log.info("Syncing Email template update: {}", template.getTemplateName());
 
         // Get subject from template content
-        String subject = "Email Template Update";
+        String subject = template.getTemplateName(); // Default to template name
         if (template.getContents() != null && !template.getContents().isEmpty()) {
             TemplateContent templateContent = template.getContents().iterator().next();
             if (templateContent.getSubject() != null) {
@@ -807,14 +1056,14 @@ public class TemplateServiceImpl implements TemplateService {
             }
         }
 
-        // Generate new slug with timestamp to avoid conflicts
-        String slug = template.getTemplateCode().toLowerCase().replace(" ", "_") + "_" + System.currentTimeMillis();
+        // Ensure body is HTML formatted
+        String htmlBody = ensureHtmlFormat(content);
 
         EmailTemplateCreateRequest request = EmailTemplateCreateRequest.builder()
                 .name(template.getTemplateName())
-                .slug(slug)
+                .slug(template.getTemplateName()) // MSG91 requires slug same as name
                 .subject(subject)
-                .body(content)
+                .body(htmlBody)
                 .build();
 
         CommonResponse<Map<String, Object>> response = communicationServiceClient.createEmailTemplate(request);
@@ -944,6 +1193,100 @@ public class TemplateServiceImpl implements TemplateService {
     }
 
     /**
+     * Upload document to DMS only (without returning DTO)
+     * Used during template creation when we need to upload document BEFORE syncing with provider
+     * This is critical for WhatsApp templates with documents - MSG91 needs the header_handle from document upload
+     *
+     * @param template The template entity to update with document info
+     * @param document The document file to upload
+     */
+    private void uploadDocumentToDmsOnly(Template template, MultipartFile document) {
+        log.info("Uploading document to DMS only for template: {}", template.getId());
+
+        // Validate document
+        validateDocument(document);
+
+        // Generate document name: {templateId}_{channel}_{timestamp}_{originalFilename}
+        String channelName = template.getChannel() != null ? template.getChannel().name() : "GENERAL";
+        String timestamp = String.valueOf(System.currentTimeMillis());
+        String generatedDocName = String.format("%d_%s_%s_%s", template.getId(), channelName, timestamp, document.getOriginalFilename());
+
+        // Upload document to DMS with TEMPLATE category
+        CommonResponse<DmsDocumentDTO> dmsResponse = dmsServiceClient.uploadDocumentWithCategory(
+                document,
+                generatedDocName,
+                "TEMPLATE",  // Category: non-generated template document
+                channelName, // Channel from template
+                null,        // No caseId for templates
+                template.getId()  // sourceTemplateId is the template itself
+        );
+
+        if (dmsResponse == null || dmsResponse.getPayload() == null) {
+            throw new BusinessException("Failed to upload document to DMS");
+        }
+
+        DmsDocumentDTO dmsDoc = dmsResponse.getPayload();
+
+        // Update template with DMS document info
+        template.setDmsDocumentId(dmsDoc.getDocumentId());
+        template.setDocumentUrl(dmsDoc.getFileUrl());
+        template.setDocumentStoragePath(dmsDoc.getStoragePath());
+        template.setDocumentStorageBucket(dmsDoc.getStorageBucket());
+        template.setDocumentOriginalName(dmsDoc.getFileName());
+        template.setDocumentType(getDocumentType(dmsDoc.getFileName()));
+        template.setDocumentContentType(dmsDoc.getFileType());
+        template.setDocumentSizeBytes(dmsDoc.getFileSizeBytes());
+
+        // Extract and store document placeholders
+        try {
+            // Store temporarily for placeholder extraction
+            String tempPath = fileStorageService.uploadFile(document, "temp/" + template.getId());
+            List<String> placeholders = documentProcessingService.extractPlaceholders(tempPath);
+            template.setHasDocumentVariables(!placeholders.isEmpty());
+
+            // Store placeholders as comma-separated string
+            if (!placeholders.isEmpty()) {
+                template.setDocumentPlaceholders(String.join(",", placeholders));
+                log.info("Extracted {} placeholders from document: {}", placeholders.size(), placeholders);
+
+                // Add document placeholders as template variables too
+                int existingVarCount = template.getVariables() != null ? template.getVariables().size() : 0;
+                int order = existingVarCount + 1;
+                for (String placeholder : placeholders) {
+                    // Check if variable already exists
+                    boolean exists = template.getVariables().stream()
+                            .anyMatch(v -> v.getVariableKey().equals(placeholder));
+                    if (!exists) {
+                        TemplateVariable variable = TemplateVariable.builder()
+                                .variableName("{{" + placeholder + "}}")
+                                .variableKey(placeholder)
+                                .isRequired(true)
+                                .description("From document")
+                                .displayOrder(order++)
+                                .build();
+                        template.addVariable(variable);
+                    }
+                }
+            } else {
+                template.setDocumentPlaceholders(null);
+            }
+
+            // Clean up temp file
+            try {
+                fileStorageService.deleteFile(tempPath);
+            } catch (Exception e) {
+                log.warn("Failed to delete temp file: {}", e.getMessage());
+            }
+        } catch (Exception e) {
+            log.warn("Failed to extract document placeholders: {}", e.getMessage());
+            template.setHasDocumentVariables(false);
+            template.setDocumentPlaceholders(null);
+        }
+
+        log.info("Document uploaded to DMS for template: {}, DMS ID: {}", template.getId(), dmsDoc.getDocumentId());
+    }
+
+    /**
      * Upload document to DMS and extract placeholders, storing them with the template
      */
     @Transactional
@@ -974,8 +1317,15 @@ public class TemplateServiceImpl implements TemplateService {
         String timestamp = String.valueOf(System.currentTimeMillis());
         String generatedDocName = String.format("%d_%s_%s_%s", templateId, channelName, timestamp, document.getOriginalFilename());
 
-        // Upload document to DMS - simple API with just file and documentName
-        CommonResponse<DmsDocumentDTO> dmsResponse = dmsServiceClient.uploadDocument(document, generatedDocName);
+        // Upload document to DMS with TEMPLATE category
+        CommonResponse<DmsDocumentDTO> dmsResponse = dmsServiceClient.uploadDocumentWithCategory(
+                document,
+                generatedDocName,
+                "TEMPLATE",  // Category: non-generated template document
+                channelName, // Channel from template
+                null,        // No caseId for templates
+                templateId   // sourceTemplateId
+        );
 
         if (dmsResponse == null || dmsResponse.getPayload() == null) {
             throw new BusinessException("Failed to upload document to DMS");
@@ -1219,6 +1569,29 @@ public class TemplateServiceImpl implements TemplateService {
         List<String> variableOrder = extractVariableOrder(templateContent);
         log.info("Extracted variable order for template {}: {}", templateId, variableOrder);
 
+        // Determine header type for WhatsApp templates with document
+        // For WhatsApp templates with dmsDocumentId, the header type is DOCUMENT
+        // This is used by strategy-engine to build header_1 component for MSG91
+        String headerType = null;
+        if (template.getChannel() == ChannelType.WHATSAPP && template.getDmsDocumentId() != null) {
+            // Determine header type based on document type
+            String docType = template.getDocumentType();
+            if (docType != null) {
+                docType = docType.toUpperCase();
+                if (docType.equals("PDF") || docType.equals("DOC") || docType.equals("DOCX")) {
+                    headerType = "DOCUMENT";
+                } else if (docType.equals("JPG") || docType.equals("JPEG") || docType.equals("PNG") || docType.equals("GIF")) {
+                    headerType = "IMAGE";
+                } else if (docType.equals("MP4") || docType.equals("AVI") || docType.equals("MOV")) {
+                    headerType = "VIDEO";
+                }
+            } else {
+                // Default to DOCUMENT if type is not specified
+                headerType = "DOCUMENT";
+            }
+            log.info("WhatsApp template {} has header type: {}", templateId, headerType);
+        }
+
         // Build response
         TemplateResolveResponse.TemplateResolveResponseBuilder responseBuilder = TemplateResolveResponse.builder()
                 .templateId(templateId)
@@ -1230,6 +1603,7 @@ public class TemplateServiceImpl implements TemplateService {
                 .variableOrder(variableOrder) // Order of variables for MSG91 body_1, body_2 mapping
                 .renderedContent(renderedContent)
                 .subject(renderedSubject)
+                .headerType(headerType) // WhatsApp header type (DOCUMENT, IMAGE, VIDEO)
                 .variableCount(template.getVariables() != null ? template.getVariables().size() : 0)
                 .resolvedCount(resolvedVariables != null ? resolvedVariables.size() : 0);
 
@@ -1242,20 +1616,27 @@ public class TemplateServiceImpl implements TemplateService {
                     .documentType(template.getDocumentType())
                     .documentOriginalName(template.getDocumentOriginalName());
 
-            if (Boolean.TRUE.equals(template.getHasDocumentVariables())) {
-                try {
-                    // Process document and replace placeholders
-                    String processedDocumentUrl = documentProcessingService.processDocument(
-                            template.getDocumentUrl(),
-                            resolvedVariables,
-                            request.getCaseId()
-                    );
-                    responseBuilder.processedDocumentUrl(processedDocumentUrl);
-                    log.info("Document processed successfully for case: {}", request.getCaseId());
-                } catch (Exception e) {
-                    log.error("Failed to process document: {}", e.getMessage());
-                    // Continue without processed document - original is still available
-                }
+            // Always process document for templates with placeholders
+            // This downloads from DMS, replaces placeholders, and uploads processed doc back to DMS
+            // The processedDocumentUrl is then used when sending via WhatsApp/communication service
+            try {
+                // Process document and replace placeholders while preserving layout
+                // Pass template metadata for proper document categorization (GENERATED category)
+                String channelName = template.getChannel() != null ? template.getChannel().name() : null;
+                String processedDocumentUrl = documentProcessingService.processDocument(
+                        template.getDocumentUrl(),
+                        resolvedVariables,
+                        request.getCaseId(),
+                        template.getId(),  // Source template ID
+                        channelName        // Channel name
+                );
+                responseBuilder.processedDocumentUrl(processedDocumentUrl);
+                log.info("Document processed and uploaded to DMS for case: {}. URL: {}",
+                        request.getCaseId(), processedDocumentUrl);
+            } catch (Exception e) {
+                log.error("Failed to process document for case {}: {}", request.getCaseId(), e.getMessage());
+                // Continue without processed document - original will be used as fallback
+                // This ensures communication still works even if processing fails
             }
         } else {
             responseBuilder.hasDocument(false);
@@ -1349,6 +1730,25 @@ public class TemplateServiceImpl implements TemplateService {
             documentPlaceholders = List.of(template.getDocumentPlaceholders().split(","));
         }
 
+        // Get fresh presigned URL from DMS if document exists
+        String documentUrl = null;
+        if (template.getDmsDocumentId() != null) {
+            try {
+                CommonResponse<DmsDocumentDTO> dmsResponse = dmsServiceClient.getDocumentByDocumentId(template.getDmsDocumentId());
+                if (dmsResponse != null && dmsResponse.getPayload() != null) {
+                    Long dmsId = dmsResponse.getPayload().getId();
+                    CommonResponse<String> urlResponse = dmsServiceClient.getPresignedUrl(dmsId);
+                    if (urlResponse != null && urlResponse.getPayload() != null) {
+                        documentUrl = urlResponse.getPayload();
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("Failed to get presigned URL for template {}: {}", template.getId(), e.getMessage());
+                // Fall back to stored URL
+                documentUrl = template.getDocumentUrl();
+            }
+        }
+
         return TemplateDetailDTO.builder()
                 .id(template.getId())
                 .templateName(template.getTemplateName())
@@ -1364,7 +1764,7 @@ public class TemplateServiceImpl implements TemplateService {
                 .content(contentDTO)
                 // Document fields (stored in DMS - OVH S3)
                 .dmsDocumentId(template.getDmsDocumentId())
-                .documentUrl(template.getDocumentUrl())
+                .documentUrl(documentUrl)
                 .documentStoragePath(template.getDocumentStoragePath())
                 .documentStorageBucket(template.getDocumentStorageBucket())
                 .documentOriginalName(template.getDocumentOriginalName())

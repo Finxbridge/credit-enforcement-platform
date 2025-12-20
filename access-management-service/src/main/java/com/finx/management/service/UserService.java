@@ -1,5 +1,6 @@
 package com.finx.management.service;
 
+import com.finx.management.domain.dto.AgencyDropdownDTO;
 import com.finx.management.domain.dto.CreateUserRequest;
 import com.finx.management.domain.dto.UpdateUserRequest;
 import com.finx.management.domain.dto.UserDTO;
@@ -22,4 +23,10 @@ public interface UserService {
     void deleteUser(Long id);
 
     List<UserPermissionDTO> getUserPermissions(Long userId);
+
+    /**
+     * Get list of approved (active) agencies for dropdown in user creation.
+     * Used when creating a user with AGENT role.
+     */
+    List<AgencyDropdownDTO> getApprovedAgenciesForDropdown();
 }

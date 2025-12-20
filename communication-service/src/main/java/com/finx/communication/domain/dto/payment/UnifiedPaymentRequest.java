@@ -15,8 +15,11 @@ import java.math.BigDecimal;
  * Fields are used based on serviceType:
  *
  * DYNAMIC_QR: amount (required)
- * PAYMENT_LINK: amount, mobileNumber (required), message (optional)
+ * PAYMENT_LINK: amount, mobileNumber (required), message (required - uses default_message from config if not provided)
  * COLLECT_CALL: amount, instrumentType, instrumentReference (required)
+ *
+ * Note: All API endpoints are read from database configuration (init_endpoint, status_endpoint, etc.)
+ * If any required endpoint is not configured, a ConfigurationNotFoundException will be thrown.
  */
 @Data
 @Builder

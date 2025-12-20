@@ -30,7 +30,8 @@ public class PaymentResponse {
     private String message;
 
     // Payment Link specific
-    private String paymentLink;
+    private String paymentLink;    // payLink URL for web/SMS sharing
+    private String upiIntent;      // upiIntent URL for direct UPI payment
 
     // DQR specific
     private String qrCodeBase64;

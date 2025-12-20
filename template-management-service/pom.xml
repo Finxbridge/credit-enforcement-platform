@@ -132,6 +132,12 @@
             <artifactId>s3</artifactId>
             <version>2.21.29</version>
         </dependency>
+
+        <!-- AOP for Logging -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-aop</artifactId>
+        </dependency>
     </dependencies>
 
     <build>

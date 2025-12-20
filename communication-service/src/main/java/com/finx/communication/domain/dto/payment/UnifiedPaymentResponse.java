@@ -33,7 +33,8 @@ public class UnifiedPaymentResponse {
     private String message;
 
     // PAYMENT_LINK specific
-    private String paymentLink;
+    private String paymentLink;    // payLink from FinxBridge
+    private String upiIntent;      // upiIntent URL for direct UPI payment
 
     // DYNAMIC_QR specific
     private String qrCodeBase64;

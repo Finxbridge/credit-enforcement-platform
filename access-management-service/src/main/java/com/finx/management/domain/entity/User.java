@@ -76,6 +76,14 @@ public class User {
     @Column(name = "team_id")
     private Long teamId;
 
+    /**
+     * Agency ID - Required when user has AGENT role.
+     * References the agencies table.
+     * NULL for internal users (collectors, supervisors, managers, admins).
+     */
+    @Column(name = "agency_id")
+    private Long agencyId;
+
     @Column(name = "failed_login_attempts")
     private Integer failedLoginAttempts = 0;
 

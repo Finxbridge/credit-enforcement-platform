@@ -19,6 +19,20 @@ public interface DocumentProcessingService {
     String processDocument(String documentUrl, Map<String, Object> variables, Long caseId);
 
     /**
+     * Process a document and replace placeholders with actual values
+     * This overload includes template metadata for proper document categorization
+     *
+     * @param documentUrl the URL/path of the source document
+     * @param variables the map of variable names to their resolved values
+     * @param caseId the case ID for generating unique output filename
+     * @param sourceTemplateId the source template ID
+     * @param channel the communication channel (SMS, EMAIL, WHATSAPP, NOTICE)
+     * @return the URL/path of the processed document
+     */
+    String processDocument(String documentUrl, Map<String, Object> variables, Long caseId,
+                          Long sourceTemplateId, String channel);
+
+    /**
      * Extract placeholders from a document
      *
      * @param documentUrl the URL/path of the document

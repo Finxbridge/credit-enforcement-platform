@@ -60,9 +60,13 @@ spring:
 
 logging:
   level:
-    root: INFO
-    com.finx.myworkflow: DEBUG
-    org.springframework.cache: DEBUG
+    root: ${LOGGING_LEVEL_ROOT:INFO}
+    com.finx.myworkflow: ${LOGGING_LEVEL_FINX:DEBUG}
+    org.springframework.cache: ${LOGGING_LEVEL_CACHE:WARN}
+    org.springframework.data.redis: ${LOGGING_LEVEL_REDIS:WARN}
+    io.lettuce.core: ${LOGGING_LEVEL_LETTUCE:WARN}
+    io.lettuce.core.protocol: WARN
+    org.hibernate.SQL: ${LOGGING_LEVEL_HIBERNATE_SQL:INFO}
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
 

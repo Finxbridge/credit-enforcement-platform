@@ -55,5 +55,12 @@ public class CreateUserRequest {
     private String allocationBucket;
     private Long teamId;
 
+    /**
+     * Agency ID - Required when creating a user with AGENT role.
+     * Must reference an existing active agency.
+     * Not required for internal users (collectors, supervisors, managers, admins).
+     */
+    private Long agencyId;
+
     private Set<Long> roleIds;
 }

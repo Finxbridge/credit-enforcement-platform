@@ -21,14 +21,14 @@ public class GlobalExceptionHandler {
     public ResponseEntity<CommonResponse<Void>> handleResourceNotFoundException(ResourceNotFoundException ex) {
         log.error("Resource not found: {}", ex.getMessage());
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                .body(CommonResponse.error(ex.getMessage(), ex.getErrorCode()));
+                .body(CommonResponse.failure(ex.getMessage(), ex.getErrorCode()));
     }
 
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<CommonResponse<Void>> handleBusinessException(BusinessException ex) {
         log.error("Business error: {}", ex.getMessage());
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(CommonResponse.error(ex.getMessage(), ex.getErrorCode()));
+                .body(CommonResponse.failure(ex.getMessage(), ex.getErrorCode()));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -42,20 +42,20 @@ public class GlobalExceptionHandler {
         });
         log.error("Validation error: {}", errors);
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(CommonResponse.error("Validation failed", "VALIDATION_ERROR"));
+                .body(CommonResponse.failure("Validation failed", "VALIDATION_ERROR"));
     }
 
     @ExceptionHandler(MaxUploadSizeExceededException.class)
     public ResponseEntity<CommonResponse<Void>> handleMaxUploadSizeExceededException(MaxUploadSizeExceededException ex) {
         log.error("File size exceeded: {}", ex.getMessage());
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(CommonResponse.error("File size exceeds maximum allowed limit", "FILE_SIZE_EXCEEDED"));
+                .body(CommonResponse.failure("File size exceeds maximum allowed limit", "FILE_SIZE_EXCEEDED"));
     }
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<CommonResponse<Void>> handleGenericException(Exception ex) {
         log.error("Unexpected error occurred: ", ex);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(CommonResponse.error("An unexpected error occurred", "INTERNAL_ERROR"));
+                .body(CommonResponse.failure("An unexpected error occurred", "INTERNAL_ERROR"));
     }
 }

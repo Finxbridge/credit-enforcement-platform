@@ -34,10 +34,10 @@ public class TemplateVariable {
     @JoinColumn(name = "template_id", nullable = false)
     private Template template;
 
-    @Column(name = "variable_name", nullable = false, length = 50)
+    @Column(name = "variable_name", nullable = false, length = 255)
     private String variableName; // VAR1, VAR2, body_1, header_1, etc.
 
-    @Column(name = "variable_key", nullable = false, length = 50)
+    @Column(name = "variable_key", nullable = false, length = 255)
     private String variableKey; // customer_name, loan_account, outstanding_amount
 
     @Enumerated(EnumType.STRING)

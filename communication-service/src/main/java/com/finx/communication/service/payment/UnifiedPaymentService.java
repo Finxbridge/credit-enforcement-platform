@@ -46,8 +46,12 @@ public class UnifiedPaymentService {
         validateInitRequest(request, serviceType);
 
         ThirdPartyIntegrationMaster config = getConfig(serviceType);
+
+        // Validate all required endpoints are configured
+        validateApiEndpoint(config);
+        String endpoint = getInitEndpoint(config, serviceType);
+
         Map<String, Object> requestBody = buildInitRequestBody(request, serviceType, config);
-        String endpoint = getInitEndpoint(serviceType);
 
         // Special handling for DQR (returns image)
         if ("DYNAMIC_QR".equals(serviceType)) {
@@ -55,6 +59,7 @@ public class UnifiedPaymentService {
         }
 
         String url = config.getApiEndpoint() + endpoint;
+        log.debug("Calling init API: {}", url);
         Map<String, Object> response = callApi(url, requestBody, config);
 
         return saveAndBuildResponse(request, serviceType, response, config);
@@ -73,27 +78,41 @@ public class UnifiedPaymentService {
         PaymentGatewayTransaction transaction = findTransaction(request.getTransactionId());
         ThirdPartyIntegrationMaster config = getConfig(serviceType);
 
+        // Validate and get status endpoint from config
+        validateApiEndpoint(config);
+        String statusEndpoint = getStatusEndpoint(config, serviceType);
+
         Map<String, Object> requestBody = new HashMap<>();
         requestBody.put("merchantId", config.getConfigValueAsString("merchant_id"));
         requestBody.put("provider", config.getConfigValueAsString("provider"));
-        // For DQR, transactionId is stored directly (TX...), not in gatewayOrderId
-        requestBody.put("transactionId", transaction.getTransactionId());
+        // Use gatewayOrderId which contains the gateway's transactionId (TX...) from init response
+        // The internal transactionId is our UUID used for lookup, not what the gateway expects
+        requestBody.put("transactionId", transaction.getGatewayOrderId());
         requestBody.put("serviceType", serviceType);
+        log.debug("Status check - sending gateway transactionId: {}", transaction.getGatewayOrderId());
 
-        String url = config.getApiEndpoint() + "/api/v1/service/status";
+        String url = config.getApiEndpoint() + statusEndpoint;
+        log.debug("Calling status API: {}", url);
         Map<String, Object> response = callApi(url, requestBody, config);
 
+        // API response structure: { success, code, message, data: { paymentState, ... } }
+        @SuppressWarnings("unchecked")
+        Map<String, Object> data = (Map<String, Object>) response.get("data");
+        if (data == null) {
+            data = response; // Fallback for flat response
+        }
+
         // Extract status from response.data.paymentState
-        String paymentState = extractString(response, "paymentState", "status");
+        String paymentState = extractString(data, "paymentState", "status");
         String newStatus = mapPaymentState(paymentState);
         transaction.setStatus(newStatus);
         transaction.setGatewayResponse(response);
 
         if ("SUCCESS".equals(newStatus) || "COMPLETED".equals(newStatus)) {
             transaction.setPaymentReceivedAt(LocalDateTime.now());
-            transaction.setGatewayPaymentId(extractString(response, "paymentId", "payment_id"));
+            transaction.setGatewayPaymentId(extractString(data, "paymentId", "payment_id"));
         } else if ("FAILED".equals(newStatus)) {
-            transaction.setFailureReason(extractString(response, "failureReason", "error", "message"));
+            transaction.setFailureReason(extractString(data, "failureReason", "error", "message"));
         }
 
         paymentRepository.save(transaction);
@@ -131,14 +150,21 @@ public class UnifiedPaymentService {
 
         ThirdPartyIntegrationMaster config = getConfig(serviceType);
 
+        // Validate and get cancel endpoint from config
+        validateApiEndpoint(config);
+        String cancelEndpoint = getCancelEndpoint(config, serviceType);
+
         Map<String, Object> requestBody = new HashMap<>();
         requestBody.put("merchantId", config.getConfigValueAsString("merchant_id"));
         requestBody.put("provider", config.getConfigValueAsString("provider"));
-        requestBody.put("transactionId", transaction.getTransactionId()); // TX... from init
+        // Use gatewayOrderId which contains the gateway's transactionId (TX...) from init response
+        requestBody.put("transactionId", transaction.getGatewayOrderId());
         requestBody.put("reason", request.getReason() != null ? request.getReason() : "Cancelled by user");
         requestBody.put("serviceType", serviceType);
+        log.debug("Cancel - sending gateway transactionId: {}", transaction.getGatewayOrderId());
 
-        String url = config.getApiEndpoint() + "/api/v1/service/cancel";
+        String url = config.getApiEndpoint() + cancelEndpoint;
+        log.debug("Calling cancel API: {}", url);
         Map<String, Object> response = callApi(url, requestBody, config);
 
         transaction.setStatus("CANCELLED");
@@ -167,23 +193,36 @@ public class UnifiedPaymentService {
         }
 
         ThirdPartyIntegrationMaster config = getConfig(serviceType);
+
+        // Validate and get refund endpoint from config
+        validateApiEndpoint(config);
+        String refundEndpoint = getRefundEndpoint(config, serviceType);
+
         BigDecimal refundAmount = request.getAmount() != null ? request.getAmount() : transaction.getAmount();
 
         Map<String, Object> requestBody = new HashMap<>();
         requestBody.put("merchantId", config.getConfigValueAsString("merchant_id"));
         requestBody.put("provider", config.getConfigValueAsString("provider"));
-        // originalTransactionId is TX... (stored in transactionId field)
-        requestBody.put("originalTransactionId", transaction.getTransactionId());
+        // Use gatewayOrderId which contains the gateway's transactionId (TX...) from init response
+        requestBody.put("originalTransactionId", transaction.getGatewayOrderId());
         requestBody.put("amount", refundAmount.intValue()); // FinxBridge expects integer amount in paise
-        // merchantOrderId is MO... (stored in gatewayOrderId field)
         requestBody.put("merchantOrderId", transaction.getGatewayOrderId());
         requestBody.put("message", request.getReason() != null ? request.getReason() : "Refund requested");
         requestBody.put("serviceType", serviceType);
+        log.debug("Refund - sending gateway transactionId: {}", transaction.getGatewayOrderId());
 
-        String url = config.getApiEndpoint() + "/api/v1/service/refund";
+        String url = config.getApiEndpoint() + refundEndpoint;
+        log.debug("Calling refund API: {}", url);
         Map<String, Object> response = callApi(url, requestBody, config);
 
-        String refundStatus = extractString(response, "status", "UNKNOWN").toUpperCase();
+        // API response structure: { success, code, message, data: { status, ... } }
+        @SuppressWarnings("unchecked")
+        Map<String, Object> data = (Map<String, Object>) response.get("data");
+        if (data == null) {
+            data = response; // Fallback for flat response
+        }
+
+        String refundStatus = extractString(data, "status", "UNKNOWN").toUpperCase();
         if ("SUCCESS".equals(refundStatus) || "REFUNDED".equals(refundStatus)) {
             transaction.setStatus("REFUNDED");
             transaction.setRefundAmount(refundAmount);
@@ -228,11 +267,10 @@ public class UnifiedPaymentService {
                 }
             }
             case "COLLECT_CALL" -> {
-                if (request.getInstrumentType() == null || request.getInstrumentType().isBlank()) {
-                    throw new ApiCallException("Instrument type (VPA/MOBILE) is required for COLLECT_CALL");
-                }
+                // instrumentType comes from database config (always MOBILE)
+                // instrumentReference is the mobile number - required from request
                 if (request.getInstrumentReference() == null || request.getInstrumentReference().isBlank()) {
-                    throw new ApiCallException("Instrument reference is required for COLLECT_CALL");
+                    throw new ApiCallException("Mobile number (instrumentReference) is required for COLLECT_CALL");
                 }
             }
         }
@@ -248,12 +286,76 @@ public class UnifiedPaymentService {
                 .orElseThrow(() -> new ConfigurationNotFoundException("Config not found: " + integrationName));
     }
 
-    private String getInitEndpoint(String serviceType) {
-        return switch (serviceType) {
-            case "DYNAMIC_QR" -> "/api/v1/dqr/init";
-            case "COLLECT_CALL" -> "/api/v1/collect/collect-call";
-            default -> "/api/v1/paymentLink/getPaymentLink";
-        };
+    /**
+     * Get init endpoint from database configuration.
+     * Throws ConfigurationNotFoundException if not configured.
+     */
+    private String getInitEndpoint(ThirdPartyIntegrationMaster config, String serviceType) {
+        String endpoint = config.getConfigValueAsString("init_endpoint");
+        if (endpoint == null || endpoint.isBlank()) {
+            throw new ConfigurationNotFoundException(
+                "init_endpoint not configured for " + serviceType +
+                ". Please add 'init_endpoint' to config_json in third_party_integration_master for integration: " +
+                config.getIntegrationName());
+        }
+        return endpoint;
+    }
+
+    /**
+     * Get status endpoint from database configuration.
+     * Throws ConfigurationNotFoundException if not configured.
+     */
+    private String getStatusEndpoint(ThirdPartyIntegrationMaster config, String serviceType) {
+        String endpoint = config.getConfigValueAsString("status_endpoint");
+        if (endpoint == null || endpoint.isBlank()) {
+            throw new ConfigurationNotFoundException(
+                "status_endpoint not configured for " + serviceType +
+                ". Please add 'status_endpoint' to config_json in third_party_integration_master for integration: " +
+                config.getIntegrationName());
+        }
+        return endpoint;
+    }
+
+    /**
+     * Get cancel endpoint from database configuration.
+     * Throws ConfigurationNotFoundException if not configured.
+     */
+    private String getCancelEndpoint(ThirdPartyIntegrationMaster config, String serviceType) {
+        String endpoint = config.getConfigValueAsString("cancel_endpoint");
+        if (endpoint == null || endpoint.isBlank()) {
+            throw new ConfigurationNotFoundException(
+                "cancel_endpoint not configured for " + serviceType +
+                ". Please add 'cancel_endpoint' to config_json in third_party_integration_master for integration: " +
+                config.getIntegrationName());
+        }
+        return endpoint;
+    }
+
+    /**
+     * Get refund endpoint from database configuration.
+     * Throws ConfigurationNotFoundException if not configured.
+     */
+    private String getRefundEndpoint(ThirdPartyIntegrationMaster config, String serviceType) {
+        String endpoint = config.getConfigValueAsString("refund_endpoint");
+        if (endpoint == null || endpoint.isBlank()) {
+            throw new ConfigurationNotFoundException(
+                "refund_endpoint not configured for " + serviceType +
+                ". Please add 'refund_endpoint' to config_json in third_party_integration_master for integration: " +
+                config.getIntegrationName());
+        }
+        return endpoint;
+    }
+
+    /**
+     * Validate base API endpoint is configured.
+     * Throws ConfigurationNotFoundException if not configured.
+     */
+    private void validateApiEndpoint(ThirdPartyIntegrationMaster config) {
+        if (config.getApiEndpoint() == null || config.getApiEndpoint().isBlank()) {
+            throw new ConfigurationNotFoundException(
+                "api_endpoint not configured for integration: " + config.getIntegrationName() +
+                ". Please set the api_endpoint column in third_party_integration_master.");
+        }
     }
 
     private Map<String, Object> buildInitRequestBody(UnifiedPaymentRequest request, String serviceType,
@@ -268,10 +370,27 @@ public class UnifiedPaymentService {
             case "PAYMENT_LINK" -> {
                 body.put("mobileNumber", request.getMobileNumber());
                 body.put("terminalId", config.getConfigValueAsString("terminal_id"));
-                if (request.getMessage() != null) body.put("message", request.getMessage());
+                // Message is REQUIRED for Payment Link API (per API_DOCUMENTATION.md)
+                // Use request message if provided, otherwise use default_message from config
+                String message = request.getMessage();
+                if (message == null || message.isBlank()) {
+                    message = config.getConfigValueAsString("default_message");
+                }
+                if (message == null || message.isBlank()) {
+                    throw new ApiCallException(
+                        "Message is required for PAYMENT_LINK. Please provide message in request or configure " +
+                        "'default_message' in config_json for integration: " + config.getIntegrationName());
+                }
+                body.put("message", message);
             }
             case "COLLECT_CALL" -> {
-                body.put("instrumentType", request.getInstrumentType());
+                // instrumentType is always MOBILE (configured in database)
+                String instrumentType = config.getConfigValueAsString("instrument_type");
+                if (instrumentType == null || instrumentType.isBlank()) {
+                    instrumentType = "MOBILE"; // Fallback for backward compatibility
+                }
+                body.put("instrumentType", instrumentType);
+                // instrumentReference is the mobile number from the request
                 body.put("instrumentReference", request.getInstrumentReference());
             }
         }
@@ -280,7 +399,9 @@ public class UnifiedPaymentService {
 
     private UnifiedPaymentResponse initiateDqr(UnifiedPaymentRequest request, ThirdPartyIntegrationMaster config,
                                                 Map<String, Object> requestBody) {
-        String url = config.getApiEndpoint() + "/api/v1/dqr/init";
+        String initEndpoint = getInitEndpoint(config, "DYNAMIC_QR");
+        String url = config.getApiEndpoint() + initEndpoint;
+        log.debug("Calling DQR init API: {}", url);
         try {
             // Use exchangeToMono to capture both body and headers
             var responseEntity = webClient.post()
@@ -344,9 +465,27 @@ public class UnifiedPaymentService {
     private UnifiedPaymentResponse saveAndBuildResponse(UnifiedPaymentRequest request, String serviceType,
                                                          Map<String, Object> response, ThirdPartyIntegrationMaster config) {
         String transactionId = UUID.randomUUID().toString();
-        String gatewayOrderId = extractString(response, "orderId", "order_id", "transactionId");
-        String paymentLink = extractString(response, "paymentLink", "payment_link", "url");
-        String qrCodeUrl = extractString(response, "qrCodeUrl", "qr_code_url");
+
+        // API response structure: { success, code, message, data: { transactionId, payLink, upiIntent, ... } }
+        // Extract the 'data' object from response
+        @SuppressWarnings("unchecked")
+        Map<String, Object> data = (Map<String, Object>) response.get("data");
+        if (data == null) {
+            // Fallback: maybe the response is flat (no data wrapper)
+            data = response;
+            log.warn("Response has no 'data' field, using response directly");
+        }
+
+        String gatewayOrderId = extractString(data, "transactionId", "orderId", "order_id");
+        // FinxBridge returns payLink and upiIntent for Payment Link
+        String paymentLink = extractString(data, "payLink", "paymentLink", "payment_link", "url");
+        String upiIntent = extractString(data, "upiIntent", "upi_intent");
+        String qrCodeUrl = extractString(data, "qrCodeUrl", "qr_code_url");
+        String merchantOrderId = extractString(data, "merchantOrderId", "merchant_order_id");
+        String providerReferenceId = extractString(data, "providerReferenceId", "provider_reference_id");
+
+        log.debug("Extracted from response.data - payLink: {}, upiIntent: {}, transactionId: {}, merchantOrderId: {}",
+                paymentLink, upiIntent, gatewayOrderId, merchantOrderId);
 
         PaymentGatewayTransaction transaction = PaymentGatewayTransaction.builder()
                 .transactionId(transactionId)
@@ -367,8 +506,8 @@ public class UnifiedPaymentService {
         return UnifiedPaymentResponse.builder()
                 .serviceType(serviceType)
                 .transactionId(transactionId)
-                .gatewayOrderId(transaction.getGatewayOrderId())
-                .providerReferenceId(extractString(response, "providerReferenceId", "provider_reference_id"))
+                .gatewayOrderId(merchantOrderId != null ? merchantOrderId : transaction.getGatewayOrderId())
+                .providerReferenceId(providerReferenceId)
                 .caseId(transaction.getCaseId())
                 .loanAccountNumber(transaction.getLoanAccountNumber())
                 .amount(request.getAmount())
@@ -376,6 +515,7 @@ public class UnifiedPaymentService {
                 .status("CREATED")
                 .message(serviceType + " initiated successfully")
                 .paymentLink(paymentLink)
+                .upiIntent(upiIntent)
                 .qrCodeUrl(qrCodeUrl)
                 .createdAt(transaction.getCreatedAt())
                 .gatewayResponse(response)

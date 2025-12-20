@@ -319,7 +319,13 @@ public class OvhS3StorageServiceImpl implements StorageService {
 
     @Override
     public String getPublicUrl(String bucket, String objectKey) {
+        // If publicUrlPrefix is set, it should be just the base (e.g., https://s3.uk.io.cloud.ovh.net)
+        // Don't add bucket again if publicUrlPrefix already contains it
         if (publicUrlPrefix != null && !publicUrlPrefix.isEmpty()) {
+            if (publicUrlPrefix.endsWith("/" + bucket)) {
+                // publicUrlPrefix already includes the bucket
+                return publicUrlPrefix + "/" + objectKey;
+            }
             return publicUrlPrefix + "/" + bucket + "/" + objectKey;
         }
         return endpoint + "/" + bucket + "/" + objectKey;

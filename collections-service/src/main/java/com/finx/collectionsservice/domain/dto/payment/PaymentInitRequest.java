@@ -13,6 +13,11 @@ import java.math.BigDecimal;
 /**
  * Unified payment initiation request
  * Routes to appropriate service based on serviceType
+ *
+ * Service Type Requirements:
+ * - DYNAMIC_QR: amount, caseId (required)
+ * - PAYMENT_LINK: amount, caseId, mobileNumber (required), message (optional - uses default from config)
+ * - COLLECT_CALL: amount, caseId, mobileNumber (required) - instrumentType is always MOBILE from config
  */
 @Data
 @Builder
@@ -27,14 +32,15 @@ public class PaymentInitRequest {
     @Positive(message = "Amount must be positive")
     private BigDecimal amount;
 
-    // Required for PAYMENT_LINK
+    // Required for PAYMENT_LINK and COLLECT_CALL
     private String mobileNumber;
 
-    // Required for COLLECT_CALL
-    private String instrumentType;      // VPA or MOBILE
-    private String instrumentReference; // UPI ID or mobile number
+    // Legacy fields for COLLECT_CALL (instrumentType is now MOBILE from config)
+    // Can use mobileNumber instead of instrumentReference
+    private String instrumentType;      // Deprecated: Always MOBILE from database config
+    private String instrumentReference; // Mobile number (can use mobileNumber field instead)
 
-    // Optional message for payment link
+    // Optional message for payment link (uses default_message from config if not provided)
     private String message;
 
     // For tracking - caseId is mandatory for linking payment to case

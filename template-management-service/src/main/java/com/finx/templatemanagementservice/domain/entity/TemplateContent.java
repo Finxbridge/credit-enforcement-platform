@@ -36,7 +36,7 @@ public class TemplateContent {
     @Column(name = "language_code", length = 10)
     private String languageCode = "en";
 
-    @Column(name = "subject", length = 255)
+    @Column(name = "subject", length = 500)
     private String subject; // For Email templates
 
     @Column(name = "content", nullable = false, columnDefinition = "TEXT")

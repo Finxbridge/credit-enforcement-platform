@@ -38,4 +38,8 @@ public class TemplateResolveResponse {
     private String documentType;          // PDF, DOC, DOCX
     private String documentOriginalName;  // Original filename
     private Boolean hasDocument;
+
+    // WhatsApp header type (DOCUMENT, IMAGE, VIDEO, TEXT, or null if no header)
+    // Used by strategy-engine to build header_1 component for MSG91
+    private String headerType;
 }

@@ -24,13 +24,13 @@ public class VariableDefinition {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "variable_key", unique = true, nullable = false, length = 100)
+    @Column(name = "variable_key", unique = true, nullable = false, length = 255)
     private String variableKey;
 
-    @Column(name = "display_name", nullable = false, length = 200)
+    @Column(name = "display_name", nullable = false, length = 255)
     private String displayName;
 
-    @Column(name = "entity_path", nullable = false, length = 200)
+    @Column(name = "entity_path", nullable = false, length = 500)
     private String entityPath;
 
     @Column(name = "data_type", nullable = false, length = 50)

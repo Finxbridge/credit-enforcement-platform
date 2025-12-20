@@ -14,7 +14,7 @@ public class ResponseWrapper {
     }
 
     public static <T> ResponseEntity<CommonResponse<T>> okMessage(String message) {
-        return ResponseEntity.ok(CommonResponse.success(message));
+        return ResponseEntity.ok(CommonResponse.successMessage(message));
     }
 
     public static <T> ResponseEntity<CommonResponse<T>> created(String message, T data) {
@@ -28,6 +28,6 @@ public class ResponseWrapper {
 
     public static <T> ResponseEntity<CommonResponse<T>> error(HttpStatus status, String message, String errorCode) {
         return ResponseEntity.status(status)
-                .body(CommonResponse.error(message, errorCode));
+                .body(CommonResponse.failure(message, errorCode));
     }
 }

@@ -70,6 +70,14 @@ public class User {
     @Column(name = "city", length = 100)
     private String city;
 
+    /**
+     * Agency ID - Present when user has AGENT role.
+     * NULL for internal users (collectors, supervisors, managers, admins).
+     * Used to filter out agency agents from first-level allocation.
+     */
+    @Column(name = "agency_id")
+    private Long agencyId;
+
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
 

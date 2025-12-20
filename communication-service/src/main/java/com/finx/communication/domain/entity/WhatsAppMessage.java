@@ -30,7 +30,7 @@ public class WhatsAppMessage {
     @Column(name = "mobile", nullable = false, length = 15)
     private String mobile; // Must include country code
 
-    @Column(name = "template_name", length = 100)
+    @Column(name = "template_name", length = 255)
     private String templateName;
 
     @Column(name = "template_id")

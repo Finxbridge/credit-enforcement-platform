@@ -26,6 +26,13 @@ public class DmsDocumentDTO {
     private String storagePath;       // Path in S3 bucket
     private String storageBucket;     // S3 bucket name
     private String documentStatus;    // ACTIVE, DELETED
+
+    // Document categorization fields
+    private String documentCategory;  // TEMPLATE, GENERATED, USER_UPLOAD
+    private String channel;           // SMS, EMAIL, WHATSAPP, NOTICE
+    private Long caseId;              // For GENERATED documents
+    private Long sourceTemplateId;    // For GENERATED documents
+
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

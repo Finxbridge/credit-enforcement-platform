@@ -201,13 +201,12 @@ public class Msg91EmailService {
             String url = config.getConfigValueAsString("create_template_url");
 
             // 3. Build request body matching MSG91 API exactly
+            // Use name as slug (MSG91 requires both with same value)
             Map<String, Object> requestBody = new java.util.HashMap<>();
             requestBody.put("name", request.getName());
-            if (request.getSlug() != null && !request.getSlug().isEmpty()) {
-                requestBody.put("slug", request.getSlug());
-            }
+            requestBody.put("slug", request.getName()); // Always use name as slug
             requestBody.put("subject", request.getSubject());
-            requestBody.put("body", request.getBody());
+            requestBody.put("body", request.getBody()); // Body should be in HTML format
 
             // 4. Call MSG91 API (use API key directly - no encryption)
             String response = webClient.post()

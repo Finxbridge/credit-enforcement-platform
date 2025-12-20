@@ -6,15 +6,17 @@ import com.finx.templatemanagementservice.service.FileStorageService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.pdfbox.Loader;
+import org.apache.pdfbox.cos.COSName;
+import org.apache.pdfbox.pdfparser.PDFStreamParser;
+import org.apache.pdfbox.pdfwriter.ContentStreamWriter;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
-import org.apache.pdfbox.pdmodel.PDPageContentStream;
-import org.apache.pdfbox.pdmodel.common.PDRectangle;
-import org.apache.pdfbox.pdmodel.font.PDType1Font;
-import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
+import org.apache.pdfbox.pdmodel.common.PDStream;
+import org.apache.pdfbox.contentstream.operator.Operator;
 import org.apache.pdfbox.text.PDFTextStripper;
-import org.apache.poi.util.Units;
 import org.apache.poi.xwpf.usermodel.*;
+import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTR;
+import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTText;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -31,6 +33,7 @@ import java.util.regex.Pattern;
 /**
  * Implementation of DocumentProcessingService
  * Handles placeholder replacement in PDF and DOC/DOCX files
+ * while preserving exact document layout, formatting, and structure
  */
 @Slf4j
 @Service
@@ -44,23 +47,23 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
     @Value("${file.storage.base-path:./uploads}")
     private String basePath;
 
-    // Placeholder pattern: {variable_name} or {{variable_name}}
+    // Placeholder pattern: {{variable_name}} or {variable_name}
     private static final Pattern PLACEHOLDER_PATTERN = Pattern.compile("\\{\\{?([a-zA-Z_][a-zA-Z0-9_]*)\\}?\\}");
 
-    // Image placeholder pattern: {IMG:variable_name} or {{IMG:variable_name}}
+    // Image placeholder pattern for Phase 2: {{IMG:variable_name}}
     private static final Pattern IMAGE_PLACEHOLDER_PATTERN = Pattern.compile("\\{\\{?IMG:([a-zA-Z_][a-zA-Z0-9_]*)\\}?\\}");
-
-    // Known image placeholders (can be extended)
-    private static final Set<String> IMAGE_PLACEHOLDER_KEYS = Set.of(
-            "companyLogo", "company_logo", "logo",
-            "signature", "customer_signature", "authorized_signature",
-            "stamp", "company_stamp", "seal",
-            "qrCode", "qr_code", "barcode"
-    );
 
     @Override
     public String processDocument(String documentUrl, Map<String, Object> variables, Long caseId) {
-        log.info("Processing document: {} for case: {}", documentUrl, caseId);
+        // Delegate to overloaded method without template metadata (for backward compatibility)
+        return processDocument(documentUrl, variables, caseId, null, null);
+    }
+
+    @Override
+    public String processDocument(String documentUrl, Map<String, Object> variables, Long caseId,
+                                  Long sourceTemplateId, String channel) {
+        log.info("Processing document: {} for case: {} with {} variables (template: {}, channel: {})",
+                documentUrl, caseId, variables != null ? variables.size() : 0, sourceTemplateId, channel);
 
         if (documentUrl == null || documentUrl.isEmpty()) {
             throw new BusinessException("Document URL is required");
@@ -72,32 +75,487 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
         }
 
         try {
+            // Download source document from DMS/S3
             byte[] sourceDocument = fileStorageService.downloadFile(documentUrl);
+            log.info("Downloaded source document: {} bytes", sourceDocument.length);
+
             byte[] processedDocument;
 
             switch (documentType) {
                 case "PDF":
-                    processedDocument = processPdfDocument(sourceDocument, variables);
+                    processedDocument = processPdfDocumentPreservingLayout(sourceDocument, variables);
                     break;
                 case "DOCX":
-                    processedDocument = processDocxDocument(sourceDocument, variables);
+                    processedDocument = processDocxDocumentPreservingLayout(sourceDocument, variables);
                     break;
                 case "DOC":
-                    throw new BusinessException("Legacy DOC format not supported. Please use DOCX.");
+                    throw new BusinessException("Legacy DOC format not supported. Please convert to DOCX or PDF.");
                 default:
                     throw new BusinessException("Unsupported document type: " + documentType);
             }
 
-            // Save processed document
+            // Upload processed document to DMS with GENERATED category
             String processedFilename = generateProcessedFilename(documentUrl, caseId);
-            String processedUrl = saveProcessedDocument(processedDocument, processedFilename, documentType);
+            String processedUrl = uploadProcessedDocumentToDms(processedDocument, processedFilename, documentType,
+                    caseId, sourceTemplateId, channel);
 
-            log.info("Document processed successfully: {}", processedUrl);
+            log.info("Document processed and uploaded to DMS successfully: {}", processedUrl);
             return processedUrl;
 
         } catch (Exception e) {
             log.error("Error processing document: {}", e.getMessage(), e);
             throw new BusinessException("Failed to process document: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Process PDF document while preserving exact layout, fonts, images, and formatting.
+     * Uses PDFBox content stream editing to replace text in-place.
+     */
+    private byte[] processPdfDocumentPreservingLayout(byte[] sourceDocument, Map<String, Object> variables) throws IOException {
+        log.info("Processing PDF document while preserving layout");
+
+        try (PDDocument document = Loader.loadPDF(sourceDocument)) {
+            boolean documentModified = false;
+
+            // Process each page
+            for (PDPage page : document.getPages()) {
+                boolean pageModified = processPageContentStream(document, page, variables);
+                if (pageModified) {
+                    documentModified = true;
+                }
+            }
+
+            if (documentModified) {
+                log.info("PDF document modified with placeholder replacements");
+            } else {
+                log.info("No placeholders found or replaced in PDF");
+            }
+
+            // Save the modified document
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            document.save(baos);
+            return baos.toByteArray();
+        }
+    }
+
+    /**
+     * Process a single page's content stream to replace placeholders
+     * This preserves the exact position, font, size, and styling of text
+     */
+    private boolean processPageContentStream(PDDocument document, PDPage page, Map<String, Object> variables) throws IOException {
+        // Check if page has content
+        if (page.getContents() == null) {
+            return false;
+        }
+
+        PDFStreamParser parser = new PDFStreamParser(page);
+        List<Object> tokens = parser.parse();
+        boolean modified = false;
+
+        // Process each token in the content stream
+        for (int i = 0; i < tokens.size(); i++) {
+            Object token = tokens.get(i);
+
+            // Check if this is a text showing operator (Tj or TJ)
+            if (token instanceof Operator) {
+                Operator op = (Operator) token;
+                String opName = op.getName();
+
+                if ("Tj".equals(opName) && i > 0) {
+                    // Simple text string - operand is the string before Tj
+                    Object operand = tokens.get(i - 1);
+                    if (operand instanceof String) {
+                        String text = (String) operand;
+                        String replaced = replacePlaceholders(text, variables);
+                        if (!text.equals(replaced)) {
+                            tokens.set(i - 1, replaced);
+                            modified = true;
+                            log.debug("Replaced placeholder in PDF: '{}' -> '{}'", text, replaced);
+                        }
+                    }
+                } else if ("TJ".equals(opName) && i > 0) {
+                    // Array of text strings and positioning - more complex
+                    Object operand = tokens.get(i - 1);
+                    if (operand instanceof List) {
+                        @SuppressWarnings("unchecked")
+                        List<Object> array = (List<Object>) operand;
+                        modified |= processTextArray(array, variables);
+                    }
+                }
+            }
+        }
+
+        if (modified) {
+            // Write the modified content stream back to the page
+            // Use the document reference passed in
+            PDStream newStream = new PDStream(document);
+            OutputStream out = newStream.createOutputStream(COSName.FLATE_DECODE);
+            ContentStreamWriter writer = new ContentStreamWriter(out);
+            writer.writeTokens(tokens);
+            out.close();
+            page.setContents(newStream);
+        }
+
+        return modified;
+    }
+
+    /**
+     * Process a TJ text array, replacing placeholders while preserving positioning
+     */
+    private boolean processTextArray(List<Object> array, Map<String, Object> variables) {
+        boolean modified = false;
+
+        // First, concatenate all strings to find complete placeholders
+        StringBuilder fullText = new StringBuilder();
+        List<Integer> stringIndices = new ArrayList<>();
+
+        for (int i = 0; i < array.size(); i++) {
+            Object item = array.get(i);
+            if (item instanceof String) {
+                stringIndices.add(i);
+                fullText.append((String) item);
+            }
+        }
+
+        String originalText = fullText.toString();
+        String replacedText = replacePlaceholders(originalText, variables);
+
+        if (!originalText.equals(replacedText)) {
+            // Distribute replaced text back across the string elements
+            // Try to maintain original structure as much as possible
+            if (stringIndices.size() == 1) {
+                // Simple case: single string element
+                array.set(stringIndices.get(0), replacedText);
+                modified = true;
+            } else {
+                // Complex case: multiple string elements
+                // Replace placeholders in the combined text and redistribute
+                int charIndex = 0;
+                for (int idx : stringIndices) {
+                    String originalPart = (String) array.get(idx);
+                    int partLength = originalPart.length();
+
+                    if (charIndex + partLength <= replacedText.length()) {
+                        String newPart = replacedText.substring(charIndex,
+                                Math.min(charIndex + partLength, replacedText.length()));
+                        if (!originalPart.equals(newPart)) {
+                            array.set(idx, newPart);
+                            modified = true;
+                        }
+                    }
+                    charIndex += partLength;
+                }
+
+                // If replaced text is longer, append remainder to last string
+                if (charIndex < replacedText.length() && !stringIndices.isEmpty()) {
+                    int lastIdx = stringIndices.get(stringIndices.size() - 1);
+                    String current = (String) array.get(lastIdx);
+                    array.set(lastIdx, current + replacedText.substring(charIndex));
+                    modified = true;
+                }
+            }
+
+            log.debug("Replaced placeholder in PDF TJ array: '{}' -> '{}'", originalText, replacedText);
+        }
+
+        return modified;
+    }
+
+    /**
+     * Process DOCX document while preserving exact layout, formatting, styles, and structure.
+     * Handles placeholders that may span multiple runs.
+     */
+    private byte[] processDocxDocumentPreservingLayout(byte[] sourceDocument, Map<String, Object> variables) throws IOException {
+        log.info("Processing DOCX document while preserving layout");
+
+        try (ByteArrayInputStream bais = new ByteArrayInputStream(sourceDocument);
+             XWPFDocument document = new XWPFDocument(bais)) {
+
+            int replacementCount = 0;
+
+            // Process main document body paragraphs
+            for (XWPFParagraph paragraph : document.getParagraphs()) {
+                replacementCount += processDocxParagraphPreservingFormat(paragraph, variables);
+            }
+
+            // Process tables
+            for (XWPFTable table : document.getTables()) {
+                for (XWPFTableRow row : table.getRows()) {
+                    for (XWPFTableCell cell : row.getTableCells()) {
+                        for (XWPFParagraph paragraph : cell.getParagraphs()) {
+                            replacementCount += processDocxParagraphPreservingFormat(paragraph, variables);
+                        }
+                    }
+                }
+            }
+
+            // Process headers
+            for (XWPFHeader header : document.getHeaderList()) {
+                for (XWPFParagraph paragraph : header.getParagraphs()) {
+                    replacementCount += processDocxParagraphPreservingFormat(paragraph, variables);
+                }
+                for (XWPFTable table : header.getTables()) {
+                    for (XWPFTableRow row : table.getRows()) {
+                        for (XWPFTableCell cell : row.getTableCells()) {
+                            for (XWPFParagraph paragraph : cell.getParagraphs()) {
+                                replacementCount += processDocxParagraphPreservingFormat(paragraph, variables);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Process footers
+            for (XWPFFooter footer : document.getFooterList()) {
+                for (XWPFParagraph paragraph : footer.getParagraphs()) {
+                    replacementCount += processDocxParagraphPreservingFormat(paragraph, variables);
+                }
+                for (XWPFTable table : footer.getTables()) {
+                    for (XWPFTableRow row : table.getRows()) {
+                        for (XWPFTableCell cell : row.getTableCells()) {
+                            for (XWPFParagraph paragraph : cell.getParagraphs()) {
+                                replacementCount += processDocxParagraphPreservingFormat(paragraph, variables);
+                            }
+                        }
+                    }
+                }
+            }
+
+            log.info("DOCX processing complete: {} placeholder replacements made", replacementCount);
+
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            document.write(baos);
+            return baos.toByteArray();
+        }
+    }
+
+    /**
+     * Process a DOCX paragraph, replacing placeholders while preserving exact formatting.
+     * Handles the case where a placeholder like {{customer_name}} might be split across multiple runs.
+     *
+     * @return number of replacements made
+     */
+    private int processDocxParagraphPreservingFormat(XWPFParagraph paragraph, Map<String, Object> variables) {
+        List<XWPFRun> runs = paragraph.getRuns();
+        if (runs == null || runs.isEmpty()) {
+            return 0;
+        }
+
+        // Step 1: Build complete text from all runs and track character positions
+        StringBuilder fullText = new StringBuilder();
+        List<RunCharacterMapping> characterMappings = new ArrayList<>();
+
+        for (int runIndex = 0; runIndex < runs.size(); runIndex++) {
+            XWPFRun run = runs.get(runIndex);
+            String runText = run.getText(0);
+            if (runText != null) {
+                for (int charIndex = 0; charIndex < runText.length(); charIndex++) {
+                    characterMappings.add(new RunCharacterMapping(runIndex, charIndex, runText.charAt(charIndex)));
+                }
+                fullText.append(runText);
+            }
+        }
+
+        String originalText = fullText.toString();
+        if (originalText.isEmpty()) {
+            return 0;
+        }
+
+        // Step 2: Find all placeholders and their replacements
+        int replacementCount = 0;
+        Matcher matcher = PLACEHOLDER_PATTERN.matcher(originalText);
+        List<PlaceholderReplacement> replacements = new ArrayList<>();
+
+        while (matcher.find()) {
+            String placeholder = matcher.group(0); // Full match including braces
+            String variableName = matcher.group(1); // Just the variable name
+            Object value = variables.get(variableName);
+
+            if (value != null) {
+                String replacement = value.toString();
+                replacements.add(new PlaceholderReplacement(
+                        matcher.start(), matcher.end(), placeholder, replacement));
+                replacementCount++;
+                log.debug("Found placeholder '{}' at position {}-{}, replacing with '{}'",
+                        placeholder, matcher.start(), matcher.end(), replacement);
+            }
+        }
+
+        if (replacements.isEmpty()) {
+            return 0;
+        }
+
+        // Step 3: Apply replacements in reverse order to maintain position accuracy
+        Collections.reverse(replacements);
+
+        for (PlaceholderReplacement replacement : replacements) {
+            applyReplacementToRuns(runs, characterMappings, replacement);
+        }
+
+        return replacementCount;
+    }
+
+    /**
+     * Apply a single replacement to the runs, handling cross-run placeholders
+     */
+    private void applyReplacementToRuns(List<XWPFRun> runs, List<RunCharacterMapping> mappings,
+                                         PlaceholderReplacement replacement) {
+
+        int startPos = replacement.start;
+        int endPos = replacement.end;
+
+        if (startPos >= mappings.size() || endPos > mappings.size()) {
+            return;
+        }
+
+        // Find which runs are affected
+        RunCharacterMapping startMapping = mappings.get(startPos);
+        RunCharacterMapping endMapping = mappings.get(endPos - 1);
+
+        int startRunIndex = startMapping.runIndex;
+        int endRunIndex = endMapping.runIndex;
+
+        if (startRunIndex == endRunIndex) {
+            // Simple case: placeholder is within a single run
+            XWPFRun run = runs.get(startRunIndex);
+            String currentText = run.getText(0);
+            if (currentText != null) {
+                String newText = currentText.substring(0, startMapping.charIndex)
+                        + replacement.replacement
+                        + currentText.substring(endMapping.charIndex + 1);
+                run.setText(newText, 0);
+            }
+        } else {
+            // Complex case: placeholder spans multiple runs
+            // Strategy: Put replacement in first run, clear the placeholder parts from subsequent runs
+
+            // First run: keep text before placeholder, add replacement
+            XWPFRun firstRun = runs.get(startRunIndex);
+            String firstText = firstRun.getText(0);
+            if (firstText != null) {
+                String newFirstText = firstText.substring(0, startMapping.charIndex) + replacement.replacement;
+                firstRun.setText(newFirstText, 0);
+            }
+
+            // Last run: keep text after placeholder
+            XWPFRun lastRun = runs.get(endRunIndex);
+            String lastText = lastRun.getText(0);
+            if (lastText != null && endMapping.charIndex + 1 < lastText.length()) {
+                lastRun.setText(lastText.substring(endMapping.charIndex + 1), 0);
+            } else {
+                lastRun.setText("", 0);
+            }
+
+            // Middle runs: clear completely (they only contained placeholder text)
+            for (int i = startRunIndex + 1; i < endRunIndex; i++) {
+                runs.get(i).setText("", 0);
+            }
+        }
+    }
+
+    /**
+     * Helper class to map characters to their run positions
+     */
+    private static class RunCharacterMapping {
+        final int runIndex;
+        final int charIndex;
+        final char character;
+
+        RunCharacterMapping(int runIndex, int charIndex, char character) {
+            this.runIndex = runIndex;
+            this.charIndex = charIndex;
+            this.character = character;
+        }
+    }
+
+    /**
+     * Helper class to store placeholder replacement info
+     */
+    private static class PlaceholderReplacement {
+        final int start;
+        final int end;
+        final String placeholder;
+        final String replacement;
+
+        PlaceholderReplacement(int start, int end, String placeholder, String replacement) {
+            this.start = start;
+            this.end = end;
+            this.placeholder = placeholder;
+            this.replacement = replacement;
+        }
+    }
+
+    /**
+     * Replace placeholders in text with variable values
+     */
+    private String replacePlaceholders(String text, Map<String, Object> variables) {
+        if (text == null || variables == null || variables.isEmpty()) {
+            return text;
+        }
+
+        String result = text;
+
+        // Replace both {{var}} and {var} patterns
+        for (Map.Entry<String, Object> entry : variables.entrySet()) {
+            String key = entry.getKey();
+            String value = entry.getValue() != null ? entry.getValue().toString() : "";
+
+            // Replace {{key}}
+            result = result.replace("{{" + key + "}}", value);
+            // Replace {key}
+            result = result.replace("{" + key + "}", value);
+        }
+
+        return result;
+    }
+
+    /**
+     * Upload processed document to DMS (OVH S3) and return the URL
+     * This method maintains backward compatibility
+     */
+    private String uploadProcessedDocumentToDms(byte[] document, String filename, String documentType, Long caseId) {
+        return uploadProcessedDocumentToDms(document, filename, documentType, caseId, null, null);
+    }
+
+    /**
+     * Upload processed document to DMS (OVH S3) with GENERATED category and return the URL
+     */
+    private String uploadProcessedDocumentToDms(byte[] document, String filename, String documentType,
+                                                Long caseId, Long sourceTemplateId, String channel) {
+        try {
+            // Create MultipartFile from byte array for DMS upload
+            org.springframework.web.multipart.MultipartFile multipartFile =
+                new ByteArrayMultipartFile(document, filename, getContentType(documentType));
+
+            // Generate document name: PROCESSED_{caseId}_{timestamp}_{filename}
+            String documentName = String.format("PROCESSED_CASE_%d_%s_%s",
+                    caseId,
+                    LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")),
+                    filename);
+
+            // Upload to DMS (OVH S3 storage) with GENERATED category
+            var response = dmsServiceClient.uploadDocumentWithCategory(
+                    multipartFile,
+                    documentName,
+                    "GENERATED",     // Category: generated document (placeholders replaced)
+                    channel,         // Channel from template
+                    caseId,          // Case ID
+                    sourceTemplateId // Source template ID
+            );
+
+            if (response != null && response.getPayload() != null) {
+                String dmsUrl = response.getPayload().getFileUrl();
+                log.info("Processed document uploaded to DMS: {} -> {} (size: {} bytes, category: GENERATED, channel: {})",
+                        filename, dmsUrl, document.length, channel);
+                return dmsUrl;
+            } else {
+                throw new IOException("DMS upload returned empty response");
+            }
+
+        } catch (Exception e) {
+            log.error("Failed to upload processed document to DMS: {}", e.getMessage());
+            throw new BusinessException("Failed to upload processed document: " + e.getMessage());
         }
     }
 
@@ -141,303 +599,6 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
     public boolean hasPlaceholders(String documentUrl) {
         List<String> placeholders = extractPlaceholders(documentUrl);
         return placeholders != null && !placeholders.isEmpty();
-    }
-
-    /**
-     * Process PDF document and replace placeholders
-     * Note: PDF text replacement is complex due to PDF structure.
-     * This implementation creates a new PDF with replaced text for simple cases.
-     * For complex PDFs, consider using a commercial library or form-based approach.
-     */
-    private byte[] processPdfDocument(byte[] sourceDocument, Map<String, Object> variables) throws IOException {
-        try (PDDocument document = Loader.loadPDF(sourceDocument)) {
-
-            // Extract text and check for placeholders
-            PDFTextStripper stripper = new PDFTextStripper();
-            String originalText = stripper.getText(document);
-
-            // Replace placeholders in text
-            String processedText = replacePlaceholders(originalText, variables);
-
-            // If text changed, we need to recreate the PDF
-            // Note: This is a simplified approach - it creates a new text-only PDF
-            // For maintaining original formatting, consider using PDFBox's content stream editing
-            // or a commercial solution like iText
-
-            if (!originalText.equals(processedText)) {
-                log.debug("Placeholders found and replaced in PDF");
-
-                // For complex PDFs, we'll use a workaround:
-                // Create overlay or append replaced content
-                // This is a simplified implementation
-                return createPdfWithText(processedText, document.getNumberOfPages());
-            }
-
-            // No changes needed, return original
-            ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            document.save(baos);
-            return baos.toByteArray();
-        }
-    }
-
-    /**
-     * Process DOCX document and replace placeholders (text and images)
-     * This is more straightforward than PDF as DOCX is XML-based
-     */
-    private byte[] processDocxDocument(byte[] sourceDocument, Map<String, Object> variables) throws IOException {
-        try (ByteArrayInputStream bais = new ByteArrayInputStream(sourceDocument);
-             XWPFDocument document = new XWPFDocument(bais)) {
-
-            // Process paragraphs
-            for (XWPFParagraph paragraph : document.getParagraphs()) {
-                processDocxParagraph(paragraph, variables, document);
-            }
-
-            // Process tables
-            for (XWPFTable table : document.getTables()) {
-                for (XWPFTableRow row : table.getRows()) {
-                    for (XWPFTableCell cell : row.getTableCells()) {
-                        for (XWPFParagraph paragraph : cell.getParagraphs()) {
-                            processDocxParagraph(paragraph, variables, document);
-                        }
-                    }
-                }
-            }
-
-            // Process headers
-            for (XWPFHeader header : document.getHeaderList()) {
-                for (XWPFParagraph paragraph : header.getParagraphs()) {
-                    processDocxParagraph(paragraph, variables, document);
-                }
-            }
-
-            // Process footers
-            for (XWPFFooter footer : document.getFooterList()) {
-                for (XWPFParagraph paragraph : footer.getParagraphs()) {
-                    processDocxParagraph(paragraph, variables, document);
-                }
-            }
-
-            ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            document.write(baos);
-            return baos.toByteArray();
-        }
-    }
-
-    /**
-     * Process a single DOCX paragraph and replace placeholders (text and images)
-     */
-    private void processDocxParagraph(XWPFParagraph paragraph, Map<String, Object> variables, XWPFDocument document) {
-        List<XWPFRun> runs = paragraph.getRuns();
-        if (runs == null || runs.isEmpty()) {
-            return;
-        }
-
-        // Combine all runs to get full text (placeholders might span multiple runs)
-        StringBuilder fullText = new StringBuilder();
-        for (XWPFRun run : runs) {
-            String text = run.getText(0);
-            if (text != null) {
-                fullText.append(text);
-            }
-        }
-
-        String originalText = fullText.toString();
-
-        // Check for image placeholders first
-        Matcher imageMatcher = IMAGE_PLACEHOLDER_PATTERN.matcher(originalText);
-        boolean hasImagePlaceholder = imageMatcher.find();
-
-        // Also check for known image placeholder keys with regular syntax
-        boolean hasKnownImagePlaceholder = false;
-        String imageKey = null;
-        for (String key : IMAGE_PLACEHOLDER_KEYS) {
-            if (originalText.contains("{" + key + "}") || originalText.contains("{{" + key + "}}")) {
-                hasKnownImagePlaceholder = true;
-                imageKey = key;
-                break;
-            }
-        }
-
-        // Handle image replacement
-        if (hasImagePlaceholder || hasKnownImagePlaceholder) {
-            String placeholderKey = hasImagePlaceholder ? imageMatcher.group(1) : imageKey;
-            Object imageValue = variables.get(placeholderKey);
-
-            if (imageValue != null) {
-                String imagePath = imageValue.toString();
-                try {
-                    // Clear existing runs
-                    for (int i = runs.size() - 1; i >= 0; i--) {
-                        paragraph.removeRun(i);
-                    }
-
-                    // Add new run with image
-                    XWPFRun newRun = paragraph.createRun();
-                    insertImage(newRun, imagePath, placeholderKey);
-                    log.debug("Replaced image placeholder: {} with image: {}", placeholderKey, imagePath);
-                    return;
-                } catch (Exception e) {
-                    log.warn("Failed to insert image for placeholder {}: {}", placeholderKey, e.getMessage());
-                    // Fall back to text replacement
-                }
-            }
-        }
-
-        // Regular text placeholder replacement
-        String replacedText = replacePlaceholders(originalText, variables);
-
-        // If text changed, update the runs
-        if (!originalText.equals(replacedText)) {
-            // Clear all runs and set the replaced text in the first run
-            for (int i = runs.size() - 1; i > 0; i--) {
-                paragraph.removeRun(i);
-            }
-
-            if (!runs.isEmpty()) {
-                runs.get(0).setText(replacedText, 0);
-            }
-        }
-    }
-
-    /**
-     * Insert an image into a DOCX run
-     * @param run the run to insert the image into
-     * @param imagePath the path/URL of the image
-     * @param placeholderKey the placeholder key (used to determine image size)
-     */
-    private void insertImage(XWPFRun run, String imagePath, String placeholderKey) throws Exception {
-        byte[] imageBytes = loadImageBytes(imagePath);
-        if (imageBytes == null || imageBytes.length == 0) {
-            throw new BusinessException("Could not load image: " + imagePath);
-        }
-
-        // Determine image type
-        int pictureType = getPictureType(imagePath);
-
-        // Determine image dimensions based on placeholder type
-        ImageDimensions dimensions = getImageDimensions(placeholderKey);
-
-        try (ByteArrayInputStream bis = new ByteArrayInputStream(imageBytes)) {
-            run.addPicture(bis, pictureType, imagePath,
-                    Units.toEMU(dimensions.width), Units.toEMU(dimensions.height));
-        }
-    }
-
-    /**
-     * Load image bytes from path (local file or URL)
-     */
-    private byte[] loadImageBytes(String imagePath) {
-        try {
-            // Check if it's a URL
-            if (imagePath.startsWith("http://") || imagePath.startsWith("https://")) {
-                URL url = new URL(imagePath);
-                try (InputStream is = url.openStream();
-                     ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
-                    byte[] buffer = new byte[8192];
-                    int bytesRead;
-                    while ((bytesRead = is.read(buffer)) != -1) {
-                        baos.write(buffer, 0, bytesRead);
-                    }
-                    return baos.toByteArray();
-                }
-            }
-
-            // Check if it's a relative path in our storage
-            Path filePath = Path.of(basePath).resolve(imagePath).normalize();
-            if (Files.exists(filePath)) {
-                return Files.readAllBytes(filePath);
-            }
-
-            // Try as absolute path
-            Path absolutePath = Path.of(imagePath);
-            if (Files.exists(absolutePath)) {
-                return Files.readAllBytes(absolutePath);
-            }
-
-            log.warn("Image not found at path: {}", imagePath);
-            return null;
-
-        } catch (Exception e) {
-            log.error("Error loading image from {}: {}", imagePath, e.getMessage());
-            return null;
-        }
-    }
-
-    /**
-     * Get POI picture type from file extension
-     */
-    private int getPictureType(String imagePath) {
-        String lower = imagePath.toLowerCase();
-        if (lower.endsWith(".png")) {
-            return XWPFDocument.PICTURE_TYPE_PNG;
-        } else if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) {
-            return XWPFDocument.PICTURE_TYPE_JPEG;
-        } else if (lower.endsWith(".gif")) {
-            return XWPFDocument.PICTURE_TYPE_GIF;
-        } else if (lower.endsWith(".bmp")) {
-            return XWPFDocument.PICTURE_TYPE_BMP;
-        }
-        // Default to PNG
-        return XWPFDocument.PICTURE_TYPE_PNG;
-    }
-
-    /**
-     * Get image dimensions based on placeholder type
-     */
-    private ImageDimensions getImageDimensions(String placeholderKey) {
-        // Define default dimensions for different image types (in pixels)
-        String lowerKey = placeholderKey.toLowerCase();
-
-        if (lowerKey.contains("logo")) {
-            return new ImageDimensions(150, 50); // Company logo: wider
-        } else if (lowerKey.contains("signature")) {
-            return new ImageDimensions(120, 40); // Signature: medium width
-        } else if (lowerKey.contains("stamp") || lowerKey.contains("seal")) {
-            return new ImageDimensions(80, 80); // Stamp: square
-        } else if (lowerKey.contains("qr") || lowerKey.contains("barcode")) {
-            return new ImageDimensions(100, 100); // QR code: square
-        }
-
-        // Default dimensions
-        return new ImageDimensions(100, 100);
-    }
-
-    /**
-     * Helper class for image dimensions
-     */
-    private static class ImageDimensions {
-        final int width;
-        final int height;
-
-        ImageDimensions(int width, int height) {
-            this.width = width;
-            this.height = height;
-        }
-    }
-
-    /**
-     * Replace placeholders in text with variable values
-     */
-    private String replacePlaceholders(String text, Map<String, Object> variables) {
-        if (text == null || variables == null || variables.isEmpty()) {
-            return text;
-        }
-
-        String result = text;
-
-        // Replace both {var} and {{var}} patterns
-        for (Map.Entry<String, Object> entry : variables.entrySet()) {
-            String key = entry.getKey();
-            String value = entry.getValue() != null ? entry.getValue().toString() : "";
-
-            // Replace {{key}}
-            result = result.replace("{{" + key + "}}", value);
-            // Replace {key}
-            result = result.replace("{" + key + "}", value);
-        }
-
-        return result;
     }
 
     /**
@@ -500,50 +661,41 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
     private String generateProcessedFilename(String originalUrl, Long caseId) {
         String extension = getExtension(originalUrl);
         String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
-        return String.format("processed/case_%d_%s.%s", caseId, timestamp, extension);
+        return String.format("case_%d_%s.%s", caseId, timestamp, extension);
     }
 
     /**
-     * Save processed document to DMS (OVH S3) for tracking what was sent to customers
-     * This creates a permanent record of the processed document with replaced placeholders
+     * Get content type based on document type
      */
-    private String saveProcessedDocument(byte[] document, String filename, String documentType) throws IOException {
-        try {
-            // Create MultipartFile from byte array for DMS upload
-            org.springframework.web.multipart.MultipartFile multipartFile =
-                new ByteArrayMultipartFile(document, filename, getContentType(documentType));
-
-            // Generate document name with timestamp for uniqueness
-            // Format: PROCESSED_{caseId}_{timestamp}_{originalFilename}
-            String documentName = "PROCESSED_" + filename;
-
-            // Upload to DMS (OVH S3 storage)
-            var response = dmsServiceClient.uploadDocument(multipartFile, documentName);
-
-            if (response != null && response.getPayload() != null) {
-                String dmsUrl = response.getPayload().getFileUrl();
-                log.info("Processed document uploaded to DMS: {} -> {}", filename, dmsUrl);
-                return dmsUrl;
-            } else {
-                throw new IOException("DMS upload returned empty response");
-            }
-
-        } catch (Exception e) {
-            log.error("Failed to upload processed document to DMS: {}. Falling back to local storage.", e.getMessage());
-
-            // Fallback to local storage if DMS upload fails
-            Path processedFolder = localFileStorage.getFilePath("processed");
-            Files.createDirectories(processedFolder);
-            Path filePath = localFileStorage.getFilePath(filename);
-            Files.write(filePath, document);
-            log.info("Processed document saved locally (fallback): {}", filename);
-            return filename;
+    private String getContentType(String documentType) {
+        if (documentType == null) {
+            return "application/octet-stream";
         }
+        return switch (documentType.toUpperCase()) {
+            case "PDF" -> "application/pdf";
+            case "DOCX" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+            case "DOC" -> "application/msword";
+            default -> "application/octet-stream";
+        };
+    }
+
+    /**
+     * Get file extension from URL
+     */
+    private String getExtension(String url) {
+        if (url == null || !url.contains(".")) {
+            return "pdf";
+        }
+        String filename = url;
+        // Handle URLs with query parameters
+        if (filename.contains("?")) {
+            filename = filename.substring(0, filename.indexOf("?"));
+        }
+        return filename.substring(filename.lastIndexOf('.') + 1).toLowerCase();
     }
 
     /**
      * Custom MultipartFile implementation for byte array content
-     * Used to upload processed documents to DMS without requiring file on disk
      */
     private static class ByteArrayMultipartFile implements org.springframework.web.multipart.MultipartFile {
         private final byte[] content;
@@ -595,73 +747,5 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
         public void transferTo(java.io.File dest) throws IOException, IllegalStateException {
             Files.write(dest.toPath(), content);
         }
-    }
-
-    /**
-     * Get content type based on document type
-     */
-    private String getContentType(String documentType) {
-        if (documentType == null) {
-            return "application/octet-stream";
-        }
-        return switch (documentType.toUpperCase()) {
-            case "PDF" -> "application/pdf";
-            case "DOCX" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-            case "DOC" -> "application/msword";
-            default -> "application/octet-stream";
-        };
-    }
-
-    /**
-     * Create a simple PDF with text content
-     * This is a fallback for when we can't edit PDF in-place
-     */
-    private byte[] createPdfWithText(String text, int pageCount) throws IOException {
-        try (PDDocument document = new PDDocument()) {
-            String[] lines = text.split("\n");
-            int linesPerPage = 50;
-            int lineIndex = 0;
-
-            while (lineIndex < lines.length) {
-                PDPage page = new PDPage(PDRectangle.A4);
-                document.addPage(page);
-
-                try (PDPageContentStream contentStream = new PDPageContentStream(document, page)) {
-                    contentStream.beginText();
-                    contentStream.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 10);
-                    contentStream.setLeading(14.5f);
-                    contentStream.newLineAtOffset(50, 750);
-
-                    int linesOnPage = 0;
-                    while (lineIndex < lines.length && linesOnPage < linesPerPage) {
-                        String line = lines[lineIndex];
-                        // Escape special characters and truncate long lines
-                        if (line.length() > 100) {
-                            line = line.substring(0, 100) + "...";
-                        }
-                        contentStream.showText(line);
-                        contentStream.newLine();
-                        lineIndex++;
-                        linesOnPage++;
-                    }
-
-                    contentStream.endText();
-                }
-            }
-
-            ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            document.save(baos);
-            return baos.toByteArray();
-        }
-    }
-
-    /**
-     * Get file extension from URL
-     */
-    private String getExtension(String url) {
-        if (url == null || !url.contains(".")) {
-            return "pdf";
-        }
-        return url.substring(url.lastIndexOf('.') + 1).toLowerCase();
     }
 }

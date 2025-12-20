@@ -33,16 +33,18 @@ public interface UserRepository extends JpaRepository<User, Long> {
     List<User> findByGeographies(@Param("geographies") String[] geographies);
 
     /**
-     * Find all active agents (users with role agent)
+     * Find all active internal users (excludes agency agents)
+     * Agency agents have agency_id set, internal users have it NULL
      */
-    @Query("SELECT u FROM User u WHERE u.status = 'ACTIVE' ORDER BY u.id")
+    @Query("SELECT u FROM User u WHERE u.status = 'ACTIVE' AND u.agencyId IS NULL ORDER BY u.id")
     List<User> findAllActiveUsers();
 
     /**
-     * Find all active agents for CAPACITY_BASED allocation
+     * Find all active internal collectors for CAPACITY_BASED allocation
+     * Excludes agency agents (users with agency_id set)
      * Sorted by current_case_count (ascending) for equalization - agents with fewer cases first
      */
-    @Query("SELECT u FROM User u WHERE u.status = 'ACTIVE' ORDER BY u.currentCaseCount ASC NULLS FIRST, u.id")
+    @Query("SELECT u FROM User u WHERE u.status = 'ACTIVE' AND u.agencyId IS NULL ORDER BY u.currentCaseCount ASC NULLS FIRST, u.id")
     List<User> findAllActiveAgents();
 
     /**

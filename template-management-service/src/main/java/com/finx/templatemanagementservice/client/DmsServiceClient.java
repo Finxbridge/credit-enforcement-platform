@@ -15,7 +15,7 @@ import org.springframework.web.multipart.MultipartFile;
 public interface DmsServiceClient {
 
         /**
-         * Upload document to DMS
+         * Upload document to DMS (simple - for backward compatibility)
          *
          * @param file         Required - The file to upload
          * @param documentName Optional - Custom name (defaults to original filename)
@@ -24,6 +24,25 @@ public interface DmsServiceClient {
         CommonResponse<DmsDocumentDTO> uploadDocument(
                         @RequestPart("file") MultipartFile file,
                         @RequestParam(value = "documentName", required = false) String documentName);
+
+        /**
+         * Upload document to DMS with category and channel
+         *
+         * @param file              Required - The file to upload
+         * @param documentName      Optional - Custom name
+         * @param documentCategory  Optional - Category: TEMPLATE, GENERATED, USER_UPLOAD
+         * @param channel           Optional - Channel: SMS, EMAIL, WHATSAPP, NOTICE
+         * @param caseId            Optional - Case ID for GENERATED documents
+         * @param sourceTemplateId  Optional - Source template ID for GENERATED documents
+         */
+        @PostMapping(value = "/documents", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+        CommonResponse<DmsDocumentDTO> uploadDocumentWithCategory(
+                        @RequestPart("file") MultipartFile file,
+                        @RequestParam(value = "documentName", required = false) String documentName,
+                        @RequestParam(value = "documentCategory", required = false) String documentCategory,
+                        @RequestParam(value = "channel", required = false) String channel,
+                        @RequestParam(value = "caseId", required = false) Long caseId,
+                        @RequestParam(value = "sourceTemplateId", required = false) Long sourceTemplateId);
 
         /**
          * Get document metadata by ID

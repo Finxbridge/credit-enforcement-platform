@@ -27,6 +27,8 @@ public class UserDTO {
     private Double allocationPercentage;
     private String allocationBucket;
     private Long teamId;
+    private Long agencyId;
+    private String agencyName;
     private Boolean isFirstLogin;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

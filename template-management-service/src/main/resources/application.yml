@@ -52,6 +52,9 @@ logging:
   level:
     root: ${LOGGING_LEVEL_ROOT:INFO}
     com.finx: ${LOGGING_LEVEL_FINX:DEBUG}
+    org.springframework.data.redis: ${LOGGING_LEVEL_REDIS:WARN}
+    io.lettuce.core: ${LOGGING_LEVEL_LETTUCE:WARN}
+    io.lettuce.core.protocol: WARN
     org.hibernate.SQL: ${LOGGING_LEVEL_HIBERNATE_SQL:INFO}
     org.hibernate.type.descriptor.sql: ${LOGGING_LEVEL_HIBERNATE_TYPE:INFO}
 

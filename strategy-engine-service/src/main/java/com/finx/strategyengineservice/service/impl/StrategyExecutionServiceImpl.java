@@ -378,19 +378,115 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
 
         String customerName = caseEntity.getLoan().getPrimaryCustomer().getFullName();
 
-        com.finx.strategyengineservice.client.dto.EmailRequest request = com.finx.strategyengineservice.client.dto.EmailRequest
-                .builder()
+        // Build email request
+        com.finx.strategyengineservice.client.dto.EmailRequest.EmailRequestBuilder requestBuilder =
+            com.finx.strategyengineservice.client.dto.EmailRequest.builder()
                 .toEmail(email)
                 .toName(customerName)
                 .templateId(msg91TemplateId) // MSG91 template_id returned during template creation
                 .variables(variables)
-                .caseId(caseEntity.getId())
-                .build();
+                .caseId(caseEntity.getId());
+
+        // Add document attachment if template has a document
+        Boolean hasDocument = resolveResponse.getHasDocument();
+        if (Boolean.TRUE.equals(hasDocument)) {
+            String documentUrl = resolveResponse.getProcessedDocumentUrl();
+            if (documentUrl == null || documentUrl.isEmpty()) {
+                documentUrl = resolveResponse.getOriginalDocumentUrl();
+            }
+
+            if (documentUrl != null && !documentUrl.isEmpty()) {
+                try {
+                    // Download document content
+                    byte[] documentContent = downloadDocumentFromUrl(documentUrl);
+
+                    if (documentContent != null && documentContent.length > 0) {
+                        // Base64 encode the document
+                        String base64Content = java.util.Base64.getEncoder().encodeToString(documentContent);
+
+                        // Determine filename and content type
+                        String filename = resolveResponse.getDocumentOriginalName();
+                        if (filename == null || filename.isEmpty()) {
+                            filename = "attachment." + (resolveResponse.getDocumentType() != null ?
+                                resolveResponse.getDocumentType().toLowerCase() : "pdf");
+                        }
+
+                        String contentType = getContentTypeForDocument(resolveResponse.getDocumentType());
+
+                        // Create attachment
+                        com.finx.strategyengineservice.client.dto.EmailRequest.Attachment attachment =
+                            com.finx.strategyengineservice.client.dto.EmailRequest.Attachment.builder()
+                                .filename(filename)
+                                .content(base64Content)
+                                .contentType(contentType)
+                                .build();
+
+                        requestBuilder.attachments(java.util.List.of(attachment));
+                        log.info("Added document attachment to Email for case {}: {}", caseEntity.getId(), filename);
+                    }
+                } catch (Exception e) {
+                    log.warn("Failed to attach document to Email for case {}: {}. Sending without attachment.",
+                        caseEntity.getId(), e.getMessage());
+                }
+            }
+        }
+
+        com.finx.strategyengineservice.client.dto.EmailRequest request = requestBuilder.build();
 
         log.info("Sending Email for case: {} to: {} using MSG91 template ID: {}", caseEntity.getId(), email, msg91TemplateId);
 
         communicationClient.sendEmail(request);
         log.info("Email sent successfully for case: {} using MSG91 template ID: {}", caseEntity.getId(), msg91TemplateId);
+    }
+
+    /**
+     * Download document content from URL (DMS/S3)
+     */
+    private byte[] downloadDocumentFromUrl(String documentUrl) {
+        try {
+            java.net.http.HttpClient httpClient = java.net.http.HttpClient.newBuilder()
+                .followRedirects(java.net.http.HttpClient.Redirect.NORMAL)
+                .connectTimeout(java.time.Duration.ofSeconds(30))
+                .build();
+
+            java.net.http.HttpRequest request = java.net.http.HttpRequest.newBuilder()
+                .uri(java.net.URI.create(documentUrl))
+                .GET()
+                .timeout(java.time.Duration.ofSeconds(60))
+                .build();
+
+            java.net.http.HttpResponse<byte[]> response = httpClient.send(request,
+                java.net.http.HttpResponse.BodyHandlers.ofByteArray());
+
+            if (response.statusCode() >= 200 && response.statusCode() < 300) {
+                return response.body();
+            } else {
+                log.error("Failed to download document from URL {}: HTTP {}", documentUrl, response.statusCode());
+                return null;
+            }
+        } catch (Exception e) {
+            log.error("Error downloading document from URL {}: {}", documentUrl, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Get MIME content type for document type
+     */
+    private String getContentTypeForDocument(String documentType) {
+        if (documentType == null) {
+            return "application/octet-stream";
+        }
+        switch (documentType.toUpperCase()) {
+            case "PDF":
+                return "application/pdf";
+            case "DOCX":
+                return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+            case "DOC":
+                return "application/msword";
+            default:
+                return "application/octet-stream";
+        }
     }
 
     /**
@@ -459,6 +555,32 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
         // Build components from resolved variables using body_1, body_2, body_3 format for MSG91
         // MSG91 expects components keyed as body_1, body_2, etc. based on the order of variables in template
         java.util.Map<String, java.util.Map<String, String>> components = new java.util.LinkedHashMap<>();
+
+        // Add header_1 component ONLY if template was created with a document header
+        // Check both hasDocument flag AND headerType to ensure this template has a document header
+        Boolean hasDocument = resolveResponse.getHasDocument();
+        String headerType = resolveResponse.getHeaderType();
+        if (Boolean.TRUE.equals(hasDocument) && headerType != null && !headerType.isEmpty()) {
+            // Template was created with a document header - include header_1 component
+            String documentUrl = resolveResponse.getProcessedDocumentUrl();
+            if (documentUrl == null || documentUrl.isEmpty()) {
+                documentUrl = resolveResponse.getOriginalDocumentUrl();
+            }
+
+            if (documentUrl != null && !documentUrl.isEmpty()) {
+                java.util.Map<String, String> headerComponent = new java.util.LinkedHashMap<>();
+                headerComponent.put("type", headerType.toLowerCase()); // document, image, or video
+                headerComponent.put("value", documentUrl);
+                components.put("header_1", headerComponent);
+
+                log.info("Added header_1 component for case {}: type={}, url={}",
+                        caseEntity.getId(), headerType.toLowerCase(), documentUrl);
+            } else {
+                log.warn("Template has document header (headerType={}) but no document URL available for case {}",
+                        headerType, caseEntity.getId());
+            }
+        }
+
         if (resolveResponse.getResolvedVariables() != null && !resolveResponse.getResolvedVariables().isEmpty()) {
             java.util.List<String> variableOrder = resolveResponse.getVariableOrder();
 
@@ -487,8 +609,8 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
 
                     log.info("Mapped variable '{}' to '{}' with value: '{}'", varName, componentKey, valueStr);
                 }
-                log.info("Built {} WhatsApp components (body_1 to body_{}) from template resolution for case: {}",
-                        components.size(), components.size(), caseEntity.getId());
+                log.info("Built {} WhatsApp components for case: {} (hasDocument={}, headerType={})",
+                        components.size(), caseEntity.getId(), hasDocument, headerType);
             } else {
                 // Fallback: if no variable order, use resolved variables directly (may not work with MSG91)
                 log.warn("No variable order found, falling back to direct variable mapping (may not work with MSG91)");
@@ -502,7 +624,7 @@ public class StrategyExecutionServiceImpl implements StrategyExecutionService {
                 }
             }
         } else {
-            log.warn("No resolved variables found for template {} case {}, sending without components", templateId, caseEntity.getId());
+            log.warn("No resolved variables found for template {} case {}, sending without body components", templateId, caseEntity.getId());
         }
 
         // Build and send WhatsApp request

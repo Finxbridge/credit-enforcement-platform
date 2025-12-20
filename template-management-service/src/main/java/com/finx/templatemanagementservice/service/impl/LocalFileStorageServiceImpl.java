@@ -9,10 +9,16 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.time.Duration;
 import java.util.UUID;
 
 /**
@@ -107,6 +113,12 @@ public class LocalFileStorageServiceImpl implements FileStorageService {
     @Override
     public byte[] downloadFile(String fileUrl) {
         try {
+            // Check if this is an HTTP/HTTPS URL (e.g., from DMS/S3)
+            if (fileUrl != null && (fileUrl.startsWith("http://") || fileUrl.startsWith("https://"))) {
+                return downloadFromUrl(fileUrl);
+            }
+
+            // Otherwise, treat as local file path
             Path filePath = rootLocation.resolve(fileUrl).normalize();
 
             // Security check - prevent path traversal
@@ -123,6 +135,39 @@ public class LocalFileStorageServiceImpl implements FileStorageService {
         } catch (IOException e) {
             log.error("Failed to download file: {}", e.getMessage());
             throw new BusinessException("Failed to download file: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Download file from HTTP/HTTPS URL (e.g., from DMS/S3 storage)
+     */
+    private byte[] downloadFromUrl(String url) {
+        log.info("Downloading file from URL: {}", url);
+        try {
+            HttpClient client = HttpClient.newBuilder()
+                    .connectTimeout(Duration.ofSeconds(30))
+                    .build();
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .timeout(Duration.ofMinutes(2))
+                    .GET()
+                    .build();
+
+            HttpResponse<byte[]> response = client.send(request, HttpResponse.BodyHandlers.ofByteArray());
+
+            if (response.statusCode() >= 200 && response.statusCode() < 300) {
+                log.info("File downloaded successfully from URL: {} (size: {} bytes)", url, response.body().length);
+                return response.body();
+            } else {
+                throw new BusinessException("Failed to download file from URL: " + url + " - HTTP " + response.statusCode());
+            }
+        } catch (IOException | InterruptedException e) {
+            log.error("Failed to download file from URL {}: {}", url, e.getMessage());
+            if (e instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
+            throw new BusinessException("Failed to download file from URL: " + e.getMessage());
         }
     }
 

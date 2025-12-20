@@ -32,10 +32,10 @@ public class Template {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "template_name", nullable = false, length = 100)
+    @Column(name = "template_name", nullable = false, length = 255)
     private String templateName;
 
-    @Column(name = "template_code", nullable = false, unique = true, length = 100)
+    @Column(name = "template_code", nullable = false, unique = true, length = 255)
     private String templateCode;
 
     @Enumerated(EnumType.STRING)
@@ -50,7 +50,7 @@ public class Template {
     @Column(name = "provider", length = 50)
     private ProviderType provider;
 
-    @Column(name = "provider_template_id", length = 100)
+    @Column(name = "provider_template_id", length = 255)
     private String providerTemplateId;
 
     @Column(name = "description", columnDefinition = "TEXT")
@@ -64,16 +64,16 @@ public class Template {
     @Column(name = "dms_document_id", length = 100)
     private String dmsDocumentId; // Reference to DMS service document
 
-    @Column(name = "document_url", length = 1000)
+    @Column(name = "document_url", length = 2000)
     private String documentUrl; // Full URL to access document
 
-    @Column(name = "document_storage_path", length = 500)
+    @Column(name = "document_storage_path", length = 1000)
     private String documentStoragePath; // S3 storage path: templates/{channel}/{template_id}/{filename}
 
-    @Column(name = "document_storage_bucket", length = 100)
+    @Column(name = "document_storage_bucket", length = 255)
     private String documentStorageBucket; // S3 bucket name
 
-    @Column(name = "document_original_name", length = 500)
+    @Column(name = "document_original_name", columnDefinition = "TEXT")
     private String documentOriginalName;
 
     @Column(name = "document_type", length = 50)

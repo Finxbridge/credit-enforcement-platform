@@ -45,15 +45,33 @@ public class PaymentIntegrationServiceImpl implements PaymentIntegrationService 
         body.put("serviceType", request.getServiceType().name());
         body.put("amount", amountInPaisa); // Send amount in paisa
 
-        // Add fields based on service type
-        if (request.getMobileNumber() != null) body.put("mobileNumber", request.getMobileNumber());
-        if (request.getMessage() != null) body.put("message", request.getMessage());
-        if (request.getInstrumentType() != null) body.put("instrumentType", request.getInstrumentType());
-        if (request.getInstrumentReference() != null) body.put("instrumentReference", request.getInstrumentReference());
+        // Add common tracking fields
         if (request.getCaseId() != null) body.put("caseId", request.getCaseId());
         if (request.getLoanAccountNumber() != null) body.put("loanAccountNumber", request.getLoanAccountNumber());
         if (request.getCustomerName() != null) body.put("customerName", request.getCustomerName());
         if (request.getCustomerEmail() != null) body.put("customerEmail", request.getCustomerEmail());
+
+        // Add service-specific fields
+        switch (request.getServiceType()) {
+            case PAYMENT_LINK -> {
+                if (request.getMobileNumber() != null) body.put("mobileNumber", request.getMobileNumber());
+                if (request.getMessage() != null) body.put("message", request.getMessage());
+            }
+            case COLLECT_CALL -> {
+                // instrumentType is always MOBILE from database config
+                // Use instrumentReference if provided, otherwise use mobileNumber
+                String mobileNumber = request.getInstrumentReference();
+                if (mobileNumber == null || mobileNumber.isBlank()) {
+                    mobileNumber = request.getMobileNumber();
+                }
+                if (mobileNumber != null) {
+                    body.put("instrumentReference", mobileNumber);
+                }
+            }
+            case DYNAMIC_QR -> {
+                // No additional fields required for DQR
+            }
+        }
 
         log.debug("Sending payment request with amount in paisa: {}", amountInPaisa);
         JsonNode response = callApi(BASE_PATH + "/initiate", body);
@@ -177,6 +195,7 @@ public class PaymentIntegrationServiceImpl implements PaymentIntegrationService 
                 .status(getText(data, "status"))
                 .message(getText(data, "message"))
                 .paymentLink(getText(data, "paymentLink"))
+                .upiIntent(getText(data, "upiIntent"))
                 .qrCodeBase64(getText(data, "qrCodeBase64"))
                 .qrCodeUrl(getText(data, "qrCodeUrl"))
                 .refundAmount(getDecimal(data, "refundAmount"))

@@ -73,6 +73,24 @@ public interface CommunicationServiceClient {
     @PostMapping("/comm/whatsapp/send")
     CommonResponse<WhatsAppResponse> sendWhatsApp(@RequestBody WhatsAppSendRequest request);
 
+    /**
+     * Upload media file (IMAGE, VIDEO, DOCUMENT) to MSG91 for WhatsApp template creation
+     * Returns header_handle to use in template HEADER component
+     *
+     * Note: This requires multipart/form-data, typically called via RestTemplate/WebClient
+     * instead of Feign. See WhatsAppMediaUploadClient for the actual implementation.
+     *
+     * @param mediaBytes The media file bytes
+     * @param filename The original filename
+     * @param contentType The content type (application/pdf, image/jpeg, etc.)
+     * @return Response containing the header_handle URL
+     */
+    @PostMapping("/comm/whatsapp/media-upload")
+    CommonResponse<WhatsAppMediaUploadResponse> uploadWhatsAppMedia(
+            @RequestParam("mediaBytes") byte[] mediaBytes,
+            @RequestParam("filename") String filename,
+            @RequestParam("contentType") String contentType);
+
     // ==================== Email APIs ====================
 
     /**

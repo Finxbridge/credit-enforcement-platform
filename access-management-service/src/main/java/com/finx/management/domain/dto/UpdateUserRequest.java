@@ -43,5 +43,12 @@ public class UpdateUserRequest {
     private Double allocationPercentage;
     private String allocationBucket;
     private Long teamId;
+
+    /**
+     * Agency ID - Required when updating a user to have AGENT role.
+     * Must reference an existing active agency.
+     */
+    private Long agencyId;
+
     private Set<Long> roleIds;
 }

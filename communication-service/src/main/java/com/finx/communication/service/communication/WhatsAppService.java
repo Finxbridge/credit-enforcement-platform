@@ -13,9 +13,17 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
+import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.client.MultipartBodyBuilder;
+import org.springframework.util.MultiValueMap;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.*;
 
@@ -356,7 +364,199 @@ public class WhatsAppService {
                 .build();
     }
 
+    /**
+     * Upload media file to MSG91 for WhatsApp template creation
+     * Returns header_handle to use in template HEADER component
+     *
+     * Database config_json must have:
+     * - media_upload_url: URL for media upload API
+     * - integrated_number: WhatsApp business number
+     */
+    @SuppressWarnings("null")
+    public WhatsAppMediaUploadResponse uploadMedia(MultipartFile media) {
+        log.info("Uploading media to MSG91: filename={}, size={}, contentType={}",
+                media.getOriginalFilename(), media.getSize(), media.getContentType());
+
+        // 1. Get configuration from cache
+        ThirdPartyIntegrationMaster config = getIntegrationConfig();
+
+        // 2. Get URL and integrated_number from config_json (same pattern as createTemplate)
+        String url = config.getConfigValueAsString("media_upload_url");
+        String integratedNumber = config.getConfigValueAsString("integrated_number");
+
+        if (url == null || url.isEmpty()) {
+            throw new ConfigurationNotFoundException("media_upload_url not configured in database for MSG91_WHATSAPP");
+        }
+
+        log.info("Media upload URL: {}, whatsapp_number: {} (from config_json)", url, integratedNumber);
+
+        try {
+            // 3. Build multipart request - matching curl exactly:
+            // --form 'whatsapp_number="918143170546"'
+            // --form 'media=@"/path/to/file.pdf"'
+            //
+            // MSG91 supported document types: PDF, DOC(X), PPT(X), XLS(X)
+            // Important: MSG91 may not recognize long MIME types like
+            // "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            // Use application/octet-stream for Office documents and let MSG91 detect from extension
+            String contentType = normalizeContentType(media.getContentType(), media.getOriginalFilename());
+            String filename = media.getOriginalFilename();
+
+            log.info("Using normalized content-type for upload: {} (original: {})", contentType, media.getContentType());
+
+            MultipartBodyBuilder builder = new MultipartBodyBuilder();
+            builder.part("whatsapp_number", integratedNumber);
+            builder.part("media", new ByteArrayResource(media.getBytes()) {
+                @Override
+                public String getFilename() {
+                    return filename;
+                }
+            }).contentType(MediaType.parseMediaType(contentType));
+
+            // 4. Call MSG91 API
+            String response = webClient.post()
+                    .uri(url)
+                    .header("authkey", config.getApiKeyEncrypted())
+                    .contentType(MediaType.MULTIPART_FORM_DATA)
+                    .body(BodyInserters.fromMultipartData(builder.build()))
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .doOnError(error -> log.error("Media upload failed", error))
+                    .onErrorResume(error -> Mono.error(new ApiCallException("Failed to upload media to MSG91", error)))
+                    .block();
+
+            log.info("Media upload response: {}", response);
+
+            // 5. Parse response
+            WhatsAppMediaUploadResponse uploadResponse = objectMapper.readValue(response, WhatsAppMediaUploadResponse.class);
+
+            if (uploadResponse.getData() != null && uploadResponse.getData().getUrl() != null) {
+                log.info("Media uploaded successfully. header_handle: {}", uploadResponse.getData().getUrl());
+            } else {
+                log.warn("Media upload response missing URL data: {}", response);
+            }
+
+            return uploadResponse;
+
+        } catch (IOException e) {
+            log.error("Failed to read media file", e);
+            throw new ApiCallException("Failed to read media file", e);
+        }
+    }
+
+    /**
+     * Create WhatsApp template with document in one step
+     * 1. Upload document to MSG91 to get header_handle
+     * 2. Create template with DOCUMENT header using header_handle
+     */
+    public Map<String, Object> createTemplateWithDocument(MultipartFile document, WhatsAppCreateTemplateRequest request) {
+        log.info("Creating WhatsApp template with document: template={}, file={}",
+                request.getTemplateName(), document.getOriginalFilename());
+
+        // Step 1: Upload document to get header_handle
+        WhatsAppMediaUploadResponse uploadResponse = uploadMedia(document);
+
+        if (uploadResponse.getData() == null || uploadResponse.getData().getUrl() == null) {
+            throw new ApiCallException("Failed to upload document - no header_handle returned");
+        }
+
+        String headerHandle = uploadResponse.getData().getUrl();
+        log.info("Document uploaded. header_handle: {}", headerHandle);
+
+        // Step 2: Update request with header_handle
+        // Find HEADER component and set header_handle
+        boolean headerFound = false;
+        for (WhatsAppCreateTemplateRequest.TemplateComponent component : request.getComponents()) {
+            if ("HEADER".equals(component.getType())) {
+                // Set format to DOCUMENT if not set
+                if (component.getFormat() == null) {
+                    component.setFormat("DOCUMENT");
+                }
+
+                // Set header_handle in example
+                if (component.getExample() == null) {
+                    component.setExample(WhatsAppCreateTemplateRequest.ComponentExample.builder()
+                            .headerHandle(List.of(headerHandle))
+                            .build());
+                } else {
+                    component.getExample().setHeaderHandle(List.of(headerHandle));
+                }
+                headerFound = true;
+                break;
+            }
+        }
+
+        // If no HEADER component exists, add one
+        if (!headerFound) {
+            List<WhatsAppCreateTemplateRequest.TemplateComponent> components = new ArrayList<>(request.getComponents());
+            components.add(0, WhatsAppCreateTemplateRequest.TemplateComponent.builder()
+                    .type("HEADER")
+                    .format("DOCUMENT")
+                    .example(WhatsAppCreateTemplateRequest.ComponentExample.builder()
+                            .headerHandle(List.of(headerHandle))
+                            .build())
+                    .build());
+            request.setComponents(components);
+        }
+
+        // Step 3: Create template with the updated request
+        Map<String, Object> createResponse = createTemplate(request);
+
+        // Add header_handle to response for reference
+        createResponse.put("header_handle", headerHandle);
+
+        log.info("Template with document created successfully: {}", createResponse);
+        return createResponse;
+    }
+
     // ==================== Helper Methods ====================
+
+    /**
+     * Normalize content-type for MSG91 API compatibility
+     *
+     * MSG91 WhatsApp sample-media-upload API supported types (from documentation):
+     * - Documents: PDF, DOC(X), PPT(X), XLS(X) [up to 100MB]
+     * - Images: JPG, JPEG, PNG [up to 5MB]
+     * - Videos: MP4, 3GPP [up to 16MB]
+     *
+     * If the API keeps rejecting, the file type may not actually be supported
+     * for sample media upload (used during template creation only).
+     */
+    private String normalizeContentType(String originalContentType, String filename) {
+        if (originalContentType == null && filename != null) {
+            // Derive content type from filename extension
+            return getContentTypeFromFilename(filename);
+        }
+
+        if (originalContentType == null) {
+            return "application/octet-stream";
+        }
+
+        // Return the original content-type - MSG91 should recognize standard MIME types
+        return originalContentType;
+    }
+
+    /**
+     * Get content type from filename extension
+     */
+    private String getContentTypeFromFilename(String filename) {
+        if (filename == null) return "application/octet-stream";
+
+        String lower = filename.toLowerCase();
+        if (lower.endsWith(".pdf")) return "application/pdf";
+        if (lower.endsWith(".doc")) return "application/msword";
+        if (lower.endsWith(".docx")) return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+        if (lower.endsWith(".xls")) return "application/vnd.ms-excel";
+        if (lower.endsWith(".xlsx")) return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+        if (lower.endsWith(".ppt")) return "application/vnd.ms-powerpoint";
+        if (lower.endsWith(".pptx")) return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+        if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+        if (lower.endsWith(".png")) return "image/png";
+        if (lower.endsWith(".mp4")) return "video/mp4";
+        if (lower.endsWith(".3gpp") || lower.endsWith(".3gp")) return "video/3gpp";
+
+        return "application/octet-stream";
+    }
 
     private ThirdPartyIntegrationMaster getIntegrationConfig() {
         return integrationCacheService.getIntegration(INTEGRATION_NAME)

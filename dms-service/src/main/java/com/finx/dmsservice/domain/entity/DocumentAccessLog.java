@@ -27,7 +27,7 @@ public class DocumentAccessLog {
     @Column(name = "document_id", nullable = false)
     private Long documentId;
 
-    @Column(name = "user_id", nullable = false)
+    @Column(name = "user_id")
     private Long userId;
 
     @Enumerated(EnumType.STRING)

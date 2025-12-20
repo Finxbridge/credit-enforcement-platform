@@ -1,5 +1,6 @@
 package com.finx.management.controller;
 
+import com.finx.management.domain.dto.AgencyDropdownDTO;
 import com.finx.management.domain.dto.CreateUserRequest;
 import com.finx.management.domain.dto.UpdateUserRequest;
 import com.finx.management.domain.dto.UserDTO;
@@ -77,5 +78,16 @@ public class UserController {
     public ResponseEntity<CommonResponse<List<UserPermissionDTO>>> getUserPermissions(@PathVariable Long userId) {
         List<UserPermissionDTO> permissions = userService.getUserPermissions(userId);
         return ResponseWrapper.ok("User permissions retrieved successfully.", permissions);
+    }
+
+    /**
+     * Get list of approved (active) agencies for user creation dropdown.
+     * When creating a user with AGENT role, frontend needs to show agency selection.
+     */
+    @PreAuthorize("hasAuthority('USER_READ')")
+    @GetMapping("/agencies/approved")
+    public ResponseEntity<CommonResponse<List<AgencyDropdownDTO>>> getApprovedAgencies() {
+        List<AgencyDropdownDTO> agencies = userService.getApprovedAgenciesForDropdown();
+        return ResponseWrapper.ok("Approved agencies retrieved successfully.", agencies);
     }
 }

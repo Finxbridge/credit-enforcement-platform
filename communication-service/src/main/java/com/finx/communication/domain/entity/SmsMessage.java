@@ -33,7 +33,7 @@ public class SmsMessage {
     @Column(name = "template_id")
     private Long templateId;
 
-    @Column(name = "template_code", length = 50)
+    @Column(name = "template_code", length = 255)
     private String templateCode;
 
     @Column(name = "message_content", nullable = false, columnDefinition = "TEXT")

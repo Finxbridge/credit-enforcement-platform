@@ -16,4 +16,10 @@ import lombok.NoArgsConstructor;
 public class UploadDocumentRequest {
 
     private String documentName;  // Custom name or original filename
+
+    // Optional categorization fields
+    private String documentCategory;  // TEMPLATE, GENERATED, USER_UPLOAD (default: USER_UPLOAD)
+    private String channel;           // SMS, EMAIL, WHATSAPP, NOTICE
+    private Long caseId;              // For GENERATED documents
+    private Long sourceTemplateId;    // For GENERATED documents - link to template
 }
