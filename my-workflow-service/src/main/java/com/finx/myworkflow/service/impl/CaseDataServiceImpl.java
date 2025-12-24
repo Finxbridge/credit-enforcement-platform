@@ -1,6 +1,8 @@
 package com.finx.myworkflow.service.impl;
 
+import com.finx.myworkflow.domain.dto.AllocationHistoryDTO;
 import com.finx.myworkflow.domain.dto.AuditLogDTO;
+import com.finx.myworkflow.domain.dto.CaseEventDTO;
 import com.finx.myworkflow.domain.dto.CaseSummaryDTO;
 import com.finx.myworkflow.domain.dto.CaseTabsDataDTO;
 import com.finx.myworkflow.domain.dto.WorkflowCaseListDTO;
@@ -30,6 +32,9 @@ public class CaseDataServiceImpl implements CaseDataService {
     private final RepaymentRepository repaymentRepository;
     private final PTPRepository ptpRepository;
     private final NoticeRepository noticeRepository;
+    private final CaseEventRepository caseEventRepository;
+    private final AllocationHistoryRepository allocationHistoryRepository;
+    private final AuditLogRepository auditLogRepository;
     private final AuditLogService auditLogService;
 
     @Override
@@ -147,9 +152,16 @@ public class CaseDataServiceImpl implements CaseDataService {
             builder.emailHistory(getEmailHistory(caseId));
             builder.documents(getDocuments(caseId));
 
+            // Get case events
+            List<CaseEventDTO> events = getAllCaseEvents(caseId);
+            builder.events(events);
+
+            // Get allocation history
+            List<AllocationHistoryDTO> allocationHistory = getAllAllocationHistory(caseId);
+            builder.allocationHistory(allocationHistory);
+
             // Get audit trail
-            List<AuditLogDTO> auditTrail = auditLogService.getCaseAuditTrail(caseId, PageRequest.of(0, 50))
-                    .getContent();
+            List<AuditLogDTO> auditTrail = getAllAuditLogs(caseId);
             builder.auditTrail(auditTrail);
 
         } catch (Exception e) {
@@ -371,5 +383,165 @@ public class CaseDataServiceImpl implements CaseDataService {
         // Documents from DMS service - would need DMS tables or keep client call
         // Return empty for now
         return Collections.emptyList();
+    }
+
+    @Override
+    public Page<CaseEventDTO> getCaseEvents(Long caseId, int page, int size) {
+        log.debug("Getting case events for case: {} - page: {}, size: {}", caseId, page, size);
+        Pageable pageable = PageRequest.of(page, size);
+        return caseEventRepository.findByCaseIdOrderByEventTimestampDesc(caseId, pageable)
+                .map(this::mapToCaseEventDTO);
+    }
+
+    @Override
+    public Page<CaseEventDTO> getCaseEventsByCategory(Long caseId, String category, int page, int size) {
+        log.debug("Getting case events for case: {} by category: {} - page: {}, size: {}", caseId, category, page, size);
+        Pageable pageable = PageRequest.of(page, size);
+        return caseEventRepository.findByCaseIdAndEventCategoryOrderByEventTimestampDesc(caseId, category, pageable)
+                .map(this::mapToCaseEventDTO);
+    }
+
+    @Override
+    public List<CaseEventDTO> getAllCaseEvents(Long caseId) {
+        log.debug("Getting all case events for case: {}", caseId);
+        return caseEventRepository.findByCaseIdOrderByEventTimestampDesc(caseId)
+                .stream()
+                .map(this::mapToCaseEventDTO)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public Page<AllocationHistoryDTO> getAllocationHistory(Long caseId, int page, int size) {
+        log.debug("Getting allocation history for case: {} - page: {}, size: {}", caseId, page, size);
+        Pageable pageable = PageRequest.of(page, size);
+        return allocationHistoryRepository.findByCaseIdOrderByAllocatedAtDesc(caseId, pageable)
+                .map(this::mapToAllocationHistoryDTO);
+    }
+
+    @Override
+    public List<AllocationHistoryDTO> getAllAllocationHistory(Long caseId) {
+        log.debug("Getting all allocation history for case: {}", caseId);
+        return allocationHistoryRepository.findByCaseIdOrderByAllocatedAtDesc(caseId)
+                .stream()
+                .map(this::mapToAllocationHistoryDTO)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public Page<AuditLogDTO> getAuditLogs(Long caseId, int page, int size) {
+        log.debug("Getting audit logs for case: {} - page: {}, size: {}", caseId, page, size);
+        Pageable pageable = PageRequest.of(page, size);
+        return auditLogRepository.findByCaseIdOrderByCreatedAtDesc(caseId, pageable)
+                .map(this::mapToAuditLogDTO);
+    }
+
+    @Override
+    public List<AuditLogDTO> getAllAuditLogs(Long caseId) {
+        log.debug("Getting all audit logs for case: {}", caseId);
+        Pageable pageable = PageRequest.of(0, 100);
+        return auditLogRepository.findByCaseIdOrderByCreatedAtDesc(caseId, pageable)
+                .getContent()
+                .stream()
+                .map(this::mapToAuditLogDTO)
+                .collect(Collectors.toList());
+    }
+
+    // ========== Mapper Methods ==========
+
+    private CaseEventDTO mapToCaseEventDTO(CaseEvent event) {
+        return CaseEventDTO.builder()
+                .id(event.getId())
+                .eventId(event.getEventId())
+                .caseId(event.getCaseId())
+                .loanAccountNumber(event.getLoanAccountNumber())
+                .eventType(event.getEventType())
+                .eventSubtype(event.getEventSubtype())
+                .eventCategory(event.getEventCategory())
+                .eventTitle(event.getEventTitle())
+                .eventDescription(event.getEventDescription())
+                .eventData(event.getEventData())
+                .actorId(event.getActorId())
+                .actorName(event.getActorName())
+                .actorType(event.getActorType())
+                .sourceService(event.getSourceService())
+                .relatedEntityType(event.getRelatedEntityType())
+                .relatedEntityId(event.getRelatedEntityId())
+                .communicationChannel(event.getCommunicationChannel())
+                .communicationStatus(event.getCommunicationStatus())
+                .communicationId(event.getCommunicationId())
+                .fromAgentId(event.getFromAgentId())
+                .toAgentId(event.getToAgentId())
+                .ptpAmount(event.getPtpAmount())
+                .ptpDate(event.getPtpDate())
+                .ptpStatus(event.getPtpStatus())
+                .paymentAmount(event.getPaymentAmount())
+                .paymentMode(event.getPaymentMode())
+                .receiptNumber(event.getReceiptNumber())
+                .oldStatus(event.getOldStatus())
+                .newStatus(event.getNewStatus())
+                .eventTimestamp(event.getEventTimestamp())
+                .createdAt(event.getCreatedAt())
+                .metadata(event.getMetadata())
+                .build();
+    }
+
+    private AllocationHistoryDTO mapToAllocationHistoryDTO(AllocationHistory history) {
+        return AllocationHistoryDTO.builder()
+                .id(history.getId())
+                .caseId(history.getCaseId())
+                .externalCaseId(history.getExternalCaseId())
+                .allocatedToUserId(history.getAllocatedToUserId())
+                .allocatedToUsername(history.getAllocatedToUsername())
+                .newOwnerType(history.getNewOwnerType())
+                .allocatedFromUserId(history.getAllocatedFromUserId())
+                .previousOwnerType(history.getPreviousOwnerType())
+                .action(history.getAction())
+                .actionDisplayName(getActionDisplayName(history.getAction()))
+                .reason(history.getReason())
+                .allocatedBy(history.getAllocatedBy())
+                .allocatedAt(history.getAllocatedAt())
+                .createdAt(history.getCreatedAt())
+                .batchId(history.getBatchId())
+                .agencyId(history.getAgencyId())
+                .agencyCode(history.getAgencyCode())
+                .agencyName(history.getAgencyName())
+                .build();
+    }
+
+    private AuditLogDTO mapToAuditLogDTO(AuditLog auditLog) {
+        return AuditLogDTO.builder()
+                .id(auditLog.getId())
+                .auditId(auditLog.getAuditId())
+                .action(auditLog.getAction())
+                .entityType(auditLog.getEntityType())
+                .entityId(auditLog.getEntityId())
+                .caseId(auditLog.getCaseId())
+                .userId(auditLog.getUserId())
+                .userName(auditLog.getUserName())
+                .oldValues(auditLog.getOldValues())
+                .newValues(auditLog.getNewValues())
+                .changes(auditLog.getChanges())
+                .description(auditLog.getDescription())
+                .ipAddress(auditLog.getIpAddress())
+                .createdAt(auditLog.getCreatedAt())
+                .build();
+    }
+
+    private String getActionDisplayName(String action) {
+        if (action == null) return null;
+        return switch (action) {
+            case "ALLOCATED" -> "Case Allocated";
+            case "REALLOCATED" -> "Case Reallocated";
+            case "DEALLOCATED" -> "Case Deallocated";
+            case "BULK_REALLOCATION" -> "Bulk Reallocation";
+            case "AGENT_TRANSFER" -> "Agent Transfer";
+            case "RULE_BASED_ALLOCATION" -> "Rule-Based Allocation";
+            case "AGENCY_ALLOCATED" -> "Allocated to Agency";
+            case "AGENCY_DEALLOCATED" -> "Deallocated from Agency";
+            case "AGENT_ASSIGNED" -> "Assigned to Agent";
+            case "AGENT_REASSIGNED" -> "Reassigned to Agent";
+            case "AGENT_UNASSIGNED" -> "Unassigned from Agent";
+            default -> action.replace("_", " ");
+        };
     }
 }

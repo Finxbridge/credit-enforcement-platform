@@ -6,6 +6,7 @@ import com.finx.casesourcingservice.domain.entity.*;
 import com.finx.casesourcingservice.domain.enums.BatchStatus;
 import com.finx.casesourcingservice.domain.enums.ErrorType;
 import com.finx.casesourcingservice.repository.*;
+import com.finx.casesourcingservice.service.CaseEventService;
 import com.finx.casesourcingservice.service.CaseValidationService;
 import com.finx.casesourcingservice.util.csv.CsvParser;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -44,6 +45,7 @@ public class BatchProcessingService {
     private final LoanDetailsRepository loanDetailsRepository;
     private final CaseRepository caseRepository;
     private final ObjectMapper objectMapper;
+    private final CaseEventService caseEventService;
 
     // Support multiple date formats commonly used in CSV uploads
     private static final DateTimeFormatter[] DATE_FORMATTERS = {
@@ -132,6 +134,17 @@ public class BatchProcessingService {
             log.info("Batch {} processing completed. Valid: {}, Invalid: {}, Duplicates: {}",
                     batchId, validCount, invalidCount, duplicateCount);
 
+            // Log batch upload completion event
+            caseEventService.logBatchUpload(
+                    batchId,
+                    rows.size(),
+                    validCount,
+                    invalidCount,
+                    null, // System - uploadedBy from batch
+                    batch.getUploadedBy(),
+                    batch.getFileName()
+            );
+
         } catch (Exception e) {
             log.error("Fatal error processing batch {}: {}", batchId, e.getMessage(), e);
 
@@ -200,6 +213,16 @@ public class BatchProcessingService {
                 .build();
 
         caseRepository.save(caseEntity);
+
+        // Log case creation event asynchronously
+        caseEventService.logCaseCreated(
+                caseEntity.getId(),
+                loanDetails.getLoanAccountNumber(),
+                null, // System upload - no specific user
+                "System",
+                batchId,
+                "CSV_UPLOAD"
+        );
     }
 
     @SuppressWarnings("null")

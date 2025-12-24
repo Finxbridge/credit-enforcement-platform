@@ -16,8 +16,7 @@ import java.util.Map;
 @AllArgsConstructor
 public class CreateOrganizationRequest {
 
-    @NotBlank(message = "Organization code is required")
-    @Size(max = 50, message = "Organization code must be at most 50 characters")
+    // orgCode is now auto-generated in backend, not required from client
     private String orgCode;
 
     @NotBlank(message = "Organization name is required")

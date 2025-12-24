@@ -8,6 +8,7 @@ import com.finx.collectionsservice.exception.BusinessException;
 import com.finx.collectionsservice.exception.ResourceNotFoundException;
 import com.finx.collectionsservice.mapper.CollectionsMapper;
 import com.finx.collectionsservice.repository.OTSRequestRepository;
+import com.finx.collectionsservice.service.CaseEventService;
 import com.finx.collectionsservice.service.OTSService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -29,6 +30,7 @@ public class OTSServiceImpl implements OTSService {
 
     private final OTSRequestRepository otsRepository;
     private final CollectionsMapper mapper;
+    private final CaseEventService caseEventService;
 
     @Override
     @Transactional
@@ -52,6 +54,16 @@ public class OTSServiceImpl implements OTSService {
 
         OTSRequest saved = otsRepository.save(ots);
         log.info("OTS created with number: {}", saved.getOtsNumber());
+
+        // Log case event for OTS creation
+        caseEventService.logOtsCreated(
+                saved.getCaseId(),
+                saved.getLoanAccountNumber(),
+                saved.getId(),
+                saved.getProposedSettlement(),
+                saved.getOriginalOutstanding(),
+                userId,
+                null);
 
         return mapper.toDto(saved);
     }
@@ -123,6 +135,17 @@ public class OTSServiceImpl implements OTSService {
         OTSRequest updated = otsRepository.save(ots);
         log.info("OTS {} approval level updated to {}", otsId, updated.getCurrentApprovalLevel());
 
+        // Log case event for OTS approval if fully approved
+        if (updated.getOtsStatus() == OTSStatus.APPROVED) {
+            caseEventService.logOtsApproved(
+                    updated.getCaseId(),
+                    updated.getLoanAccountNumber(),
+                    updated.getId(),
+                    updated.getProposedSettlement(),
+                    approverId,
+                    null);
+        }
+
         return mapper.toDto(updated);
     }
 
@@ -143,6 +166,16 @@ public class OTSServiceImpl implements OTSService {
 
         OTSRequest updated = otsRepository.save(ots);
         log.info("OTS {} rejected", otsId);
+
+        // Log case event for OTS rejection
+        caseEventService.logOtsRejected(
+                updated.getCaseId(),
+                updated.getLoanAccountNumber(),
+                updated.getId(),
+                updated.getProposedSettlement(),
+                reason,
+                approverId,
+                null);
 
         return mapper.toDto(updated);
     }

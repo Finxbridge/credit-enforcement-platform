@@ -9,6 +9,8 @@ import org.springframework.context.annotation.ComponentScan;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 import org.springframework.kafka.annotation.EnableKafka;
 
+import java.util.TimeZone;
+
 /**
  * Communication Service Application
  * Manages all external communications (SMS, WhatsApp, Email, Payment Links,
@@ -37,6 +39,7 @@ import org.springframework.kafka.annotation.EnableKafka;
 public class CommunicationServiceApplication {
 
     public static void main(String[] args) {
+        TimeZone.setDefault(TimeZone.getTimeZone("Asia/Kolkata"));
         SpringApplication.run(CommunicationServiceApplication.class, args);
     }
 }

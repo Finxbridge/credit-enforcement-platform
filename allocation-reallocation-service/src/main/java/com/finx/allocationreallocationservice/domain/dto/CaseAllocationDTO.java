@@ -13,6 +13,8 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 public class CaseAllocationDTO {
     private Long caseId;
+    private String externalCaseId;
+    private String customerName;
     private AgentDTO primaryAgent;
     private AgentDTO secondaryAgent;
     private LocalDateTime allocatedAt;

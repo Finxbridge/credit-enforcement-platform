@@ -410,4 +410,34 @@ public class AllocationController {
         return ResponseEntity.ok(CommonResponse.success(
                 "Allocated cases retrieved successfully.", allocations));
     }
+
+    // ========================================
+    // Allocation History - For External Services
+    // ========================================
+
+    @PostMapping("/history")
+    @Operation(summary = "Save allocation history entry",
+               description = "Endpoint for external services (agency-management) to record allocation actions in the unified history")
+    public ResponseEntity<CommonResponse<Void>> saveAllocationHistory(
+            @Valid @RequestBody CreateAllocationHistoryRequest request) {
+        log.info("Saving allocation history for case: {}, action: {}", request.getCaseId(), request.getAction());
+
+        allocationService.saveAllocationHistory(request);
+
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(CommonResponse.successMessage("Allocation history saved successfully."));
+    }
+
+    @PostMapping("/history/batch")
+    @Operation(summary = "Save batch of allocation history entries",
+               description = "Endpoint for external services to record multiple allocation actions in bulk")
+    public ResponseEntity<CommonResponse<Void>> saveAllocationHistoryBatch(
+            @Valid @RequestBody List<CreateAllocationHistoryRequest> requests) {
+        log.info("Saving batch of {} allocation history entries", requests.size());
+
+        allocationService.saveAllocationHistoryBatch(requests);
+
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(CommonResponse.successMessage("Allocation history batch saved successfully."));
+    }
 }

@@ -14,6 +14,7 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 public class PasswordPolicyDTO {
     private Long id;
+    private Long organizationId;
     private String policyCode;
     private String policyName;
     private PolicyLevel policyLevel;

@@ -87,7 +87,65 @@ public class PaymentIntegrationServiceImpl implements PaymentIntegrationService 
         body.put("transactionId", request.getTransactionId());
 
         JsonNode response = callApi(BASE_PATH + "/status", body);
-        return mapResponse(response, request.getServiceType());
+        PaymentResponse paymentResponse = mapResponse(response, request.getServiceType());
+
+        // Auto-create repayment record when payment is SUCCESS
+        // This triggers the database trigger to update loan_details.total_outstanding
+        if ("SUCCESS".equalsIgnoreCase(paymentResponse.getStatus())) {
+            try {
+                createRepaymentForSuccessfulPayment(paymentResponse, request.getTransactionId());
+            } catch (Exception e) {
+                // Log but don't fail - repayment creation is secondary to status check
+                log.warn("Failed to auto-create repayment for successful payment {}: {}",
+                    request.getTransactionId(), e.getMessage());
+            }
+        }
+
+        return paymentResponse;
+    }
+
+    /**
+     * Creates a repayment record for a successful digital payment.
+     * This enables the database trigger to update loan_details.total_outstanding
+     */
+    private void createRepaymentForSuccessfulPayment(PaymentResponse payment, String transactionId) {
+        // Check if repayment already exists for this transaction
+        if (payment.getMerchantOrderId() != null) {
+            try {
+                repaymentService.getRepaymentByNumber(payment.getMerchantOrderId());
+                log.debug("Repayment already exists for transaction {}", transactionId);
+                return; // Already exists, skip creation
+            } catch (Exception e) {
+                // Repayment doesn't exist, continue to create
+            }
+        }
+
+        // Validate we have caseId to link the repayment
+        if (payment.getCaseId() == null) {
+            log.warn("Cannot create repayment for transaction {} - no caseId", transactionId);
+            return;
+        }
+
+        // Create repayment request with ONLINE/UPI mode (auto-approved)
+        com.finx.collectionsservice.domain.dto.CreateRepaymentRequest repaymentRequest =
+            com.finx.collectionsservice.domain.dto.CreateRepaymentRequest.builder()
+                .caseId(payment.getCaseId())
+                .paymentAmount(payment.getAmount())
+                .paymentMode(mapPaymentMode(payment.getServiceType()))
+                .notes("Digital payment via " + (payment.getServiceType() != null ? payment.getServiceType().name() : "online") +
+                       ". Transaction ID: " + transactionId +
+                       (payment.getMerchantOrderId() != null ? ". Order ID: " + payment.getMerchantOrderId() : ""))
+                .paymentDate(payment.getPaidAt() != null ? payment.getPaidAt().toLocalDate() : java.time.LocalDate.now())
+                .build();
+
+        // System user ID for auto-created repayments
+        Long systemUserId = 1L;
+
+        com.finx.collectionsservice.domain.dto.RepaymentDTO createdRepayment =
+            repaymentService.createRepayment(repaymentRequest, systemUserId);
+
+        log.info("Auto-created repayment {} for successful payment {} - Status: {} (triggers loan update)",
+            createdRepayment.getRepaymentNumber(), transactionId, createdRepayment.getApprovalStatus());
     }
 
     @Override

@@ -41,6 +41,12 @@ public class CaseTabsDataDTO {
     // Documents Tab
     private List<Map<String, Object>> documents;
 
+    // Events Tab - All case events
+    private List<CaseEventDTO> events;
+
+    // Allocation History Tab
+    private List<AllocationHistoryDTO> allocationHistory;
+
     // Audit Trail Tab
     private List<AuditLogDTO> auditTrail;
 }

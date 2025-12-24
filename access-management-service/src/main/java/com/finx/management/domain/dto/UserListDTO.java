@@ -20,6 +20,8 @@ public class UserListDTO {
     private String mobileNumber;
     private String status;
     private String userGroupName;
+    private Long agencyId;
+    private String agencyName;
     private LocalDateTime createdAt;
     private LocalDateTime lastLoginAt;
 }

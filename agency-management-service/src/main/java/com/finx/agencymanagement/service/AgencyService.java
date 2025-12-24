@@ -106,6 +106,19 @@ public interface AgencyService {
      */
     Page<AgencyCaseAllocationDTO> getAllUnassignedCases(Pageable pageable);
 
+    /**
+     * Get cases from allocation-service that are NOT yet allocated to ANY agency
+     * These are cases available for agency allocation
+     */
+    Page<AgencyCaseAllocationDTO> getCasesNotAllocatedToAgency(Pageable pageable);
+
+    /**
+     * Get ALL allocated cases with their assignment status
+     * Shows whether case is unallocated, allocated to agency, or assigned to agent
+     * Also shows all assignments for each case (can be assigned to multiple agencies/agents)
+     */
+    Page<AgencyCaseAllocationDTO> getAllAllocatedCasesWithStatus(Pageable pageable);
+
     // ==========================================
     // DASHBOARD
     // ==========================================

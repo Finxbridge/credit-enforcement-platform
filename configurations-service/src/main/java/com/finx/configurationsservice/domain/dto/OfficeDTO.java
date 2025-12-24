@@ -16,6 +16,7 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 public class OfficeDTO {
     private Long id;
+    private Long organizationId;
     private String officeCode;
     private String officeName;
     private OfficeType officeType;

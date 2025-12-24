@@ -19,6 +19,8 @@ public interface UserMapper {
 
     @Mapping(source = "userGroup.id", target = "userGroupId")
     @Mapping(source = "userGroup.groupName", target = "userGroupName")
+    @Mapping(source = "agency.id", target = "agencyId")
+    @Mapping(source = "agency.agencyName", target = "agencyName")
     @Mapping(target = "roles", source = "roles") // Explicitly map roles
     @Mapping(target = "permissions", expression = "java(mapRolesToPermissions(user.getRoles()))")
     UserDTO toDto(User user);
@@ -27,6 +29,8 @@ public interface UserMapper {
      * Simplified mapping for list endpoint - no roles/permissions to avoid N+1 queries
      */
     @Mapping(source = "userGroup.groupName", target = "userGroupName")
+    @Mapping(source = "agency.id", target = "agencyId")
+    @Mapping(source = "agency.agencyName", target = "agencyName")
     UserListDTO toListDto(User user);
 
     @Mapping(target = "id", ignore = true)
@@ -36,6 +40,7 @@ public interface UserMapper {
     @Mapping(target = "updatedBy", ignore = true)
     @Mapping(target = "userGroup", ignore = true)
     @Mapping(target = "roles", ignore = true)
+    @Mapping(target = "agency", ignore = true)
     @Mapping(target = "accountLockedUntil", ignore = true)
     @Mapping(target = "currentCaseCount", ignore = true)
     @Mapping(target = "failedLoginAttempts", ignore = true)
@@ -59,6 +64,7 @@ public interface UserMapper {
     @Mapping(target = "updatedBy", ignore = true)
     @Mapping(target = "userGroup", ignore = true)
     @Mapping(target = "roles", ignore = true)
+    @Mapping(target = "agency", ignore = true)
     @Mapping(target = "accountLockedUntil", ignore = true)
     @Mapping(target = "currentCaseCount", ignore = true)
     @Mapping(target = "failedLoginAttempts", ignore = true)

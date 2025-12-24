@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.http.ResponseEntity;
 
 import lombok.RequiredArgsConstructor;
@@ -20,6 +21,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 
 import jakarta.validation.Valid;
 
@@ -129,6 +131,26 @@ public class AuthController {
     public ResponseEntity<CommonResponse<Void>> logout(@RequestParam String username) {
         authenticationService.logoutByUsername(username);
         return ResponseWrapper.okMessage("Logout successful. All sessions terminated.");
+    }
+
+    /**
+     * GET /api/v1/auth/me
+     * Get current authenticated user details
+     * Requires valid JWT access token in Authorization header
+     */
+    @GetMapping("/me")
+    @Operation(summary = "Get current user", description = "Get details of the currently authenticated user.")
+    @SecurityRequirement(name = "bearerAuth")
+    public ResponseEntity<CommonResponse<CurrentUserResponse>> getCurrentUser(
+            @RequestHeader("Authorization") String authorizationHeader) {
+        // Extract token from "Bearer <token>" header
+        String token = authorizationHeader;
+        if (authorizationHeader != null && authorizationHeader.startsWith("Bearer ")) {
+            token = authorizationHeader.substring(7);
+        }
+
+        CurrentUserResponse response = authenticationService.getCurrentUser(token);
+        return ResponseWrapper.ok("User details retrieved successfully", response);
     }
 
     /**

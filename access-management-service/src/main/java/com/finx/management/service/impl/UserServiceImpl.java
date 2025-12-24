@@ -112,7 +112,7 @@ public class UserServiceImpl implements UserService {
                 throw new BusinessException("One or more role IDs are invalid");
             }
 
-            // Validate agency_id is mandatory for AGENT role
+            // Validate agency is mandatory for AGENT role
             boolean hasAgentRole = roles.stream()
                     .anyMatch(role -> "AGENT".equals(role.getRoleCode()));
 
@@ -120,7 +120,9 @@ public class UserServiceImpl implements UserService {
                 if (request.getAgencyId() == null) {
                     throw new BusinessException("Agency ID is mandatory when assigning AGENT role");
                 }
-                user.setAgencyId(request.getAgencyId());
+                com.finx.management.domain.entity.Agency agency = agencyRepository.findById(request.getAgencyId())
+                        .orElseThrow(() -> new ResourceNotFoundException("Agency", "id", request.getAgencyId()));
+                user.setAgency(agency);
             } else if (request.getAgencyId() != null) {
                 throw new BusinessException("Agency ID should only be set for users with AGENT role");
             }
@@ -171,26 +173,29 @@ public class UserServiceImpl implements UserService {
                 throw new BusinessException("One or more role IDs are invalid");
             }
 
-            // Validate agency_id is mandatory for AGENT role
+            // Validate agency is mandatory for AGENT role
             boolean hasAgentRole = roles.stream()
                     .anyMatch(role -> "AGENT".equals(role.getRoleCode()));
 
             if (hasAgentRole) {
-                // Use existing agency_id if not provided in update request
-                Long agencyId = request.getAgencyId() != null ? request.getAgencyId() : user.getAgencyId();
+                // Use existing agency if not provided in update request
+                Long agencyId = request.getAgencyId() != null ? request.getAgencyId()
+                        : (user.getAgency() != null ? user.getAgency().getId() : null);
                 if (agencyId == null) {
                     throw new BusinessException("Agency ID is mandatory when assigning AGENT role");
                 }
-                user.setAgencyId(agencyId);
+                com.finx.management.domain.entity.Agency agency = agencyRepository.findById(agencyId)
+                        .orElseThrow(() -> new ResourceNotFoundException("Agency", "id", agencyId));
+                user.setAgency(agency);
             } else {
-                // Clear agency_id if user no longer has AGENT role
-                user.setAgencyId(null);
+                // Clear agency if user no longer has AGENT role
+                user.setAgency(null);
             }
 
             user.setRoles(roles);
         } else if (request.getRoleIds() != null && request.getRoleIds().isEmpty()) {
             user.setRoles(new HashSet<>());
-            user.setAgencyId(null); // Clear agency if no roles
+            user.setAgency(null); // Clear agency if no roles
         }
 
         User updatedUser = userRepository.save(user);

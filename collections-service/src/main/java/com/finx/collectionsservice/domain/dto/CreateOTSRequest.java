@@ -19,6 +19,11 @@ public class CreateOTSRequest {
     @NotNull(message = "Case ID is required")
     private Long caseId;
 
+    @NotNull(message = "Original outstanding amount is required")
+    @DecimalMin(value = "1.0", message = "Original outstanding must be at least 1")
+    @Digits(integer = 15, fraction = 2, message = "Invalid amount format")
+    private BigDecimal originalOutstanding;
+
     @NotNull(message = "Proposed settlement amount is required")
     @DecimalMin(value = "1.0", message = "Proposed settlement must be at least 1")
     @Digits(integer = 15, fraction = 2, message = "Invalid amount format")

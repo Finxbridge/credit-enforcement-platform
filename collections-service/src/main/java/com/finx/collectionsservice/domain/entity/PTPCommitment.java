@@ -73,6 +73,25 @@ public class PTPCommitment {
     @Column(name = "call_disposition", length = 50)
     private String callDisposition;
 
+    /**
+     * Template ID from Template Management Service for sending reminders
+     * User selects this from dropdown when capturing PTP
+     */
+    @Column(name = "reminder_template_id")
+    private Long reminderTemplateId;
+
+    /**
+     * Template code/name for reference
+     */
+    @Column(name = "reminder_template_code", length = 100)
+    private String reminderTemplateCode;
+
+    /**
+     * Communication channel for reminder (WHATSAPP, SMS, EMAIL)
+     */
+    @Column(name = "reminder_channel", length = 20)
+    private String reminderChannel;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 

@@ -18,6 +18,8 @@ import java.util.List;
 @AllArgsConstructor
 public class CreateHolidayRequest {
 
+    private Long organizationId;
+
     @NotBlank(message = "Holiday code is required")
     private String holidayCode;
 

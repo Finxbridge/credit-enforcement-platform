@@ -18,9 +18,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 
 @Service
 @RequiredArgsConstructor
@@ -31,15 +34,33 @@ public class OrganizationServiceImpl implements OrganizationService {
     private final OrganizationRepository organizationRepository;
     private final ConfigurationsMapper mapper;
 
+    private static final AtomicLong ORG_SEQUENCE = new AtomicLong(System.currentTimeMillis() % 100000);
+
+    /**
+     * Generates a unique organization code in format: ORG-YYYYMMDD-XXXXX
+     */
+    private String generateOrgCode() {
+        String datePart = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
+        String sequencePart = String.format("%05d", ORG_SEQUENCE.incrementAndGet() % 100000);
+        String orgCode = "ORG-" + datePart + "-" + sequencePart;
+
+        // Ensure uniqueness
+        while (organizationRepository.existsByOrgCode(orgCode)) {
+            sequencePart = String.format("%05d", ORG_SEQUENCE.incrementAndGet() % 100000);
+            orgCode = "ORG-" + datePart + "-" + sequencePart;
+        }
+        return orgCode;
+    }
+
     @Override
     @CacheEvict(value = "organizations", allEntries = true)
     public OrganizationDTO createOrganization(CreateOrganizationRequest request) {
-        if (organizationRepository.existsByOrgCode(request.getOrgCode())) {
-            throw new BusinessException("Organization with code " + request.getOrgCode() + " already exists");
-        }
+        // Auto-generate organization code
+        String orgCode = generateOrgCode();
+        log.info("Auto-generated organization code: {}", orgCode);
 
         Organization organization = Organization.builder()
-                .orgCode(request.getOrgCode())
+                .orgCode(orgCode)
                 .orgName(request.getOrgName())
                 .legalName(request.getLegalName())
                 .logoUrl(request.getLogoUrl())
@@ -103,12 +124,7 @@ public class OrganizationServiceImpl implements OrganizationService {
         Organization organization = organizationRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Organization not found with id: " + id));
 
-        if (!organization.getOrgCode().equals(request.getOrgCode()) &&
-                organizationRepository.existsByOrgCode(request.getOrgCode())) {
-            throw new BusinessException("Organization with code " + request.getOrgCode() + " already exists");
-        }
-
-        organization.setOrgCode(request.getOrgCode());
+        // orgCode is auto-generated and should not be changed
         organization.setOrgName(request.getOrgName());
         if (request.getLegalName() != null) organization.setLegalName(request.getLegalName());
         if (request.getLogoUrl() != null) organization.setLogoUrl(request.getLogoUrl());

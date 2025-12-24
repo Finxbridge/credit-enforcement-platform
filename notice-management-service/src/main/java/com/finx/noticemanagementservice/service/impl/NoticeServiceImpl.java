@@ -11,6 +11,7 @@ import com.finx.noticemanagementservice.exception.ResourceNotFoundException;
 import com.finx.noticemanagementservice.mapper.NoticeMapper;
 import com.finx.noticemanagementservice.repository.NoticeRepository;
 import com.finx.noticemanagementservice.repository.NoticeVendorRepository;
+import com.finx.noticemanagementservice.service.CaseEventService;
 import com.finx.noticemanagementservice.service.NoticeService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -36,6 +37,7 @@ public class NoticeServiceImpl implements NoticeService {
     private final NoticeRepository noticeRepository;
     private final NoticeVendorRepository vendorRepository;
     private final NoticeMapper noticeMapper;
+    private final CaseEventService caseEventService;
 
     @Override
     @CacheEvict(value = {CacheConstants.NOTICE_CACHE, CacheConstants.NOTICE_BY_CASE_CACHE,
@@ -50,6 +52,17 @@ public class NoticeServiceImpl implements NoticeService {
 
         Notice savedNotice = noticeRepository.save(notice);
         log.info("Notice created with ID: {}", savedNotice.getId());
+
+        // Log case event for notice creation
+        caseEventService.logNoticeCreated(
+                savedNotice.getCaseId(),
+                savedNotice.getLoanAccountNumber(),
+                savedNotice.getId(),
+                savedNotice.getNoticeType() != null ? savedNotice.getNoticeType().name() : null,
+                savedNotice.getRecipientName(),
+                request.getCreatedBy(),
+                null
+        );
 
         return noticeMapper.toDto(savedNotice);
     }
@@ -154,6 +167,17 @@ public class NoticeServiceImpl implements NoticeService {
         Notice savedNotice = noticeRepository.save(notice);
         log.info("Notice generated successfully: {}", savedNotice.getId());
 
+        // Log case event for notice generation
+        caseEventService.logNoticeGenerated(
+                savedNotice.getCaseId(),
+                savedNotice.getLoanAccountNumber(),
+                savedNotice.getId(),
+                savedNotice.getNoticeType() != null ? savedNotice.getNoticeType().name() : null,
+                null,
+                request.getGeneratedBy(),
+                null
+        );
+
         return noticeMapper.toDto(savedNotice);
     }
 
@@ -185,6 +209,18 @@ public class NoticeServiceImpl implements NoticeService {
         Notice savedNotice = noticeRepository.save(notice);
         log.info("Notice dispatched successfully: {}", savedNotice.getId());
 
+        // Log case event for notice dispatch
+        caseEventService.logNoticeDispatched(
+                savedNotice.getCaseId(),
+                savedNotice.getLoanAccountNumber(),
+                savedNotice.getId(),
+                savedNotice.getNoticeType() != null ? savedNotice.getNoticeType().name() : null,
+                savedNotice.getCarrierName(),
+                savedNotice.getTrackingNumber(),
+                request.getDispatchedBy(),
+                null
+        );
+
         return enrichWithVendorName(noticeMapper.toDto(savedNotice));
     }
 
@@ -208,6 +244,31 @@ public class NoticeServiceImpl implements NoticeService {
         notice.setUpdatedBy(request.getUpdatedBy());
 
         Notice savedNotice = noticeRepository.save(notice);
+
+        // Log case event for delivery status update
+        if (request.getStatus() == NoticeStatus.DELIVERED) {
+            caseEventService.logNoticeDelivered(
+                    savedNotice.getCaseId(),
+                    savedNotice.getLoanAccountNumber(),
+                    savedNotice.getId(),
+                    savedNotice.getNoticeType() != null ? savedNotice.getNoticeType().name() : null,
+                    request.getDeliveredAt() != null ? request.getDeliveredAt().toString() : null,
+                    null,
+                    request.getUpdatedBy(),
+                    null
+            );
+        } else if (request.getStatus() == NoticeStatus.RTO) {
+            caseEventService.logNoticeRto(
+                    savedNotice.getCaseId(),
+                    savedNotice.getLoanAccountNumber(),
+                    savedNotice.getId(),
+                    savedNotice.getNoticeType() != null ? savedNotice.getNoticeType().name() : null,
+                    request.getRtoReason(),
+                    request.getUpdatedBy(),
+                    null
+            );
+        }
+
         return enrichWithVendorName(noticeMapper.toDto(savedNotice));
     }
 
@@ -222,6 +283,19 @@ public class NoticeServiceImpl implements NoticeService {
         notice.setPodId(podId);
 
         Notice savedNotice = noticeRepository.save(notice);
+
+        // Log case event for delivery
+        caseEventService.logNoticeDelivered(
+                savedNotice.getCaseId(),
+                savedNotice.getLoanAccountNumber(),
+                savedNotice.getId(),
+                savedNotice.getNoticeType() != null ? savedNotice.getNoticeType().name() : null,
+                LocalDateTime.now().toString(),
+                null,
+                null,
+                null
+        );
+
         return enrichWithVendorName(noticeMapper.toDto(savedNotice));
     }
 
@@ -236,6 +310,18 @@ public class NoticeServiceImpl implements NoticeService {
         notice.setRtoReason(rtoReason);
 
         Notice savedNotice = noticeRepository.save(notice);
+
+        // Log case event for RTO
+        caseEventService.logNoticeRto(
+                savedNotice.getCaseId(),
+                savedNotice.getLoanAccountNumber(),
+                savedNotice.getId(),
+                savedNotice.getNoticeType() != null ? savedNotice.getNoticeType().name() : null,
+                rtoReason,
+                null,
+                null
+        );
+
         return enrichWithVendorName(noticeMapper.toDto(savedNotice));
     }
 

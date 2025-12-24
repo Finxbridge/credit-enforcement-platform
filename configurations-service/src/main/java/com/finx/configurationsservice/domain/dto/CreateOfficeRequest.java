@@ -17,7 +17,9 @@ import java.time.LocalDate;
 @AllArgsConstructor
 public class CreateOfficeRequest {
 
-    @NotBlank(message = "Office code is required")
+    private Long organizationId;
+
+    // officeCode is now auto-generated in backend, not required from client
     private String officeCode;
 
     @NotBlank(message = "Office name is required")

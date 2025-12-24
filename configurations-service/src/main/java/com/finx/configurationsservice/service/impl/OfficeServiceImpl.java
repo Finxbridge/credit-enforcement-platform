@@ -20,7 +20,10 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
 
 @Service
 @RequiredArgsConstructor
@@ -32,16 +35,33 @@ public class OfficeServiceImpl implements OfficeService {
     private final WorkCalendarRepository workCalendarRepository;
     private final ConfigurationsMapper mapper;
 
+    private static final AtomicLong OFFICE_SEQUENCE = new AtomicLong(System.currentTimeMillis() % 100000);
+
+    /**
+     * Generates a unique office code in format: OFF-YYYYMMDD-XXXXX
+     */
+    private String generateOfficeCode() {
+        String datePart = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
+        String sequencePart = String.format("%05d", OFFICE_SEQUENCE.incrementAndGet() % 100000);
+        String officeCode = "OFF-" + datePart + "-" + sequencePart;
+
+        // Ensure uniqueness
+        while (officeRepository.existsByOfficeCode(officeCode)) {
+            sequencePart = String.format("%05d", OFFICE_SEQUENCE.incrementAndGet() % 100000);
+            officeCode = "OFF-" + datePart + "-" + sequencePart;
+        }
+        return officeCode;
+    }
+
     @Override
     @CacheEvict(value = {CacheConstants.OFFICE_CACHE, CacheConstants.OFFICE_LIST_CACHE}, allEntries = true)
     public OfficeDTO createOffice(CreateOfficeRequest request) {
-        log.info("Creating office: {}", request.getOfficeCode());
-
-        if (officeRepository.existsByOfficeCode(request.getOfficeCode())) {
-            throw new BusinessException("Office code already exists: " + request.getOfficeCode());
-        }
+        // Auto-generate office code
+        String officeCode = generateOfficeCode();
+        log.info("Auto-generated office code: {}", officeCode);
 
         Office office = mapper.toEntity(request);
+        office.setOfficeCode(officeCode);
         office.setIsActive(true);
 
         Office savedOffice = officeRepository.save(office);

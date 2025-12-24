@@ -21,6 +21,8 @@ import java.util.Map;
 @AllArgsConstructor
 public class CreateLmsConfigRequest {
 
+    private Long organizationId;
+
     @NotBlank(message = "LMS code is required")
     @Size(max = 50, message = "LMS code must not exceed 50 characters")
     private String lmsCode;

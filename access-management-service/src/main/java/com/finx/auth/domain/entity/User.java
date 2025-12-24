@@ -81,6 +81,12 @@ public class User {
     @Column(name = "team_id")
     private Long teamId;
 
+    /**
+     * Agency ID - For users with AGENT role
+     */
+    @Column(name = "agency_id")
+    private Long agencyId;
+
     // SECURITY FIELDS
     @Column(name = "failed_login_attempts")
     @Builder.Default

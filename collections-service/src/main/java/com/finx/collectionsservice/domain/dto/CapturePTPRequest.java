@@ -40,4 +40,23 @@ public class CapturePTPRequest {
     private String callDisposition;
 
     private LocalDate followUpDate;
+
+    /**
+     * Template ID from Template Management Service for sending reminders
+     * Get from dropdown: GET /templates/dropdown/WHATSAPP
+     */
+    private Long reminderTemplateId;
+
+    /**
+     * Template code for reference (optional, auto-populated from template service)
+     */
+    @Size(max = 100, message = "Template code cannot exceed 100 characters")
+    private String reminderTemplateCode;
+
+    /**
+     * Communication channel for reminder
+     * Options: WHATSAPP, SMS, EMAIL
+     */
+    @Size(max = 20, message = "Reminder channel cannot exceed 20 characters")
+    private String reminderChannel;
 }

@@ -9,6 +9,8 @@ import org.springframework.context.annotation.ComponentScan;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
+import java.util.TimeZone;
+
 @SpringBootApplication
 @EnableCaching
 @EnableFeignClients
@@ -19,6 +21,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 public class StrategyEngineServiceApplication {
 
     public static void main(String[] args) {
+        TimeZone.setDefault(TimeZone.getTimeZone("Asia/Kolkata"));
         SpringApplication.run(StrategyEngineServiceApplication.class, args);
     }
 

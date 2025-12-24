@@ -38,7 +38,10 @@ public interface RepaymentRepository extends JpaRepository<Repayment, Long> {
     @Query("SELECT r FROM Repayment r WHERE r.paymentDate BETWEEN :startDate AND :endDate ORDER BY r.paymentDate DESC")
     List<Repayment> findByPaymentDateRange(@Param("startDate") LocalDate startDate, @Param("endDate") LocalDate endDate);
 
-    @Query("SELECT r FROM Repayment r WHERE r.depositSlaStatus = 'BREACHED' AND r.approvalStatus = 'PENDING'")
+    // SLA breached: either marked as BREACHED or deposit overdue (depositRequiredBy < now and still PENDING)
+    @Query("SELECT r FROM Repayment r WHERE " +
+           "(r.depositSlaStatus = 'BREACHED' OR (r.depositRequiredBy < CURRENT_TIMESTAMP AND r.approvalStatus = 'PENDING' AND r.depositedAt IS NULL)) " +
+           "ORDER BY r.depositRequiredBy ASC")
     List<Repayment> findSlaBreachedRepayments();
 
     @Query("SELECT r FROM Repayment r WHERE r.otsId = :otsId ORDER BY r.paymentDate")
@@ -67,7 +70,17 @@ public interface RepaymentRepository extends JpaRepository<Repayment, Long> {
     @Query("SELECT COUNT(r) FROM Repayment r WHERE r.depositSlaStatus = 'BREACHED'")
     long countSlaBreached();
 
+    // Count SLA breached or overdue (deposit time passed but not yet deposited)
+    @Query("SELECT COUNT(r) FROM Repayment r WHERE " +
+           "r.depositSlaStatus = 'BREACHED' OR " +
+           "(r.depositRequiredBy < CURRENT_TIMESTAMP AND r.approvalStatus = 'PENDING' AND r.depositedAt IS NULL)")
+    long countSlaBreachedOrOverdue();
+
     long countByIsReconciledFalse();
+
+    // Count pending reconciliation (approved but not reconciled)
+    @Query("SELECT COUNT(r) FROM Repayment r WHERE r.approvalStatus = 'APPROVED' AND (r.isReconciled = false OR r.isReconciled IS NULL)")
+    long countPendingReconciliation();
 
     Page<Repayment> findByIsReconciledFalse(Pageable pageable);
 

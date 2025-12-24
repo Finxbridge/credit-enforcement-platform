@@ -1,5 +1,8 @@
 package com.finx.myworkflow.controller;
 
+import com.finx.myworkflow.domain.dto.AllocationHistoryDTO;
+import com.finx.myworkflow.domain.dto.AuditLogDTO;
+import com.finx.myworkflow.domain.dto.CaseEventDTO;
 import com.finx.myworkflow.domain.dto.CaseSummaryDTO;
 import com.finx.myworkflow.domain.dto.CaseTabsDataDTO;
 import com.finx.myworkflow.domain.dto.CommonResponse;
@@ -9,6 +12,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -139,5 +143,77 @@ public class CaseDataController {
         log.info("Getting documents for case: {}", caseId);
         List<Map<String, Object>> documents = caseDataService.getDocuments(caseId);
         return ResponseWrapper.ok("Documents retrieved", documents);
+    }
+
+    @GetMapping("/{caseId}/events")
+    @Operation(summary = "Get case events", description = "Get all case events with pagination")
+    public ResponseEntity<CommonResponse<Page<CaseEventDTO>>> getCaseEvents(
+            @PathVariable Long caseId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        log.info("Getting case events for case: {} - page: {}, size: {}", caseId, page, size);
+        Page<CaseEventDTO> events = caseDataService.getCaseEvents(caseId, page, size);
+        return ResponseWrapper.ok("Case events retrieved", events);
+    }
+
+    @GetMapping("/{caseId}/events/category/{category}")
+    @Operation(summary = "Get case events by category", description = "Get case events filtered by category")
+    public ResponseEntity<CommonResponse<Page<CaseEventDTO>>> getCaseEventsByCategory(
+            @PathVariable Long caseId,
+            @PathVariable String category,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        log.info("Getting case events for case: {} by category: {} - page: {}, size: {}", caseId, category, page, size);
+        Page<CaseEventDTO> events = caseDataService.getCaseEventsByCategory(caseId, category, page, size);
+        return ResponseWrapper.ok("Case events retrieved", events);
+    }
+
+    @GetMapping("/{caseId}/events/all")
+    @Operation(summary = "Get all case events", description = "Get all case events without pagination")
+    public ResponseEntity<CommonResponse<List<CaseEventDTO>>> getAllCaseEvents(
+            @PathVariable Long caseId) {
+        log.info("Getting all case events for case: {}", caseId);
+        List<CaseEventDTO> events = caseDataService.getAllCaseEvents(caseId);
+        return ResponseWrapper.ok("Case events retrieved", events);
+    }
+
+    @GetMapping("/{caseId}/allocation-history")
+    @Operation(summary = "Get allocation history", description = "Get allocation history with pagination")
+    public ResponseEntity<CommonResponse<Page<AllocationHistoryDTO>>> getAllocationHistory(
+            @PathVariable Long caseId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        log.info("Getting allocation history for case: {} - page: {}, size: {}", caseId, page, size);
+        Page<AllocationHistoryDTO> history = caseDataService.getAllocationHistory(caseId, page, size);
+        return ResponseWrapper.ok("Allocation history retrieved", history);
+    }
+
+    @GetMapping("/{caseId}/allocation-history/all")
+    @Operation(summary = "Get all allocation history", description = "Get all allocation history without pagination")
+    public ResponseEntity<CommonResponse<List<AllocationHistoryDTO>>> getAllAllocationHistory(
+            @PathVariable Long caseId) {
+        log.info("Getting all allocation history for case: {}", caseId);
+        List<AllocationHistoryDTO> history = caseDataService.getAllAllocationHistory(caseId);
+        return ResponseWrapper.ok("Allocation history retrieved", history);
+    }
+
+    @GetMapping("/{caseId}/audit-logs")
+    @Operation(summary = "Get audit logs", description = "Get audit logs with pagination")
+    public ResponseEntity<CommonResponse<Page<AuditLogDTO>>> getAuditLogs(
+            @PathVariable Long caseId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        log.info("Getting audit logs for case: {} - page: {}, size: {}", caseId, page, size);
+        Page<AuditLogDTO> auditLogs = caseDataService.getAuditLogs(caseId, page, size);
+        return ResponseWrapper.ok("Audit logs retrieved", auditLogs);
+    }
+
+    @GetMapping("/{caseId}/audit-logs/all")
+    @Operation(summary = "Get all audit logs", description = "Get all audit logs without pagination")
+    public ResponseEntity<CommonResponse<List<AuditLogDTO>>> getAllAuditLogs(
+            @PathVariable Long caseId) {
+        log.info("Getting all audit logs for case: {}", caseId);
+        List<AuditLogDTO> auditLogs = caseDataService.getAllAuditLogs(caseId);
+        return ResponseWrapper.ok("Audit logs retrieved", auditLogs);
     }
 }

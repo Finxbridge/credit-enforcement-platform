@@ -77,12 +77,13 @@ public class User {
     private Long teamId;
 
     /**
-     * Agency ID - Required when user has AGENT role.
+     * Agency - Required when user has AGENT role.
      * References the agencies table.
      * NULL for internal users (collectors, supervisors, managers, admins).
      */
-    @Column(name = "agency_id")
-    private Long agencyId;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "agency_id")
+    private Agency agency;
 
     @Column(name = "failed_login_attempts")
     private Integer failedLoginAttempts = 0;

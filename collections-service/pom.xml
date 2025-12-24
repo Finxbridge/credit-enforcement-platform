@@ -98,6 +98,12 @@
             <artifactId>spring-boot-starter-webflux</artifactId>
         </dependency>
 
+        <!-- OpenFeign for service-to-service calls -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-openfeign</artifactId>
+        </dependency>
+
         <!-- iText PDF for Receipt Generation -->
         <dependency>
             <groupId>com.itextpdf</groupId>

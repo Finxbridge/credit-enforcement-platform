@@ -20,6 +20,7 @@ import java.util.Map;
 @AllArgsConstructor
 public class LmsConfigurationDTO {
     private Long id;
+    private Long organizationId;
     private String lmsCode;
     private String lmsName;
     private LmsType lmsType;

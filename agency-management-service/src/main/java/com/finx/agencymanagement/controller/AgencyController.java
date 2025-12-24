@@ -348,6 +348,31 @@ public class AgencyController {
         return ResponseWrapper.ok("Unassigned cases retrieved successfully", allocations);
     }
 
+    /**
+     * Get cases from allocation-service that are NOT yet allocated to ANY agency
+     * These are cases available for agency allocation
+     */
+    @GetMapping("/cases/unallocated-to-agency")
+    public ResponseEntity<CommonResponse<Page<AgencyCaseAllocationDTO>>> getCasesNotAllocatedToAgency(
+            @PageableDefault(size = 20) Pageable pageable) {
+        log.info("Fetching cases not allocated to any agency");
+        Page<AgencyCaseAllocationDTO> allocations = agencyService.getCasesNotAllocatedToAgency(pageable);
+        return ResponseWrapper.ok("Unallocated cases retrieved successfully", allocations);
+    }
+
+    /**
+     * Get ALL allocated cases with their assignment status
+     * Shows cases that are: UNALLOCATED, ALLOCATED_TO_AGENCY, or ASSIGNED_TO_AGENT
+     * Also shows all assignments for each case (can be assigned to multiple agencies/agents)
+     */
+    @GetMapping("/cases/all-with-status")
+    public ResponseEntity<CommonResponse<Page<AgencyCaseAllocationDTO>>> getAllAllocatedCasesWithStatus(
+            @PageableDefault(size = 20) Pageable pageable) {
+        log.info("Fetching all allocated cases with assignment status");
+        Page<AgencyCaseAllocationDTO> allocations = agencyService.getAllAllocatedCasesWithStatus(pageable);
+        return ResponseWrapper.ok("Allocated cases with status retrieved successfully", allocations);
+    }
+
     // ==========================================
     // DASHBOARD ENDPOINTS
     // ==========================================

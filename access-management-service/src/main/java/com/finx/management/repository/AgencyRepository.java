@@ -15,8 +15,9 @@ import java.util.List;
 public interface AgencyRepository extends JpaRepository<Agency, Long> {
 
     /**
-     * Get all active (approved) agencies for dropdown
+     * Get all approved and active agencies for dropdown
+     * Agencies with status APPROVED or ACTIVE can have agents assigned
      */
-    @Query("SELECT a FROM Agency a WHERE a.status = 'ACTIVE' ORDER BY a.agencyName")
+    @Query("SELECT a FROM Agency a WHERE a.status IN ('APPROVED', 'ACTIVE') ORDER BY a.agencyName")
     List<Agency> findAllApprovedAgencies();
 }

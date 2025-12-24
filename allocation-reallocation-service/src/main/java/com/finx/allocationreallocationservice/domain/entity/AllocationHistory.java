@@ -74,6 +74,16 @@ public class AllocationHistory {
     @Column(name = "batch_id")
     private String batchId;
 
+    // Agency-related fields for tracking agency allocations
+    @Column(name = "agency_id")
+    private Long agencyId;
+
+    @Column(name = "agency_code")
+    private String agencyCode;
+
+    @Column(name = "agency_name")
+    private String agencyName;
+
     // New column - will be added via migration (though changed_at can serve this
     // purpose)
     @Column(name = "created_at", nullable = false, updatable = false, insertable = false)

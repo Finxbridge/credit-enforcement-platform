@@ -9,6 +9,8 @@ import org.springframework.context.annotation.ComponentScan;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 
+import java.util.TimeZone;
+
 /**
  * Authentication Service Application
  * Handles JWT-based authentication, OTP verification, and session management
@@ -41,6 +43,7 @@ import org.springframework.security.config.annotation.method.configuration.Enabl
 public class AccessManagementServiceApplication {
 
         public static void main(String[] args) {
+                TimeZone.setDefault(TimeZone.getTimeZone("Asia/Kolkata"));
                 SpringApplication.run(AccessManagementServiceApplication.class, args);
         }
 }

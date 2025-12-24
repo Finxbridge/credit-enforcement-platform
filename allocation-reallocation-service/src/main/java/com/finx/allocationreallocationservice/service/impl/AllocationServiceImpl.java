@@ -13,6 +13,7 @@ import com.finx.allocationreallocationservice.exception.BusinessException;
 import com.finx.allocationreallocationservice.exception.ValidationException;
 import com.finx.allocationreallocationservice.repository.*;
 import com.finx.allocationreallocationservice.service.AllocationService;
+import com.finx.allocationreallocationservice.service.CaseEventService;
 import com.finx.allocationreallocationservice.util.csv.CsvExporter;
 import com.finx.allocationreallocationservice.client.CaseSourcingServiceClient;
 import lombok.RequiredArgsConstructor;
@@ -40,7 +41,10 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 @Slf4j
 @Service
@@ -61,6 +65,7 @@ public class AllocationServiceImpl implements AllocationService {
     private final UserRepository userRepository;
     private final CaseSourcingServiceClient caseSourcingServiceClient;
     private final JdbcTemplate jdbcTemplate;
+    private final CaseEventService caseEventService;
 
     @SuppressWarnings("null")
     @Override
@@ -1487,6 +1492,12 @@ public class AllocationServiceImpl implements AllocationService {
         allocationHistoryRepository.save(history);
 
         saveAuditLog("CASE_ALLOCATION", allocation.getId(), "DEALLOCATE", allocation, null);
+
+        // Log case event for deallocation
+        String agentName = userRepository.findById(previousAgentId)
+                .map(u -> u.getFirstName() + " " + u.getLastName())
+                .orElse("Unknown");
+        caseEventService.logCaseDeallocated(caseId, null, previousAgentId, agentName, null, "System", reason);
     }
 
     @Override
@@ -1598,13 +1609,47 @@ public class AllocationServiceImpl implements AllocationService {
                 .limit(size)
                 .collect(Collectors.toList());
 
-        // Map to DTOs with agent details
+        // Batch load case details to get customer names (avoid N+1 queries)
+        List<Long> caseIds = allocations.stream()
+                .map(CaseAllocation::getCaseId)
+                .collect(Collectors.toList());
+
+        Map<Long, Case> caseMap = caseIds.isEmpty()
+                ? Map.of()
+                : caseReadRepository.findAllById(caseIds).stream()
+                        .collect(Collectors.toMap(Case::getId, c -> c));
+
+        // Batch load agent details (avoid N+1 queries)
+        Set<Long> agentIds = allocations.stream()
+                .flatMap(alloc -> Stream.of(alloc.getPrimaryAgentId(), alloc.getSecondaryAgentId()))
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        Map<Long, User> userMap = agentIds.isEmpty()
+                ? Map.of()
+                : userRepository.findAllById(agentIds).stream()
+                        .collect(Collectors.toMap(User::getId, u -> u));
+
+        // Map to DTOs with agent and customer details
         return allocations.stream()
                 .map(alloc -> {
+                    // Get customer name from case -> loan -> customer
+                    String customerName = null;
+                    String externalCaseId = alloc.getExternalCaseId();
+                    Case caseEntity = caseMap.get(alloc.getCaseId());
+                    if (caseEntity != null) {
+                        if (externalCaseId == null) {
+                            externalCaseId = caseEntity.getExternalCaseId();
+                        }
+                        if (caseEntity.getLoan() != null && caseEntity.getLoan().getPrimaryCustomer() != null) {
+                            customerName = caseEntity.getLoan().getPrimaryCustomer().getFullName();
+                        }
+                    }
+
                     // Get primary agent details
                     CaseAllocationDTO.AgentDTO primaryAgent = null;
                     if (alloc.getPrimaryAgentId() != null) {
-                        User user = userRepository.findById(alloc.getPrimaryAgentId()).orElse(null);
+                        User user = userMap.get(alloc.getPrimaryAgentId());
                         if (user != null) {
                             primaryAgent = CaseAllocationDTO.AgentDTO.builder()
                                     .userId(user.getId())
@@ -1617,7 +1662,7 @@ public class AllocationServiceImpl implements AllocationService {
                     // Get secondary agent details if exists
                     CaseAllocationDTO.AgentDTO secondaryAgent = null;
                     if (alloc.getSecondaryAgentId() != null) {
-                        User user = userRepository.findById(alloc.getSecondaryAgentId()).orElse(null);
+                        User user = userMap.get(alloc.getSecondaryAgentId());
                         if (user != null) {
                             secondaryAgent = CaseAllocationDTO.AgentDTO.builder()
                                     .userId(user.getId())
@@ -1629,6 +1674,8 @@ public class AllocationServiceImpl implements AllocationService {
 
                     return CaseAllocationDTO.builder()
                             .caseId(alloc.getCaseId())
+                            .externalCaseId(externalCaseId)
+                            .customerName(customerName)
                             .primaryAgent(primaryAgent)
                             .secondaryAgent(secondaryAgent)
                             .allocatedAt(alloc.getAllocatedAt())
@@ -1698,5 +1745,65 @@ public class AllocationServiceImpl implements AllocationService {
         }
 
         log.info("Successfully updated {} out of {} cases in cases table", updatedCount, allocations.size());
+    }
+
+    // ========================================
+    // Allocation History - External Services
+    // ========================================
+
+    @Override
+    @Transactional
+    public void saveAllocationHistory(CreateAllocationHistoryRequest request) {
+        log.info("Saving allocation history for case: {}, action: {}", request.getCaseId(), request.getAction());
+
+        AllocationHistory history = AllocationHistory.builder()
+                .caseId(request.getCaseId())
+                .externalCaseId(request.getExternalCaseId())
+                .allocatedToUserId(request.getAllocatedToUserId())
+                .allocatedToUsername(request.getAllocatedToUsername())
+                .newOwnerType(request.getNewOwnerType())
+                .allocatedFromUserId(request.getAllocatedFromUserId())
+                .previousOwnerType(request.getPreviousOwnerType())
+                .action(request.getAction())
+                .reason(request.getReason())
+                .allocatedBy(request.getAllocatedBy())
+                .batchId(request.getBatchId())
+                .agencyId(request.getAgencyId())
+                .agencyCode(request.getAgencyCode())
+                .agencyName(request.getAgencyName())
+                .allocatedAt(LocalDateTime.now())
+                .build();
+
+        allocationHistoryRepository.save(history);
+        log.info("Saved allocation history entry for case: {}", request.getCaseId());
+    }
+
+    @Override
+    @Transactional
+    public void saveAllocationHistoryBatch(List<CreateAllocationHistoryRequest> requests) {
+        log.info("Saving batch of {} allocation history entries", requests.size());
+
+        List<AllocationHistory> historyEntries = requests.stream()
+                .map(request -> AllocationHistory.builder()
+                        .caseId(request.getCaseId())
+                        .externalCaseId(request.getExternalCaseId())
+                        .allocatedToUserId(request.getAllocatedToUserId())
+                        .allocatedToUsername(request.getAllocatedToUsername())
+                        .newOwnerType(request.getNewOwnerType())
+                        .allocatedFromUserId(request.getAllocatedFromUserId())
+                        .previousOwnerType(request.getPreviousOwnerType())
+                        .action(request.getAction())
+                        .reason(request.getReason())
+                        .allocatedBy(request.getAllocatedBy())
+                        .batchId(request.getBatchId())
+                        .agencyId(request.getAgencyId())
+                        .agencyCode(request.getAgencyCode())
+                        .agencyName(request.getAgencyName())
+                        .allocatedAt(LocalDateTime.now())
+                        .build())
+                .collect(Collectors.toList());
+
+        allocationHistoryRepository.saveAll(historyEntries);
+        log.info("Saved {} allocation history entries", historyEntries.size());
     }
 }

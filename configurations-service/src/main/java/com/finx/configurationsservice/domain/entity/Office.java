@@ -23,6 +23,9 @@ public class Office {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "organization_id")
+    private Long organizationId;
+
     @Column(name = "office_code", unique = true, nullable = false, length = 50)
     private String officeCode;
 

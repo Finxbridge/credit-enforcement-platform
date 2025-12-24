@@ -15,6 +15,8 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class CreatePasswordPolicyRequest {
 
+    private Long organizationId;
+
     @NotBlank(message = "Policy code is required")
     @Size(max = 50, message = "Policy code must be at most 50 characters")
     private String policyCode;

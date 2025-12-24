@@ -10,7 +10,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 @Configuration
 public class WebClientConfig {
 
-    @Value("${services.communication.url:http://localhost:8086}")
+    @Value("${COMMUNICATION_SERVICE_URL:http://localhost:8085}")
     private String communicationServiceUrl;
 
     @Bean

@@ -17,6 +17,7 @@ import java.util.List;
 @AllArgsConstructor
 public class HolidayDTO {
     private Long id;
+    private Long organizationId;
     private String holidayCode;
     private String holidayName;
     private HolidayType holidayType;

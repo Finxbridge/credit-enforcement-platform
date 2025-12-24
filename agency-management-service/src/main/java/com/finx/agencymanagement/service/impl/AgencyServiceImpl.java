@@ -7,17 +7,22 @@ import com.finx.agencymanagement.domain.dto.*;
 import com.finx.agencymanagement.domain.entity.Agency;
 import com.finx.agencymanagement.domain.entity.AgencyAuditLog;
 import com.finx.agencymanagement.domain.entity.AgencyCaseAllocation;
+import com.finx.agencymanagement.domain.entity.AllocationHistory;
 import com.finx.agencymanagement.domain.entity.User;
 import com.finx.agencymanagement.domain.enums.AgencyStatus;
 import com.finx.agencymanagement.domain.enums.AgencyType;
+import com.finx.agencymanagement.domain.enums.AllocationAction;
 import com.finx.agencymanagement.exception.BusinessException;
 import com.finx.agencymanagement.exception.ResourceNotFoundException;
 import com.finx.agencymanagement.mapper.AgencyMapper;
 import com.finx.agencymanagement.repository.AgencyAuditLogRepository;
 import com.finx.agencymanagement.repository.AgencyCaseAllocationRepository;
 import com.finx.agencymanagement.repository.AgencyRepository;
+import com.finx.agencymanagement.repository.AllocationHistoryRepository;
+import com.finx.agencymanagement.repository.CaseAllocationReadRepository;
 import com.finx.agencymanagement.repository.UserRepository;
 import com.finx.agencymanagement.service.AgencyService;
+import com.finx.agencymanagement.service.CaseEventService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;
@@ -29,7 +34,11 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -47,10 +56,13 @@ public class AgencyServiceImpl implements AgencyService {
 
     private final AgencyRepository agencyRepository;
     private final AgencyCaseAllocationRepository caseAllocationRepository;
+    private final CaseAllocationReadRepository caseAllocationReadRepository;
     private final AgencyAuditLogRepository auditLogRepository;
+    private final AllocationHistoryRepository allocationHistoryRepository;
     private final UserRepository userRepository;
     private final AgencyMapper agencyMapper;
     private final ObjectMapper objectMapper;
+    private final CaseEventService caseEventService;
 
     // ========================================
     // Agency CRUD Operations
@@ -386,19 +398,23 @@ public class AgencyServiceImpl implements AgencyService {
         }
 
         String batchId = UUID.randomUUID().toString();
+        int allocatedCount = 0;
+        int skippedCount = 0;
+        List<AllocationHistory> historyEntries = new ArrayList<>();
 
         for (Long caseId : request.getCaseIds()) {
-            // Check if case already allocated to an agency
-            caseAllocationRepository.findByCaseIdAndAllocationStatus(caseId, "ALLOCATED")
-                    .ifPresent(existing -> {
-                        existing.setAllocationStatus("DEALLOCATED");
-                        existing.setDeallocatedAt(LocalDateTime.now());
-                        existing.setDeallocatedBy(allocatedBy);
-                        existing.setDeallocationReason("Reallocated to agency " + agency.getAgencyCode());
-                        caseAllocationRepository.save(existing);
-                    });
+            // Check if case already allocated to THIS specific agency
+            // A case CAN be allocated to multiple agencies, but not twice to the same agency
+            java.util.Optional<AgencyCaseAllocation> existingAllocation =
+                    caseAllocationRepository.findByCaseIdAndAgencyIdAndStatus(caseId, request.getAgencyId());
 
-            // Create new allocation
+            if (existingAllocation.isPresent()) {
+                log.info("Case {} already allocated to agency {}, skipping", caseId, agency.getAgencyCode());
+                skippedCount++;
+                continue;
+            }
+
+            // Create new allocation (allows same case to be allocated to multiple agencies)
             AgencyCaseAllocation allocation = new AgencyCaseAllocation();
             allocation.setAgencyId(request.getAgencyId());
             allocation.setCaseId(caseId);
@@ -408,17 +424,46 @@ public class AgencyServiceImpl implements AgencyService {
             allocation.setBatchId(batchId);
             allocation.setNotes(request.getNotes());
             caseAllocationRepository.save(allocation);
+            allocatedCount++;
+
+            // Record allocation history directly in DB
+            historyEntries.add(AllocationHistory.builder()
+                    .caseId(caseId)
+                    .action(AllocationAction.AGENCY_ALLOCATED.name())
+                    .newOwnerType("AGENCY")
+                    .agencyId(agency.getId())
+                    .agencyCode(agency.getAgencyCode())
+                    .agencyName(agency.getAgencyName())
+                    .allocatedBy(allocatedBy)
+                    .batchId(batchId)
+                    .reason(request.getNotes())
+                    .allocatedAt(LocalDateTime.now())
+                    .build());
         }
 
-        // Update agency case count
-        agency.setTotalCasesAllocated((agency.getTotalCasesAllocated() != null ? agency.getTotalCasesAllocated() : 0) + request.getCaseIds().size());
-        agency.setActiveCasesCount((agency.getActiveCasesCount() != null ? agency.getActiveCasesCount() : 0) + request.getCaseIds().size());
-        agencyRepository.save(agency);
+        // Update agency case count only for newly allocated cases
+        if (allocatedCount > 0) {
+            agency.setTotalCasesAllocated((agency.getTotalCasesAllocated() != null ? agency.getTotalCasesAllocated() : 0) + allocatedCount);
+            agency.setActiveCasesCount((agency.getActiveCasesCount() != null ? agency.getActiveCasesCount() : 0) + allocatedCount);
+            agencyRepository.save(agency);
+
+            // Save allocation history directly to database
+            saveAllocationHistory(historyEntries);
+
+            // Log case events for agency allocation
+            for (Long caseId : request.getCaseIds()) {
+                caseEventService.logCaseAllocatedToAgency(
+                        caseId, null, agency.getId(), agency.getAgencyCode(),
+                        agency.getAgencyName(), allocatedBy, null);
+            }
+        }
 
         createAuditLog("CASES_ALLOCATED_TO_AGENCY", "AGENCY", request.getAgencyId(), "ALLOCATE",
-                allocatedBy, null, request.getCaseIds(), "Allocated " + request.getCaseIds().size() + " cases");
+                allocatedBy, null, request.getCaseIds(),
+                "Allocated " + allocatedCount + " cases" + (skippedCount > 0 ? ", skipped " + skippedCount + " already allocated" : ""));
 
-        log.info("Allocated {} cases to agency {} with batch: {}", request.getCaseIds().size(), agency.getAgencyCode(), batchId);
+        log.info("Allocated {} cases to agency {} with batch: {} (skipped: {})",
+                allocatedCount, agency.getAgencyCode(), batchId, skippedCount);
     }
 
     @Override
@@ -428,38 +473,127 @@ public class AgencyServiceImpl implements AgencyService {
                 request.getCaseIds().size(), agencyId, request.getAgentId());
 
         // Verify agency exists
-        agencyRepository.findById(agencyId)
+        Agency agency = agencyRepository.findById(agencyId)
                 .orElseThrow(() -> new ResourceNotFoundException("Agency", agencyId));
 
-        // Verify agent exists
+        // Verify agent exists and belongs to an agency (is an agency agent, not primary allocation agent)
         User agent = userRepository.findById(request.getAgentId())
                 .orElseThrow(() -> new ResourceNotFoundException("Agent", request.getAgentId()));
 
-        // Check if cases belong to this agency and are not already assigned
-        for (Long caseId : request.getCaseIds()) {
-            AgencyCaseAllocation allocation = caseAllocationRepository.findByCaseIdAndAllocationStatus(caseId, "ALLOCATED")
-                    .orElseThrow(() -> new BusinessException("Case " + caseId + " is not allocated to any agency"));
+        // Safety check: Only allow assignment to agency agents (not primary allocation agents)
+        if (agent.getAgencyId() == null) {
+            throw new BusinessException("Agent " + agent.getUsername() + " is not an agency agent. Cannot assign cases.");
+        }
 
-            if (!allocation.getAgencyId().equals(agencyId)) {
-                throw new BusinessException("Case " + caseId + " is not allocated to agency " + agencyId);
+        int assignedCount = 0;
+        int reassignedCount = 0;
+        List<AllocationHistory> historyEntries = new ArrayList<>();
+
+        for (Long caseId : request.getCaseIds()) {
+            // Check if case already exists in agency_case_allocations
+            java.util.Optional<AgencyCaseAllocation> existingAllocation =
+                    caseAllocationRepository.findByCaseIdAndAllocationStatus(caseId, "ALLOCATED");
+
+            Long previousAgentId = null;
+            String previousAgentName = null;
+
+            if (existingAllocation.isPresent()) {
+                // Case is already in agency_case_allocations - update agent assignment
+                AgencyCaseAllocation allocation = existingAllocation.get();
+
+                // If already assigned to another agency agent, decrement their count
+                // Only decrement if the previous agent is an agency agent (has agencyId set)
+                if (allocation.getAgentId() != null && !allocation.getAgentId().equals(request.getAgentId())) {
+                    User previousAgent = userRepository.findById(allocation.getAgentId()).orElse(null);
+                    if (previousAgent != null && previousAgent.getAgencyId() != null) {
+                        userRepository.decrementCaseCount(allocation.getAgentId(), 1);
+                        previousAgentId = previousAgent.getId();
+                        previousAgentName = previousAgent.getFirstName() + " " + previousAgent.getLastName();
+                        reassignedCount++;
+                    } else {
+                        log.warn("Previous agent {} is not an agency agent, skipping decrement", allocation.getAgentId());
+                    }
+                }
+
+                // Update agent assignment
+                allocation.setAgentId(request.getAgentId());
+                caseAllocationRepository.save(allocation);
+                assignedCount++;
+
+            } else {
+                // Case is NOT in agency_case_allocations - it's coming from allocations table
+                // Verify case exists in allocations table
+                com.finx.agencymanagement.domain.entity.CaseAllocation sourceAllocation =
+                        caseAllocationReadRepository.findByCaseIdAndStatus(caseId).orElse(null);
+
+                if (sourceAllocation == null) {
+                    log.warn("Case {} not found in allocations table, skipping", caseId);
+                    continue;
+                }
+
+                // Create new entry in agency_case_allocations
+                AgencyCaseAllocation newAllocation = new AgencyCaseAllocation();
+                newAllocation.setCaseId(caseId);
+                newAllocation.setExternalCaseId(sourceAllocation.getExternalCaseId());
+                newAllocation.setAgencyId(agencyId);
+                newAllocation.setAgentId(request.getAgentId());
+                newAllocation.setAllocationStatus("ALLOCATED");
+                newAllocation.setAllocatedAt(LocalDateTime.now());
+                newAllocation.setAllocatedBy(assignedBy);
+                newAllocation.setNotes("Assigned from allocation-service to agent. Original allocated_to: " + sourceAllocation.getAllocatedToId());
+
+                caseAllocationRepository.save(newAllocation);
+                assignedCount++;
+
+                log.debug("Created new agency_case_allocation for case {} with agent {}", caseId, request.getAgentId());
             }
 
-            // If already assigned to another agent, decrement their count
-            if (allocation.getAgentId() != null && !allocation.getAgentId().equals(request.getAgentId())) {
-                userRepository.decrementCaseCount(allocation.getAgentId(), 1);
+            // Record allocation history directly in DB
+            AllocationAction action = previousAgentId != null ? AllocationAction.AGENT_REASSIGNED : AllocationAction.AGENT_ASSIGNED;
+            historyEntries.add(AllocationHistory.builder()
+                    .caseId(caseId)
+                    .action(action.name())
+                    .allocatedToUserId(agent.getId())
+                    .allocatedToUsername(agent.getFirstName() + " " + agent.getLastName())
+                    .newOwnerType("AGENT")
+                    .allocatedFromUserId(previousAgentId)
+                    .previousOwnerType(previousAgentId != null ? "AGENT" : null)
+                    .agencyId(agency.getId())
+                    .agencyCode(agency.getAgencyCode())
+                    .agencyName(agency.getAgencyName())
+                    .allocatedBy(assignedBy)
+                    .reason(request.getNotes())
+                    .allocatedAt(LocalDateTime.now())
+                    .build());
+        }
+
+        // Increment agent's case count for newly assigned cases
+        if (assignedCount > 0) {
+            userRepository.incrementCaseCount(request.getAgentId(), assignedCount - reassignedCount);
+
+            // Save allocation history directly to database
+            saveAllocationHistory(historyEntries);
+
+            // Log case events for agent assignment
+            String agentName = agent.getFirstName() + " " + agent.getLastName();
+            for (Long caseId : request.getCaseIds()) {
+                caseEventService.logCaseAssignedToAgent(
+                        caseId, null, agent.getId(), agentName,
+                        agency.getId(), agency.getAgencyName(), assignedBy, null);
             }
         }
 
-        // Assign cases to agent
-        int updated = caseAllocationRepository.assignCasesToAgent(agencyId, request.getCaseIds(), request.getAgentId());
-
-        // Increment agent's case count
-        userRepository.incrementCaseCount(request.getAgentId(), updated);
+        // Update agency statistics
+        agency.setActiveCasesCount((agency.getActiveCasesCount() != null ? agency.getActiveCasesCount() : 0) + (assignedCount - reassignedCount));
+        agency.setTotalCasesAllocated((agency.getTotalCasesAllocated() != null ? agency.getTotalCasesAllocated() : 0) + (assignedCount - reassignedCount));
+        agencyRepository.save(agency);
 
         createAuditLog("CASES_ASSIGNED_TO_AGENT", "AGENCY", agencyId, "ASSIGN",
-                assignedBy, null, request, "Assigned " + updated + " cases to agent " + agent.getUsername());
+                assignedBy, null, request,
+                "Assigned " + assignedCount + " cases to agent " + agent.getUsername() +
+                (reassignedCount > 0 ? " (" + reassignedCount + " reassigned from other agents)" : ""));
 
-        log.info("Assigned {} cases to agent {}", updated, agent.getUsername());
+        log.info("Assigned {} cases to agent {} (reassigned: {})", assignedCount, agent.getUsername(), reassignedCount);
     }
 
     @Override
@@ -471,28 +605,67 @@ public class AgencyServiceImpl implements AgencyService {
                 .orElseThrow(() -> new ResourceNotFoundException("Agency", agencyId));
 
         int deallocatedCount = 0;
-        for (Long caseId : caseIds) {
-            caseAllocationRepository.findByCaseIdAndAllocationStatus(caseId, "ALLOCATED")
-                    .ifPresent(allocation -> {
-                        if (allocation.getAgencyId().equals(agencyId)) {
-                            // Decrement agent count if assigned
-                            if (allocation.getAgentId() != null) {
-                                userRepository.decrementCaseCount(allocation.getAgentId(), 1);
-                            }
+        List<AllocationHistory> historyEntries = new ArrayList<>();
 
-                            allocation.setAllocationStatus("DEALLOCATED");
-                            allocation.setDeallocatedAt(LocalDateTime.now());
-                            allocation.setDeallocatedBy(deallocatedBy);
-                            allocation.setDeallocationReason(reason);
-                            caseAllocationRepository.save(allocation);
+        for (Long caseId : caseIds) {
+            java.util.Optional<AgencyCaseAllocation> optAllocation =
+                    caseAllocationRepository.findByCaseIdAndAllocationStatus(caseId, "ALLOCATED");
+
+            if (optAllocation.isPresent()) {
+                AgencyCaseAllocation allocation = optAllocation.get();
+                if (allocation.getAgencyId().equals(agencyId)) {
+                    Long previousAgentId = allocation.getAgentId();
+                    String previousAgentName = null;
+
+                    // Decrement agent count if assigned to an agency agent
+                    // Only update stats for agency agents (not primary allocation agents)
+                    if (allocation.getAgentId() != null) {
+                        User agentUser = userRepository.findById(allocation.getAgentId()).orElse(null);
+                        if (agentUser != null && agentUser.getAgencyId() != null) {
+                            userRepository.decrementCaseCount(allocation.getAgentId(), 1);
+                            previousAgentName = agentUser.getFirstName() + " " + agentUser.getLastName();
                         }
-                    });
-            deallocatedCount++;
+                    }
+
+                    allocation.setAllocationStatus("DEALLOCATED");
+                    allocation.setDeallocatedAt(LocalDateTime.now());
+                    allocation.setDeallocatedBy(deallocatedBy);
+                    allocation.setDeallocationReason(reason);
+                    caseAllocationRepository.save(allocation);
+                    deallocatedCount++;
+
+                    // Record deallocation history directly in DB
+                    historyEntries.add(AllocationHistory.builder()
+                            .caseId(caseId)
+                            .action(AllocationAction.AGENCY_DEALLOCATED.name())
+                            .allocatedFromUserId(previousAgentId)
+                            .previousOwnerType(previousAgentId != null ? "AGENT" : "AGENCY")
+                            .agencyId(agency.getId())
+                            .agencyCode(agency.getAgencyCode())
+                            .agencyName(agency.getAgencyName())
+                            .allocatedBy(deallocatedBy)
+                            .reason(reason)
+                            .allocatedAt(LocalDateTime.now())
+                            .build());
+                }
+            }
         }
 
         // Update agency case count
         agency.setActiveCasesCount(Math.max(0, (agency.getActiveCasesCount() != null ? agency.getActiveCasesCount() : 0) - deallocatedCount));
         agencyRepository.save(agency);
+
+        // Save deallocation history directly to database
+        if (!historyEntries.isEmpty()) {
+            saveAllocationHistory(historyEntries);
+
+            // Log case events for agency deallocation
+            for (Long caseId : caseIds) {
+                caseEventService.logCaseDeallocatedFromAgency(
+                        caseId, null, agency.getId(), agency.getAgencyCode(),
+                        agency.getAgencyName(), reason, deallocatedBy, null);
+            }
+        }
 
         createAuditLog("CASES_DEALLOCATED_FROM_AGENCY", "AGENCY", agencyId, "DEALLOCATE",
                 deallocatedBy, caseIds, null, reason);
@@ -503,8 +676,20 @@ public class AgencyServiceImpl implements AgencyService {
     @Override
     public Page<AgencyCaseAllocationDTO> getAgencyCaseAllocations(Long agencyId, Pageable pageable) {
         log.info("Fetching case allocations for agency: {}", agencyId);
-        return caseAllocationRepository.findByAgencyIdAndAllocationStatus(agencyId, "ALLOCATED", pageable)
-                .map(this::toAllocationDTO);
+        Page<AgencyCaseAllocation> allocations = caseAllocationRepository.findByAgencyIdAndAllocationStatus(agencyId, "ALLOCATED", pageable);
+
+        // Batch load agent names to avoid N+1 queries
+        Set<Long> agentIds = allocations.getContent().stream()
+                .map(AgencyCaseAllocation::getAgentId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        Map<Long, User> agentMap = agentIds.isEmpty()
+                ? Map.of()
+                : userRepository.findAllById(agentIds).stream()
+                        .collect(Collectors.toMap(User::getId, u -> u));
+
+        return allocations.map(allocation -> toAllocationDTOWithAgentName(allocation, agentMap));
     }
 
     @Override
@@ -516,9 +701,126 @@ public class AgencyServiceImpl implements AgencyService {
 
     @Override
     public Page<AgencyCaseAllocationDTO> getAllUnassignedCases(Pageable pageable) {
-        log.info("Fetching all unassigned cases across all agencies");
-        return caseAllocationRepository.findAllUnassignedCases(pageable)
-                .map(this::toAllocationDTO);
+        log.info("Fetching cases from allocation-service that are not yet assigned to any agent in agency-management");
+        // Query allocations table to get cases that are:
+        // 1. Allocated in allocation-reallocation-service (status = 'ALLOCATED')
+        // 2. NOT already assigned to an agent in agency_case_allocations table
+        return caseAllocationReadRepository.findCasesNotAssignedToAgent(pageable)
+                .map(this::toCaseAllocationDTO);
+    }
+
+    @Override
+    public Page<AgencyCaseAllocationDTO> getCasesNotAllocatedToAgency(Pageable pageable) {
+        log.info("Fetching cases from allocation-service that are not yet allocated to any agency");
+        // Query allocations table to get cases that are:
+        // 1. Allocated in allocation-reallocation-service (status = 'ALLOCATED')
+        // 2. NOT in agency_case_allocations table at all
+        return caseAllocationReadRepository.findCasesNotAllocatedToAgency(pageable)
+                .map(this::toCaseAllocationDTO);
+    }
+
+    @Override
+    public Page<AgencyCaseAllocationDTO> getAllAllocatedCasesWithStatus(Pageable pageable) {
+        log.info("Fetching all allocated cases with assignment status");
+
+        // Get all allocated cases from allocations table
+        Page<com.finx.agencymanagement.domain.entity.CaseAllocation> allocatedCases =
+                caseAllocationReadRepository.findAllAllocatedCases(pageable);
+
+        // Get all case IDs from the current page
+        List<Long> caseIds = allocatedCases.getContent().stream()
+                .map(com.finx.agencymanagement.domain.entity.CaseAllocation::getCaseId)
+                .toList();
+
+        // Get all agency assignments for these cases
+        List<AgencyCaseAllocation> agencyAssignments = caseIds.isEmpty()
+                ? java.util.Collections.emptyList()
+                : caseAllocationRepository.findAllocationsByCaseIds(caseIds);
+
+        // Group assignments by case ID
+        java.util.Map<Long, List<AgencyCaseAllocation>> assignmentsByCase = agencyAssignments.stream()
+                .collect(java.util.stream.Collectors.groupingBy(AgencyCaseAllocation::getCaseId));
+
+        // Build lookup maps for agency and user names
+        java.util.Set<Long> agencyIds = agencyAssignments.stream()
+                .map(AgencyCaseAllocation::getAgencyId)
+                .filter(java.util.Objects::nonNull)
+                .collect(java.util.stream.Collectors.toSet());
+
+        java.util.Set<Long> agentIds = agencyAssignments.stream()
+                .map(AgencyCaseAllocation::getAgentId)
+                .filter(java.util.Objects::nonNull)
+                .collect(java.util.stream.Collectors.toSet());
+
+        java.util.Map<Long, Agency> agencyMap = agencyIds.isEmpty()
+                ? java.util.Collections.emptyMap()
+                : agencyRepository.findAllById(agencyIds).stream()
+                        .collect(java.util.stream.Collectors.toMap(Agency::getId, a -> a));
+
+        java.util.Map<Long, User> userMap = agentIds.isEmpty()
+                ? java.util.Collections.emptyMap()
+                : userRepository.findAllById(agentIds).stream()
+                        .collect(java.util.stream.Collectors.toMap(User::getId, u -> u));
+
+        // Convert to DTOs with assignment status
+        return allocatedCases.map(allocation -> {
+            List<AgencyCaseAllocation> caseAssignments = assignmentsByCase.getOrDefault(allocation.getCaseId(), java.util.Collections.emptyList());
+
+            // Determine assignment status
+            String assignmentStatus;
+            if (caseAssignments.isEmpty()) {
+                assignmentStatus = "UNALLOCATED";
+            } else if (caseAssignments.stream().anyMatch(a -> a.getAgentId() != null)) {
+                assignmentStatus = "ASSIGNED_TO_AGENT";
+            } else {
+                assignmentStatus = "ALLOCATED_TO_AGENCY";
+            }
+
+            // Build assignment info list
+            List<AgencyCaseAllocationDTO.CaseAssignmentInfo> assignmentInfos = caseAssignments.stream()
+                    .map(a -> {
+                        Agency agency = agencyMap.get(a.getAgencyId());
+                        User agent = a.getAgentId() != null ? userMap.get(a.getAgentId()) : null;
+                        return AgencyCaseAllocationDTO.CaseAssignmentInfo.builder()
+                                .agencyId(a.getAgencyId())
+                                .agencyName(agency != null ? agency.getAgencyName() : null)
+                                .agencyCode(agency != null ? agency.getAgencyCode() : null)
+                                .agentId(a.getAgentId())
+                                .agentName(agent != null ? agent.getFirstName() + " " + agent.getLastName() : null)
+                                .assignedAt(a.getAllocatedAt())
+                                .build();
+                    })
+                    .toList();
+
+            return AgencyCaseAllocationDTO.builder()
+                    .caseId(allocation.getCaseId())
+                    .externalCaseId(allocation.getExternalCaseId())
+                    .allocationStatus(allocation.getAllocationStatus())
+                    .assignmentStatus(assignmentStatus)
+                    .allocatedAt(allocation.getAllocatedAt())
+                    .allocatedBy(allocation.getAllocatedBy())
+                    .assignments(assignmentInfos)
+                    .assignmentCount(caseAssignments.size())
+                    .build();
+        });
+    }
+
+    /**
+     * Convert CaseAllocation (from allocations table) to AgencyCaseAllocationDTO
+     */
+    private AgencyCaseAllocationDTO toCaseAllocationDTO(com.finx.agencymanagement.domain.entity.CaseAllocation allocation) {
+        return AgencyCaseAllocationDTO.builder()
+                .caseId(allocation.getCaseId())
+                .externalCaseId(allocation.getExternalCaseId())
+                .allocationStatus(allocation.getAllocationStatus())
+                .assignmentStatus("UNALLOCATED")
+                .allocatedAt(allocation.getAllocatedAt())
+                .allocatedBy(allocation.getAllocatedBy())
+                // agencyId and agentId are null since case is not yet allocated to agency/agent
+                .agencyId(null)
+                .agentId(null)
+                .assignmentCount(0)
+                .build();
     }
 
     // ========================================
@@ -533,6 +835,19 @@ public class AgencyServiceImpl implements AgencyService {
         Agency agency = agencyRepository.findById(agencyId)
                 .orElseThrow(() -> new ResourceNotFoundException("Agency", agencyId));
 
+        // Calculate PTP broken rate only if there's actual PTP data
+        // If ptpSuccessRate is null or 0, it could mean no PTPs exist, so broken rate should also be 0
+        BigDecimal ptpKeptRate = agency.getPtpSuccessRate() != null ? agency.getPtpSuccessRate() : BigDecimal.ZERO;
+        BigDecimal ptpBrokenRate = BigDecimal.ZERO;
+
+        // Only calculate broken rate if there's a meaningful kept rate (meaning PTPs exist)
+        // If kept rate > 0, then broken rate = 100 - kept rate
+        // If kept rate = 0 but we have PTP data, broken rate could be 100
+        // For now, if kept rate is 0, assume no PTPs and show 0 for both
+        if (ptpKeptRate.compareTo(BigDecimal.ZERO) > 0) {
+            ptpBrokenRate = BigDecimal.valueOf(100).subtract(ptpKeptRate);
+        }
+
         return AgencyDashboardDTO.builder()
                 .agencyId(agencyId)
                 .agencyName(agency.getAgencyName())
@@ -542,8 +857,8 @@ public class AgencyServiceImpl implements AgencyService {
                 .totalCollected(BigDecimal.ZERO)
                 .commissionEarned(BigDecimal.ZERO)
                 .avgResolutionDays(0)
-                .ptpKeptRate(agency.getPtpSuccessRate())
-                .ptpBrokenRate(BigDecimal.valueOf(100).subtract(agency.getPtpSuccessRate() != null ? agency.getPtpSuccessRate() : BigDecimal.ZERO))
+                .ptpKeptRate(ptpKeptRate)
+                .ptpBrokenRate(ptpBrokenRate)
                 .build();
     }
 
@@ -631,5 +946,49 @@ public class AgencyServiceImpl implements AgencyService {
                 .deallocatedBy(allocation.getDeallocatedBy())
                 .deallocatedReason(allocation.getDeallocationReason())
                 .build();
+    }
+
+    private AgencyCaseAllocationDTO toAllocationDTOWithAgentName(AgencyCaseAllocation allocation, Map<Long, User> agentMap) {
+        String agentName = null;
+        if (allocation.getAgentId() != null && agentMap.containsKey(allocation.getAgentId())) {
+            User agent = agentMap.get(allocation.getAgentId());
+            agentName = agent.getFirstName() + " " + agent.getLastName();
+        }
+
+        return AgencyCaseAllocationDTO.builder()
+                .id(allocation.getId())
+                .agencyId(allocation.getAgencyId())
+                .caseId(allocation.getCaseId())
+                .externalCaseId(allocation.getExternalCaseId())
+                .agentId(allocation.getAgentId())
+                .agentName(agentName)
+                .allocationStatus(allocation.getAllocationStatus())
+                .batchId(allocation.getBatchId())
+                .notes(allocation.getNotes())
+                .allocatedAt(allocation.getAllocatedAt())
+                .allocatedBy(allocation.getAllocatedBy())
+                .deallocatedAt(allocation.getDeallocatedAt())
+                .deallocatedBy(allocation.getDeallocatedBy())
+                .deallocatedReason(allocation.getDeallocationReason())
+                .build();
+    }
+
+    /**
+     * Save allocation history entries directly to the shared database.
+     * This eliminates inter-service HTTP calls and improves response time.
+     */
+    private void saveAllocationHistory(List<AllocationHistory> historyEntries) {
+        if (historyEntries == null || historyEntries.isEmpty()) {
+            return;
+        }
+
+        try {
+            allocationHistoryRepository.saveAll(historyEntries);
+            log.debug("Saved {} allocation history entries directly to database", historyEntries.size());
+        } catch (Exception e) {
+            // Log error but don't fail the main operation
+            log.error("Failed to save allocation history to database: {}. History entries: {}",
+                    e.getMessage(), historyEntries.size());
+        }
     }
 }

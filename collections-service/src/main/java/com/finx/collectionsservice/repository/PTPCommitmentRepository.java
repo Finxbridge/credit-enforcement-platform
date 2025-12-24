@@ -50,4 +50,17 @@ public interface PTPCommitmentRepository extends JpaRepository<PTPCommitment, Lo
     List<PTPCommitment> findByCaseIdIn(@Param("caseIds") List<Long> caseIds);
 
     List<PTPCommitment> findByUserId(Long userId);
+
+    /**
+     * Get customer mobile number by caseId
+     * Uses native query to join cases -> loan_details -> customers tables
+     */
+    @Query(value = """
+        SELECT c.mobile_number
+        FROM cases cs
+        JOIN loan_details ld ON cs.loan_id = ld.id
+        JOIN customers c ON ld.primary_customer_id = c.id
+        WHERE cs.id = :caseId
+        """, nativeQuery = true)
+    String findCustomerMobileByCaseId(@Param("caseId") Long caseId);
 }

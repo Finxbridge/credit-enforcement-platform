@@ -1,7 +1,11 @@
 package com.finx.myworkflow.service;
 
+import com.finx.myworkflow.domain.dto.AllocationHistoryDTO;
+import com.finx.myworkflow.domain.dto.AuditLogDTO;
+import com.finx.myworkflow.domain.dto.CaseEventDTO;
 import com.finx.myworkflow.domain.dto.CaseSummaryDTO;
 import com.finx.myworkflow.domain.dto.CaseTabsDataDTO;
+import org.springframework.data.domain.Page;
 
 import java.util.List;
 import java.util.Map;
@@ -67,4 +71,39 @@ public interface CaseDataService {
      * Get documents for a case
      */
     List<Map<String, Object>> getDocuments(Long caseId);
+
+    /**
+     * Get case events for a case with pagination
+     */
+    Page<CaseEventDTO> getCaseEvents(Long caseId, int page, int size);
+
+    /**
+     * Get case events for a case filtered by category
+     */
+    Page<CaseEventDTO> getCaseEventsByCategory(Long caseId, String category, int page, int size);
+
+    /**
+     * Get all case events for a case (no pagination)
+     */
+    List<CaseEventDTO> getAllCaseEvents(Long caseId);
+
+    /**
+     * Get allocation history for a case with pagination
+     */
+    Page<AllocationHistoryDTO> getAllocationHistory(Long caseId, int page, int size);
+
+    /**
+     * Get all allocation history for a case (no pagination)
+     */
+    List<AllocationHistoryDTO> getAllAllocationHistory(Long caseId);
+
+    /**
+     * Get audit logs for a case with pagination
+     */
+    Page<AuditLogDTO> getAuditLogs(Long caseId, int page, int size);
+
+    /**
+     * Get all audit logs for a case (no pagination)
+     */
+    List<AuditLogDTO> getAllAuditLogs(Long caseId);
 }

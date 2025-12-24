@@ -71,7 +71,6 @@ public interface CollectionsMapper {
     @Mapping(target = "otsNumber", ignore = true)
     @Mapping(target = "loanAccountNumber", ignore = true)
     @Mapping(target = "customerName", ignore = true)
-    @Mapping(target = "originalOutstanding", ignore = true)
     @Mapping(target = "discountPercentage", ignore = true)
     @Mapping(target = "discountAmount", ignore = true)
     @Mapping(target = "waiverBreakdown", ignore = true)

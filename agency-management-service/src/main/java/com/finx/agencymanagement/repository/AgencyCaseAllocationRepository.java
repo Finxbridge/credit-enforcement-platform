@@ -51,6 +51,12 @@ public interface AgencyCaseAllocationRepository extends JpaRepository<AgencyCase
     Page<AgencyCaseAllocation> findAllUnassignedCases(Pageable pageable);
 
     /**
+     * Get all case IDs that are already in agency_case_allocations table (allocated to agencies)
+     */
+    @Query("SELECT a.caseId FROM AgencyCaseAllocation a WHERE a.allocationStatus = 'ALLOCATED'")
+    List<Long> findAllAllocatedCaseIds();
+
+    /**
      * Count active allocations by agency
      */
     @Query("SELECT COUNT(a) FROM AgencyCaseAllocation a WHERE a.agencyId = :agencyId AND a.allocationStatus = 'ALLOCATED'")
@@ -78,4 +84,17 @@ public interface AgencyCaseAllocationRepository extends JpaRepository<AgencyCase
     @Modifying
     @Query("UPDATE AgencyCaseAllocation a SET a.agentId = :agentId WHERE a.caseId IN :caseIds AND a.agencyId = :agencyId AND a.allocationStatus = 'ALLOCATED'")
     int assignCasesToAgent(@Param("agencyId") Long agencyId, @Param("caseIds") List<Long> caseIds, @Param("agentId") Long agentId);
+
+    /**
+     * Find all assignments for given case IDs
+     * Used to show all agencies/agents a case is assigned to
+     */
+    @Query("SELECT a FROM AgencyCaseAllocation a WHERE a.caseId IN :caseIds AND a.allocationStatus = 'ALLOCATED'")
+    List<AgencyCaseAllocation> findAllocationsByCaseIds(@Param("caseIds") List<Long> caseIds);
+
+    /**
+     * Check if a case is already allocated to an agency (can have multiple allocations)
+     */
+    @Query("SELECT a FROM AgencyCaseAllocation a WHERE a.caseId = :caseId AND a.agencyId = :agencyId AND a.allocationStatus = 'ALLOCATED'")
+    Optional<AgencyCaseAllocation> findByCaseIdAndAgencyIdAndStatus(@Param("caseId") Long caseId, @Param("agencyId") Long agencyId);
 }

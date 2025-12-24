@@ -8,6 +8,7 @@ import com.finx.collectionsservice.exception.BusinessException;
 import com.finx.collectionsservice.exception.ResourceNotFoundException;
 import com.finx.collectionsservice.mapper.CollectionsMapper;
 import com.finx.collectionsservice.repository.RepaymentRepository;
+import com.finx.collectionsservice.service.CaseEventService;
 import com.finx.collectionsservice.service.ReceiptPdfService;
 import com.finx.collectionsservice.service.RepaymentService;
 import lombok.RequiredArgsConstructor;
@@ -33,6 +34,7 @@ public class RepaymentServiceImpl implements RepaymentService {
     private final RepaymentRepository repaymentRepository;
     private final CollectionsMapper mapper;
     private final ReceiptPdfService receiptPdfService;
+    private final CaseEventService caseEventService;
 
     // ==================== Core Repayment APIs ====================
 
@@ -75,6 +77,17 @@ public class RepaymentServiceImpl implements RepaymentService {
         Repayment saved = repaymentRepository.save(repayment);
         log.info("Repayment created with number: {} - Status: {}",
             saved.getRepaymentNumber(), saved.getApprovalStatus());
+
+        // Log case event for repayment creation
+        caseEventService.logRepaymentCreated(
+                saved.getCaseId(),
+                saved.getLoanAccountNumber(),
+                saved.getId(),
+                saved.getPaymentAmount(),
+                saved.getPaymentMode() != null ? saved.getPaymentMode().name() : null,
+                userId,
+                null
+        );
 
         return mapper.toDto(saved);
     }
@@ -155,6 +168,16 @@ public class RepaymentServiceImpl implements RepaymentService {
         Repayment updated = repaymentRepository.save(repayment);
         log.info("Repayment {} approved successfully", repaymentId);
 
+        // Log case event for repayment approval
+        caseEventService.logRepaymentApproved(
+                updated.getCaseId(),
+                updated.getLoanAccountNumber(),
+                updated.getId(),
+                updated.getPaymentAmount(),
+                approverId,
+                null
+        );
+
         return mapper.toDto(updated);
     }
 
@@ -178,6 +201,17 @@ public class RepaymentServiceImpl implements RepaymentService {
 
         Repayment updated = repaymentRepository.save(repayment);
         log.info("Repayment {} rejected", repaymentId);
+
+        // Log case event for repayment rejection
+        caseEventService.logRepaymentRejected(
+                updated.getCaseId(),
+                updated.getLoanAccountNumber(),
+                updated.getId(),
+                updated.getPaymentAmount(),
+                reason,
+                approverId,
+                null
+        );
 
         return mapper.toDto(updated);
     }
@@ -210,6 +244,7 @@ public class RepaymentServiceImpl implements RepaymentService {
         long todayRejected = todayRepayments.stream()
                 .filter(r -> r.getApprovalStatus() == RepaymentStatus.REJECTED).count();
         BigDecimal todayAmount = todayRepayments.stream()
+                .filter(r -> r.getApprovalStatus() == RepaymentStatus.APPROVED)
                 .map(Repayment::getPaymentAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
@@ -220,7 +255,13 @@ public class RepaymentServiceImpl implements RepaymentService {
                 .map(Repayment::getPaymentAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        // Payment mode breakdown
+        // Calculate month achievement percentage
+        BigDecimal monthTargetAmount = new BigDecimal("1000000"); // Default 10 Lakh target - can be made configurable
+        Double monthAchievementPercentage = monthTargetAmount.compareTo(BigDecimal.ZERO) > 0
+                ? monthAmount.multiply(new BigDecimal("100")).divide(monthTargetAmount, 2, RoundingMode.HALF_UP).doubleValue()
+                : 0.0;
+
+        // Payment mode breakdown (for today)
         Map<String, Long> modeCount = todayRepayments.stream()
                 .filter(r -> r.getPaymentMode() != null)
                 .collect(Collectors.groupingBy(r -> r.getPaymentMode().name(), Collectors.counting()));
@@ -232,10 +273,25 @@ public class RepaymentServiceImpl implements RepaymentService {
                         Collectors.reducing(BigDecimal.ZERO, Repayment::getPaymentAmount, BigDecimal::add)
                 ));
 
-        // Pending counts
+        // Pending counts - use corrected queries
         long pendingApprovalCount = repaymentRepository.countByApprovalStatus(RepaymentStatus.PENDING);
-        long slaBreachedCount = repaymentRepository.countSlaBreached();
-        long pendingReconciliation = repaymentRepository.countByIsReconciledFalse();
+        long slaBreachedCount = repaymentRepository.countSlaBreachedOrOverdue();
+        long pendingReconciliation = repaymentRepository.countPendingReconciliation();
+
+        // Digital payment stats (UPI, CARD, NEFT, RTGS, IMPS, ONLINE)
+        List<Repayment> digitalPayments = monthRepayments.stream()
+                .filter(r -> r.getPaymentMode() != null && isDigitalPayment(r.getPaymentMode()))
+                .collect(Collectors.toList());
+
+        long digitalInitiated = digitalPayments.size();
+        long digitalSuccess = digitalPayments.stream()
+                .filter(r -> r.getApprovalStatus() == RepaymentStatus.APPROVED).count();
+        long digitalFailed = digitalPayments.stream()
+                .filter(r -> r.getApprovalStatus() == RepaymentStatus.REJECTED).count();
+        BigDecimal digitalAmount = digitalPayments.stream()
+                .filter(r -> r.getApprovalStatus() == RepaymentStatus.APPROVED)
+                .map(Repayment::getPaymentAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         return RepaymentDashboardDTO.builder()
                 .todayTotalCount((long) todayRepayments.size())
@@ -245,12 +301,27 @@ public class RepaymentServiceImpl implements RepaymentService {
                 .todayRejectedCount(todayRejected)
                 .monthTotalCount((long) monthRepayments.size())
                 .monthTotalAmount(monthAmount)
+                .monthTargetAmount(monthTargetAmount)
+                .monthAchievementPercentage(monthAchievementPercentage)
                 .paymentModeCount(modeCount)
                 .paymentModeAmount(modeAmount)
                 .pendingApprovalCount(pendingApprovalCount)
                 .slaBreachedCount(slaBreachedCount)
                 .pendingReconciliationCount(pendingReconciliation)
+                .digitalPaymentInitiatedCount(digitalInitiated)
+                .digitalPaymentSuccessCount(digitalSuccess)
+                .digitalPaymentFailedCount(digitalFailed)
+                .digitalPaymentTotalAmount(digitalAmount)
                 .build();
+    }
+
+    private boolean isDigitalPayment(PaymentMode paymentMode) {
+        return paymentMode == PaymentMode.UPI ||
+               paymentMode == PaymentMode.CARD ||
+               paymentMode == PaymentMode.NEFT ||
+               paymentMode == PaymentMode.RTGS ||
+               paymentMode == PaymentMode.IMPS ||
+               paymentMode == PaymentMode.ONLINE;
     }
 
     @Override
@@ -259,7 +330,7 @@ public class RepaymentServiceImpl implements RepaymentService {
         log.info("Fetching SLA dashboard statistics");
 
         long totalRepayments = repaymentRepository.count();
-        long breachedCount = repaymentRepository.countSlaBreached();
+        long breachedCount = repaymentRepository.countSlaBreachedOrOverdue();
         long withinSlaCount = totalRepayments - breachedCount;
 
         double compliancePercentage = totalRepayments > 0

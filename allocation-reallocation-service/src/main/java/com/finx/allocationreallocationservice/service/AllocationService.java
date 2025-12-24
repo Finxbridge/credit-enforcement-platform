@@ -70,4 +70,9 @@ public interface AllocationService {
     List<AuditLogDTO> getAllocationAudit();
 
     List<AuditLogDTO> getAllocationAuditForCase(Long caseId);
+
+    // Allocation History - for external services to record allocation actions
+    void saveAllocationHistory(CreateAllocationHistoryRequest request);
+
+    void saveAllocationHistoryBatch(List<CreateAllocationHistoryRequest> requests);
 }

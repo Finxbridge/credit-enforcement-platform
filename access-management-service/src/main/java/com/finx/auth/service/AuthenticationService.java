@@ -12,6 +12,8 @@ import com.finx.auth.domain.dto.*;
 import com.finx.auth.domain.entity.*;
 import com.finx.auth.repository.*;
 import com.finx.auth.util.JwtUtil;
+import com.finx.management.domain.entity.Agency;
+import com.finx.management.repository.AgencyRepository;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -58,6 +60,7 @@ public class AuthenticationService {
     private final CommunicationServiceClient communicationServiceClient;
     private final ConfigCacheService configCacheService;
     private final UserSessionRepository userSessionRepository;
+    private final AgencyRepository agencyRepository;
 
     // Configuration Keys
 
@@ -660,6 +663,81 @@ public class AuthenticationService {
      */
     public boolean validateSession(String sessionId) {
         return sessionManagementService.validateSession(sessionId);
+    }
+
+    /**
+     * Get current user details from JWT token
+     * Used by /access/auth/me endpoint
+     *
+     * @param token JWT access token (without "Bearer " prefix)
+     * @return CurrentUserResponse with user details
+     */
+    public CurrentUserResponse getCurrentUser(String token) {
+        // Validate token and extract user ID
+        Long userId = jwtUtil.extractUserId(token);
+
+        // Fetch user from database
+        User user = authUserRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User", String.valueOf(userId)));
+
+        // Get user roles
+        List<UserRole> userRoles = userRoleRepository.findByUserId(userId);
+        java.util.Set<CurrentUserResponse.RoleInfo> roleInfos = userRoles.stream()
+                .map(ur -> {
+                    Role role = authRoleRepository.findById(ur.getRoleId()).orElse(null);
+                    if (role == null) return null;
+                    return CurrentUserResponse.RoleInfo.builder()
+                            .id(role.getId())
+                            .code(role.getRoleCode())
+                            .name(role.getRoleName())
+                            .displayName(role.getRoleName())
+                            .build();
+                })
+                .filter(r -> r != null)
+                .collect(Collectors.toSet());
+
+        // Get primary role code for legacy support
+        String primaryRole = roleInfos.stream()
+                .findFirst()
+                .map(CurrentUserResponse.RoleInfo::getCode)
+                .orElse(null);
+
+        // Get permissions
+        List<String> permissions = getUserPermissions(userId).getPermissions().stream()
+                .map(PermissionDTO::getPermissionCode)
+                .toList();
+
+        // Build response
+        CurrentUserResponse.CurrentUserResponseBuilder responseBuilder = CurrentUserResponse.builder()
+                .id(user.getId())
+                .username(user.getUsername())
+                .email(user.getEmail())
+                .firstName(user.getFirstName())
+                .lastName(user.getLastName())
+                .mobileNumber(user.getMobileNumber())
+                .status(user.getStatus())
+                .role(primaryRole)
+                .roles(roleInfos)
+                .permissions(permissions)
+                .city(user.getCity())
+                .state(user.getState())
+                .maxCaseCapacity(user.getMaxCaseCapacity())
+                .currentCaseCount(user.getCurrentCaseCount())
+                .allocationPercentage(user.getAllocationPercentage())
+                .isFirstLogin(user.getIsFirstLogin())
+                .lastLoginAt(user.getLastLoginAt())
+                .createdAt(user.getCreatedAt())
+                .updatedAt(user.getUpdatedAt());
+
+        // Add agency info if present (for AGENT role)
+        if (user.getAgencyId() != null) {
+            responseBuilder.agencyId(user.getAgencyId());
+            // Fetch agency name
+            agencyRepository.findById(user.getAgencyId())
+                    .ifPresent(agency -> responseBuilder.agencyName(agency.getAgencyName()));
+        }
+
+        return responseBuilder.build();
     }
 
     // ==================== HELPER METHODS ====================

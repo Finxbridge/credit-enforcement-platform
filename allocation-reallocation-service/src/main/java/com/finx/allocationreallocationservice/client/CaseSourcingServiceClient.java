@@ -9,7 +9,7 @@ import org.springframework.web.bind.annotation.PostMapping;
  */
 @FeignClient(
         name = "case-sourcing-service",
-        url = "${CASE_SOURCING_SERVICE_URL:http://case-sourcing-service:8082}"
+        url = "${CASE_SOURCING_SERVICE_URL:http://localhost:8082}"
 )
 public interface CaseSourcingServiceClient {
 
