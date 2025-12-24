@@ -1,6 +1,7 @@
 package com.finx.collectionsservice.service.impl;
 
 import com.finx.collectionsservice.domain.dto.CreateOTSRequest;
+import com.finx.collectionsservice.domain.dto.OTSCaseSearchDTO;
 import com.finx.collectionsservice.domain.dto.OTSRequestDTO;
 import com.finx.collectionsservice.domain.entity.OTSRequest;
 import com.finx.collectionsservice.domain.enums.OTSStatus;
@@ -9,7 +10,9 @@ import com.finx.collectionsservice.exception.ResourceNotFoundException;
 import com.finx.collectionsservice.mapper.CollectionsMapper;
 import com.finx.collectionsservice.repository.OTSRequestRepository;
 import com.finx.collectionsservice.service.CaseEventService;
+import com.finx.collectionsservice.service.CaseSearchService;
 import com.finx.collectionsservice.service.OTSService;
+import com.finx.collectionsservice.service.SettlementLetterService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -31,6 +34,8 @@ public class OTSServiceImpl implements OTSService {
     private final OTSRequestRepository otsRepository;
     private final CollectionsMapper mapper;
     private final CaseEventService caseEventService;
+    private final CaseSearchService caseSearchService;
+    private final SettlementLetterService settlementLetterService;
 
     @Override
     @Transactional
@@ -44,13 +49,24 @@ public class OTSServiceImpl implements OTSService {
             throw new BusinessException("An active OTS request already exists for this case");
         }
 
+        // Fetch case details to populate OTS
+        OTSCaseSearchDTO caseDetails = caseSearchService.getCaseDetails(request.getCaseId());
+
         OTSRequest ots = mapper.toEntity(request);
         ots.setOtsNumber("OTS-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase());
-        ots.setOtsStatus(OTSStatus.INTENT_CAPTURED);
+        ots.setOtsStatus(OTSStatus.PENDING_APPROVAL);
+        ots.setCurrentApprovalLevel(0);
+        ots.setMaxApprovalLevel(1); // Only 1 approval needed
         ots.setIntentCapturedAt(LocalDateTime.now());
         ots.setIntentCapturedBy(userId);
         ots.setIntentNotes(request.getIntentNotes());
         ots.setCreatedBy(userId);
+
+        // Populate case details from CaseSearchService
+        if (caseDetails != null) {
+            ots.setLoanAccountNumber(caseDetails.getLoanAccountNumber());
+            ots.setCustomerName(caseDetails.getCustomerName());
+        }
 
         OTSRequest saved = otsRepository.save(ots);
         log.info("OTS created with number: {}", saved.getOtsNumber());
@@ -65,7 +81,12 @@ public class OTSServiceImpl implements OTSService {
                 userId,
                 null);
 
-        return mapper.toDto(saved);
+        OTSRequestDTO dto = mapper.toDto(saved);
+        // Also set caseNumber in the DTO
+        if (caseDetails != null) {
+            dto.setCaseNumber(caseDetails.getCaseNumber());
+        }
+        return dto;
     }
 
     @Override
@@ -76,7 +97,7 @@ public class OTSServiceImpl implements OTSService {
         OTSRequest ots = otsRepository.findById(otsId)
                 .orElseThrow(() -> new ResourceNotFoundException("OTS", otsId));
 
-        return mapper.toDto(ots);
+        return enrichOTSWithCaseDetails(mapper.toDto(ots), ots.getCaseId());
     }
 
     @Override
@@ -87,7 +108,7 @@ public class OTSServiceImpl implements OTSService {
         OTSRequest ots = otsRepository.findByOtsNumber(otsNumber)
                 .orElseThrow(() -> new ResourceNotFoundException("OTS", otsNumber));
 
-        return mapper.toDto(ots);
+        return enrichOTSWithCaseDetails(mapper.toDto(ots), ots.getCaseId());
     }
 
     @Override
@@ -97,7 +118,7 @@ public class OTSServiceImpl implements OTSService {
 
         return otsRepository.findByCaseIdOrderByCreatedAtDesc(caseId)
                 .stream()
-                .map(mapper::toDto)
+                .map(ots -> enrichOTSWithCaseDetails(mapper.toDto(ots), ots.getCaseId()))
                 .collect(Collectors.toList());
     }
 
@@ -107,7 +128,32 @@ public class OTSServiceImpl implements OTSService {
         log.info("Fetching OTS by status: {}", status);
 
         return otsRepository.findByOtsStatus(status, pageable)
-                .map(mapper::toDto);
+                .map(ots -> enrichOTSWithCaseDetails(mapper.toDto(ots), ots.getCaseId()));
+    }
+
+    /**
+     * Enriches OTS DTO with case details if not already present
+     */
+    private OTSRequestDTO enrichOTSWithCaseDetails(OTSRequestDTO dto, Long caseId) {
+        if (dto.getCaseNumber() == null || dto.getLoanAccountNumber() == null || dto.getCustomerName() == null) {
+            try {
+                OTSCaseSearchDTO caseDetails = caseSearchService.getCaseDetails(caseId);
+                if (caseDetails != null) {
+                    if (dto.getCaseNumber() == null) {
+                        dto.setCaseNumber(caseDetails.getCaseNumber());
+                    }
+                    if (dto.getLoanAccountNumber() == null) {
+                        dto.setLoanAccountNumber(caseDetails.getLoanAccountNumber());
+                    }
+                    if (dto.getCustomerName() == null) {
+                        dto.setCustomerName(caseDetails.getCustomerName());
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("Could not fetch case details for case {}: {}", caseId, e.getMessage());
+            }
+        }
+        return dto;
     }
 
     @Override
@@ -118,35 +164,37 @@ public class OTSServiceImpl implements OTSService {
         OTSRequest ots = otsRepository.findById(otsId)
                 .orElseThrow(() -> new ResourceNotFoundException("OTS", otsId));
 
-        if (ots.getOtsStatus() != OTSStatus.PENDING_APPROVAL && ots.getOtsStatus() != OTSStatus.INTENT_CAPTURED) {
+        if (ots.getOtsStatus() != OTSStatus.PENDING_APPROVAL) {
             throw new BusinessException("OTS is not in pending approval status");
         }
 
         ots.setCurrentApprovalLevel(ots.getCurrentApprovalLevel() + 1);
-
-        if (ots.getCurrentApprovalLevel() >= ots.getMaxApprovalLevel()) {
-            ots.setOtsStatus(OTSStatus.APPROVED);
-        } else {
-            ots.setOtsStatus(OTSStatus.PENDING_APPROVAL);
-        }
-
+        ots.setOtsStatus(OTSStatus.APPROVED);
         ots.setUpdatedBy(approverId);
 
         OTSRequest updated = otsRepository.save(ots);
-        log.info("OTS {} approval level updated to {}", otsId, updated.getCurrentApprovalLevel());
+        log.info("OTS {} approved", otsId);
 
-        // Log case event for OTS approval if fully approved
-        if (updated.getOtsStatus() == OTSStatus.APPROVED) {
-            caseEventService.logOtsApproved(
-                    updated.getCaseId(),
-                    updated.getLoanAccountNumber(),
-                    updated.getId(),
-                    updated.getProposedSettlement(),
-                    approverId,
-                    null);
+        // Log case event for OTS approval
+        caseEventService.logOtsApproved(
+                updated.getCaseId(),
+                updated.getLoanAccountNumber(),
+                updated.getId(),
+                updated.getProposedSettlement(),
+                approverId,
+                null);
+
+        // Auto-generate settlement letter and upload to DMS when approved
+        try {
+            log.info("Auto-generating settlement letter for approved OTS {}", otsId);
+            settlementLetterService.generateLetter(otsId, 1L, approverId);
+            log.info("Settlement letter generated successfully for OTS {}", otsId);
+        } catch (Exception e) {
+            log.error("Failed to auto-generate settlement letter for OTS {}: {}", otsId, e.getMessage());
+            // Don't fail the approval if letter generation fails
         }
 
-        return mapper.toDto(updated);
+        return enrichOTSWithCaseDetails(mapper.toDto(updated), updated.getCaseId());
     }
 
     @Override
@@ -157,8 +205,8 @@ public class OTSServiceImpl implements OTSService {
         OTSRequest ots = otsRepository.findById(otsId)
                 .orElseThrow(() -> new ResourceNotFoundException("OTS", otsId));
 
-        if (ots.getOtsStatus() == OTSStatus.SETTLED || ots.getOtsStatus() == OTSStatus.CANCELLED) {
-            throw new BusinessException("Cannot reject OTS in current status");
+        if (ots.getOtsStatus() != OTSStatus.PENDING_APPROVAL) {
+            throw new BusinessException("Can only reject OTS in pending approval status");
         }
 
         ots.setOtsStatus(OTSStatus.REJECTED);
@@ -177,7 +225,7 @@ public class OTSServiceImpl implements OTSService {
                 approverId,
                 null);
 
-        return mapper.toDto(updated);
+        return enrichOTSWithCaseDetails(mapper.toDto(updated), updated.getCaseId());
     }
 
     @Override
@@ -188,11 +236,12 @@ public class OTSServiceImpl implements OTSService {
         OTSRequest ots = otsRepository.findById(otsId)
                 .orElseThrow(() -> new ResourceNotFoundException("OTS", otsId));
 
-        if (ots.getOtsStatus() == OTSStatus.SETTLED) {
-            throw new BusinessException("Cannot cancel a settled OTS");
+        // Can only cancel PENDING_APPROVAL or APPROVED OTS
+        if (ots.getOtsStatus() != OTSStatus.PENDING_APPROVAL && ots.getOtsStatus() != OTSStatus.APPROVED) {
+            throw new BusinessException("Can only cancel OTS in pending approval or approved status");
         }
 
-        ots.setOtsStatus(OTSStatus.CANCELLED);
+        ots.setOtsStatus(OTSStatus.REJECTED);
         ots.setCancelledAt(LocalDateTime.now());
         ots.setCancelledBy(userId);
         ots.setCancellationReason(reason);
@@ -201,7 +250,7 @@ public class OTSServiceImpl implements OTSService {
         OTSRequest updated = otsRepository.save(ots);
         log.info("OTS {} cancelled", otsId);
 
-        return mapper.toDto(updated);
+        return enrichOTSWithCaseDetails(mapper.toDto(updated), updated.getCaseId());
     }
 
     @Override
@@ -210,7 +259,7 @@ public class OTSServiceImpl implements OTSService {
         log.info("Fetching pending OTS approvals");
 
         return otsRepository.findPendingApprovals(pageable)
-                .map(mapper::toDto);
+                .map(ots -> enrichOTSWithCaseDetails(mapper.toDto(ots), ots.getCaseId()));
     }
 
     @Override
@@ -225,6 +274,7 @@ public class OTSServiceImpl implements OTSService {
             ots.setOtsStatus(OTSStatus.EXPIRED);
             ots.setExpiredAt(LocalDateTime.now());
             otsRepository.save(ots);
+            log.info("OTS {} marked as expired - payment deadline was {}", ots.getOtsNumber(), ots.getPaymentDeadline());
         }
 
         log.info("Processed {} expired OTS requests", expiredRequests.size());

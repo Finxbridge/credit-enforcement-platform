@@ -21,8 +21,8 @@ import java.time.Duration;
 @RequiredArgsConstructor
 public class CommunicationServiceClient {
 
-    @Qualifier("communicationServiceClient")
-    private final WebClient communicationServiceClient;
+    @Qualifier("communicationWebClient")
+    private final WebClient communicationWebClient;
 
     private static final Duration TIMEOUT = Duration.ofSeconds(30);
 
@@ -37,7 +37,7 @@ public class CommunicationServiceClient {
                 request.getTemplateId(), request.getTo().size());
 
         try {
-            WhatsAppSendResponse response = communicationServiceClient
+            WhatsAppSendResponse response = communicationWebClient
                     .post()
                     .uri("/comm/whatsapp/send")
                     .bodyValue(request)
@@ -71,7 +71,7 @@ public class CommunicationServiceClient {
         log.info("Sending WhatsApp message async with template: {} to {} recipients",
                 request.getTemplateId(), request.getTo().size());
 
-        return communicationServiceClient
+        return communicationWebClient
                 .post()
                 .uri("/comm/whatsapp/send")
                 .bodyValue(request)
@@ -88,7 +88,7 @@ public class CommunicationServiceClient {
      */
     public boolean isHealthy() {
         try {
-            communicationServiceClient
+            communicationWebClient
                     .get()
                     .uri("/actuator/health")
                     .retrieve()

@@ -149,13 +149,13 @@ public class OTSRequest {
         createdAt = LocalDateTime.now();
         updatedAt = LocalDateTime.now();
         if (otsStatus == null) {
-            otsStatus = OTSStatus.INTENT_CAPTURED;
+            otsStatus = OTSStatus.PENDING_APPROVAL;
         }
         if (currentApprovalLevel == null) {
             currentApprovalLevel = 0;
         }
         if (maxApprovalLevel == null) {
-            maxApprovalLevel = 2;
+            maxApprovalLevel = 1;
         }
         if (borrowerConsent == null) {
             borrowerConsent = false;

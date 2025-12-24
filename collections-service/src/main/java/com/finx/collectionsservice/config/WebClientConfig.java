@@ -20,8 +20,8 @@ public class WebClientConfig {
                 .build();
     }
 
-    @Bean
-    public WebClient communicationServiceClient() {
+    @Bean("communicationWebClient")
+    public WebClient communicationWebClient() {
         return WebClient.builder()
                 .baseUrl(communicationServiceUrl)
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)

@@ -24,5 +24,11 @@ public interface SettlementLetterService {
 
     SettlementLetterDTO sendLetter(Long id, String sendVia, Long sentBy);
 
+    /**
+     * Get the PDF content for a settlement letter
+     * If stored in DMS, fetches from DMS; otherwise generates on-the-fly
+     */
+    byte[] getLetterPdfContent(Long id);
+
     void markExpiredLetters();
 }

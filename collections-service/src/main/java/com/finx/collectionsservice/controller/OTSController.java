@@ -15,7 +15,10 @@ import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Slf4j
 @RestController
@@ -25,6 +28,29 @@ import java.util.List;
 public class OTSController {
 
     private final OTSService otsService;
+    private final com.finx.collectionsservice.service.CaseSearchService caseSearchService;
+
+    // ==================== Case Search APIs for OTS Creation ====================
+
+    @GetMapping("/cases/search")
+    @Operation(summary = "Search cases for OTS", description = "Search cases by customer name, loan account, case number, or mobile for OTS creation")
+    public ResponseEntity<CommonResponse<Page<OTSCaseSearchDTO>>> searchCases(
+            @RequestParam String query,
+            @PageableDefault(size = 10) Pageable pageable) {
+        log.info("GET /ots/cases/search?query={} - Searching cases for OTS", query);
+        Page<OTSCaseSearchDTO> cases = caseSearchService.searchCases(query, pageable);
+        return ResponseWrapper.ok("Cases retrieved successfully", cases);
+    }
+
+    @GetMapping("/cases/{caseId}/details")
+    @Operation(summary = "Get case details for OTS", description = "Get complete case details needed for OTS creation form auto-population")
+    public ResponseEntity<CommonResponse<OTSCaseSearchDTO>> getCaseDetailsForOTS(@PathVariable Long caseId) {
+        log.info("GET /ots/cases/{}/details - Fetching case details for OTS", caseId);
+        OTSCaseSearchDTO caseDetails = caseSearchService.getCaseDetails(caseId);
+        return ResponseWrapper.ok("Case details retrieved successfully", caseDetails);
+    }
+
+    // ==================== OTS CRUD APIs ====================
 
     @PostMapping
     @Operation(summary = "Create OTS request", description = "Create a new OTS/settlement request")
@@ -118,5 +144,24 @@ public class OTSController {
         log.info("POST /ots/process-expired - Processing expired OTS");
         Integer count = otsService.processExpiredOTS();
         return ResponseWrapper.ok("Processed " + count + " expired OTS requests", count);
+    }
+
+    @GetMapping("/statuses")
+    @Operation(summary = "Get OTS statuses", description = "Get all OTS status values for filter dropdown")
+    public ResponseEntity<CommonResponse<List<Map<String, String>>>> getOTSStatuses() {
+        log.info("GET /ots/statuses - Fetching OTS statuses");
+        List<Map<String, String>> statuses = Arrays.stream(OTSStatus.values())
+                .map(status -> Map.of(
+                        "value", status.name(),
+                        "label", formatStatusLabel(status.name())
+                ))
+                .collect(Collectors.toList());
+        return ResponseWrapper.ok("OTS statuses retrieved successfully", statuses);
+    }
+
+    private String formatStatusLabel(String status) {
+        return Arrays.stream(status.split("_"))
+                .map(word -> word.charAt(0) + word.substring(1).toLowerCase())
+                .collect(Collectors.joining(" "));
     }
 }

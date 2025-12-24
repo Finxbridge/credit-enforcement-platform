@@ -69,6 +69,9 @@ public class SettlementLetter {
     @Column(name = "pdf_url", length = 500)
     private String pdfUrl;
 
+    @Column(name = "dms_document_id", length = 100)
+    private String dmsDocumentId;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "status", length = 20)
     private LetterStatus status;

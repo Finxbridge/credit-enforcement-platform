@@ -8,5 +8,6 @@ public enum ChannelType {
     EMAIL,
     WHATSAPP,
     NOTICE,
-    IVR
+    IVR,
+    SETTLEMENT_LETTER
 }

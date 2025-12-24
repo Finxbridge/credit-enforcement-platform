@@ -128,8 +128,8 @@ public class DashboardServiceImpl implements DashboardService {
                 OTSStatus.APPROVED, startOfMonth, now);
         Long rejectedThisMonth = otsRepository.countByOtsStatusAndCreatedAtBetween(
                 OTSStatus.REJECTED, startOfMonth, now);
-        Long settledThisMonth = otsRepository.countByOtsStatusAndCreatedAtBetween(
-                OTSStatus.SETTLED, startOfMonth, now);
+        Long expiredThisMonth = otsRepository.countByOtsStatusAndCreatedAtBetween(
+                OTSStatus.EXPIRED, startOfMonth, now);
 
         BigDecimal totalSettledAmount = otsRepository.sumSettledAmountByDateRange(startOfMonth, now);
         BigDecimal totalWaiverAmount = otsRepository.sumWaiverAmountByDateRange(startOfMonth, now);
@@ -141,9 +141,7 @@ public class DashboardServiceImpl implements DashboardService {
             requestsByStatus.put(status.name(), otsRepository.countByOtsStatus(status));
         }
 
-        Long approved = requestsByStatus.getOrDefault("APPROVED", 0L) +
-                requestsByStatus.getOrDefault("SETTLED", 0L) +
-                requestsByStatus.getOrDefault("LETTER_GENERATED", 0L);
+        Long approved = requestsByStatus.getOrDefault("APPROVED", 0L);
         Long total = requestsByStatus.values().stream().mapToLong(Long::longValue).sum();
         Double approvalRate = total > 0 ? (approved * 100.0) / total : 0.0;
 
@@ -154,7 +152,7 @@ public class DashboardServiceImpl implements DashboardService {
                 .pendingApprovals(pendingApprovals != null ? pendingApprovals : 0L)
                 .approvedThisMonth(approvedThisMonth != null ? approvedThisMonth : 0L)
                 .rejectedThisMonth(rejectedThisMonth != null ? rejectedThisMonth : 0L)
-                .settledThisMonth(settledThisMonth != null ? settledThisMonth : 0L)
+                .settledThisMonth(expiredThisMonth != null ? expiredThisMonth : 0L)
                 .totalSettledAmount(totalSettledAmount != null ? totalSettledAmount : BigDecimal.ZERO)
                 .totalWaiverAmount(totalWaiverAmount != null ? totalWaiverAmount : BigDecimal.ZERO)
                 .averageDiscountPercentage(avgDiscount != null ? avgDiscount : 0.0)

@@ -11,6 +11,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -80,13 +82,40 @@ public class SettlementLetterController {
     }
 
     @PostMapping("/{letterId}/download")
-    @Operation(summary = "Download letter", description = "Mark letter as downloaded and return details")
+    @Operation(summary = "Download letter metadata", description = "Mark letter as downloaded and return details")
     public ResponseEntity<CommonResponse<SettlementLetterDTO>> downloadLetter(
             @PathVariable Long letterId,
             @RequestHeader("X-User-Id") Long userId) {
         log.info("POST /settlement-letters/{}/download - Downloading letter", letterId);
         SettlementLetterDTO response = letterService.downloadLetter(letterId, userId);
         return ResponseWrapper.ok("Settlement letter downloaded", response);
+    }
+
+    @GetMapping("/{letterId}/pdf")
+    @Operation(summary = "Download letter PDF", description = "Download the actual PDF file")
+    public ResponseEntity<byte[]> downloadLetterPdf(
+            @PathVariable Long letterId,
+            @RequestHeader(value = "X-User-Id", required = false) Long userId) {
+        log.info("GET /settlement-letters/{}/pdf - Downloading PDF", letterId);
+
+        SettlementLetterDTO letter = letterService.getLetterById(letterId);
+        byte[] pdfContent = letterService.getLetterPdfContent(letterId);
+
+        // Mark as downloaded
+        if (userId != null) {
+            letterService.downloadLetter(letterId, userId);
+        }
+
+        String fileName = "Settlement_Letter_" + letter.getLetterNumber() + ".pdf";
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_PDF);
+        headers.setContentDispositionFormData("attachment", fileName);
+        headers.setContentLength(pdfContent.length);
+
+        return ResponseEntity.ok()
+                .headers(headers)
+                .body(pdfContent);
     }
 
     @PostMapping("/{letterId}/send")

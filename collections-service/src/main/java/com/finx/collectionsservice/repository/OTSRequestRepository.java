@@ -29,13 +29,13 @@ public interface OTSRequestRepository extends JpaRepository<OTSRequest, Long> {
     @Query("SELECT o FROM OTSRequest o WHERE o.otsStatus = 'PENDING_APPROVAL' ORDER BY o.createdAt ASC")
     Page<OTSRequest> findPendingApprovals(Pageable pageable);
 
-    @Query("SELECT o FROM OTSRequest o WHERE o.paymentDeadline < :today AND o.otsStatus IN ('APPROVED', 'LETTER_GENERATED', 'PAYMENT_PENDING', 'PARTIAL_PAID')")
+    @Query("SELECT o FROM OTSRequest o WHERE o.paymentDeadline < :today AND o.otsStatus = 'APPROVED'")
     List<OTSRequest> findExpiredOTSRequests(@Param("today") LocalDate today);
 
     @Query("SELECT o FROM OTSRequest o WHERE o.intentCapturedBy = :userId ORDER BY o.createdAt DESC")
     Page<OTSRequest> findByIntentCapturedBy(@Param("userId") Long userId, Pageable pageable);
 
-    @Query("SELECT COUNT(o) FROM OTSRequest o WHERE o.caseId = :caseId AND o.otsStatus NOT IN ('CANCELLED', 'EXPIRED', 'REJECTED')")
+    @Query("SELECT COUNT(o) FROM OTSRequest o WHERE o.caseId = :caseId AND o.otsStatus NOT IN ('EXPIRED', 'REJECTED')")
     Long countActiveOTSByCaseId(@Param("caseId") Long caseId);
 
     @Query("SELECT o FROM OTSRequest o WHERE o.otsStatus = :status AND o.currentApprovalLevel = :level ORDER BY o.createdAt ASC")
@@ -46,12 +46,12 @@ public interface OTSRequestRepository extends JpaRepository<OTSRequest, Long> {
 
     Long countByOtsStatusAndCreatedAtBetween(OTSStatus status, LocalDateTime startDate, LocalDateTime endDate);
 
-    @Query("SELECT SUM(o.proposedSettlement) FROM OTSRequest o WHERE o.otsStatus = 'SETTLED' AND o.settledAt BETWEEN :startDate AND :endDate")
+    @Query("SELECT SUM(o.proposedSettlement) FROM OTSRequest o WHERE o.otsStatus = 'APPROVED' AND o.updatedAt BETWEEN :startDate AND :endDate")
     BigDecimal sumSettledAmountByDateRange(@Param("startDate") LocalDateTime startDate, @Param("endDate") LocalDateTime endDate);
 
-    @Query("SELECT SUM(o.discountAmount) FROM OTSRequest o WHERE o.otsStatus = 'SETTLED' AND o.settledAt BETWEEN :startDate AND :endDate")
+    @Query("SELECT SUM(o.discountAmount) FROM OTSRequest o WHERE o.otsStatus = 'APPROVED' AND o.updatedAt BETWEEN :startDate AND :endDate")
     BigDecimal sumWaiverAmountByDateRange(@Param("startDate") LocalDateTime startDate, @Param("endDate") LocalDateTime endDate);
 
-    @Query("SELECT AVG(o.discountPercentage) FROM OTSRequest o WHERE o.otsStatus IN ('APPROVED', 'SETTLED', 'LETTER_GENERATED')")
+    @Query("SELECT AVG(o.discountPercentage) FROM OTSRequest o WHERE o.otsStatus = 'APPROVED'")
     Double averageDiscountPercentage();
 }

@@ -26,8 +26,8 @@ import java.util.*;
 @RequiredArgsConstructor
 public class PaymentIntegrationServiceImpl implements PaymentIntegrationService {
 
-    @Qualifier("communicationServiceClient")
-    private final WebClient communicationServiceClient;
+    @Qualifier("communicationWebClient")
+    private final WebClient communicationWebClient;
     private final ObjectMapper objectMapper;
     private final com.finx.collectionsservice.service.RepaymentService repaymentService;
     private final com.finx.collectionsservice.service.ReceiptService receiptService;
@@ -198,7 +198,7 @@ public class PaymentIntegrationServiceImpl implements PaymentIntegrationService 
 
     private JsonNode callApi(String endpoint, Map<String, Object> body) {
         try {
-            String response = communicationServiceClient.post()
+            String response = communicationWebClient.post()
                     .uri(endpoint)
                     .contentType(MediaType.APPLICATION_JSON)
                     .bodyValue(body)
@@ -219,7 +219,7 @@ public class PaymentIntegrationServiceImpl implements PaymentIntegrationService 
 
     private JsonNode callGetApi(String endpoint) {
         try {
-            String response = communicationServiceClient.get()
+            String response = communicationWebClient.get()
                     .uri(endpoint)
                     .retrieve()
                     .bodyToMono(String.class)
